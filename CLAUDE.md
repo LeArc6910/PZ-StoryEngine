@@ -107,6 +107,13 @@ LLM에는 3층만 전달. 1층 원시 데이터는 절대 프롬프트에 직접
 - 임대 서버 호스팅 업체는 별도 프로세스 실행이 막혀 있는 경우가 많음 → 지원 대상 외로 간주
 - 브릿지 미응답 시: 게임 내 "AI 연결 끊김" 알림 + 규칙 기반 폴백으로 전환
 
+## 배포 (2026-09-27)
+
+- 창작마당: https://steamcommunity.com/sharedfiles/filedetails/?id=3808950035 (업로드 폴더 `%USERPROFILE%\Zomboid\Workshop\StoryEngine`, 갱신은 `sync_workshop.bat` 후 게임 업로더)
+- 모드 저장소(공개): https://github.com/skditjdqja12/PZ-StoryEngine — 이 폴더. `bridge/`는 `.gitignore`로 제외
+- 브릿지 저장소(공개): https://github.com/skditjdqja12/PZ-StoryEngine-Bridge — `bridge/` 폴더가 별도 git 저장소. 릴리스 v0.1.0에 Windows zip(+SHA256). 새 버전은 `BRIDGE_VERSION` 올리고 `python build_release.py` → `gh release create`
+- 창작마당 설명 원본: `docs/WORKSHOP_DESCRIPTION.txt` (바꾸면 `workshop.txt`의 description 줄에 반영)
+
 ## 다른 모드와의 호환
 
 - LootRemover(같은 개발자의 루팅 삭제 모드, `K:\모드 개발\프로젝트 좀보이드\remover 모드`): `OnFillContainer`에서 보관함 아이템을 삭제하므로 퀘스트 물건이 지워질 수 있다. 수정안(LootRemover 쪽에서 `modData.storyQuest`가 붙은 아이템을 건너뛰기, `remover 모드\StoryEngine_호환_수정안.md`)은 **LootRemover 세션에서 적용 완료** (2026-09-27). 그 세션의 jar 확인: `setExplored(true)`는 바닐라 루팅 생성(칸 로드, 싱글 창 열기, 멀티 `RequestItemsForContainerPacket`)을 실제로 막고, 루팅 재생성은 `isHasBeenLooted()`인 보관함에서만 일어난다. StoryEngine의 `modData.storyQuest` 표시 이름을 바꾸면 이 호환이 깨진다.
