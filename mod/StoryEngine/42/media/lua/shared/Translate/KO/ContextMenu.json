@@ -1,0 +1,19 @@
+{
+    "ContextMenu_StoryEngine_Journal": "생존 일지",
+    "ContextMenu_StoryEngine_Ping": "StoryEngine: 브릿지 테스트",
+    "ContextMenu_StoryEngine_Status": "StoryEngine: 관측 상태",
+    "ContextMenu_StoryEngine_WriteJournal": "StoryEngine: 지금 일지 쓰기",
+    "ContextMenu_StoryEngine_Director": "StoryEngine: 디렉터 실행",
+    "ContextMenu_StoryEngine_Supply": "StoryEngine: 보급 강제",
+    "ContextMenu_StoryEngine_Quests": "StoryEngine: 퀘스트 상태",
+    "ContextMenu_StoryEngine_QuestLog": "퀘스트",
+    "ContextMenu_StoryEngine_Radio": "무전 교신",
+    "ContextMenu_StoryEngine_Fetch": "StoryEngine: 회수 강제",
+    "ContextMenu_StoryEngine_Request": "StoryEngine: 부탁 강제",
+    "ContextMenu_StoryEngine_Horde": "StoryEngine: 소탕 부탁 강제",
+    "ContextMenu_StoryEngine_Monologue": "StoryEngine: 독백 강제",
+    "ContextMenu_StoryEngine_Sync": "StoryEngine: 멀티 진단",
+    "ContextMenu_StoryEngine_ItemPool": "StoryEngine: 아이템 분류 (itempool.txt)",
+    "ContextMenu_StoryEngine_Event": "StoryEngine: 새 이벤트 강제 (호드 / 헬기 / 구조 신호)",
+    "ContextMenu_StoryEngine_HuntNear": "StoryEngine: 추적 무리 테스트 (10마리, 10타일 거리)"
+}

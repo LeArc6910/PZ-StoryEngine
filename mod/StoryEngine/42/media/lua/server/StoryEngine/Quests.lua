@@ -1,0 +1,1256 @@
+-- 퀘스트 (서버 측 전용). 물건은 AI 가 아니라 모드가 놓는다.
+--
+-- 종류
+--   supply_drop : 건물 보관함의 보급품을 가져가면 완료. 보상 보급(origin.source = "reward")도 이 종류다.
+--   fetch       : 건물에 놓인 전용 아이템(StoryEngine.*)을 찾아 무전으로 제출하면 완료, 보상 보급이 생긴다.
+--   deliver     : NPC 가 먼저 부탁한 물건(Needs.lua)을 무전으로 전달. 위치가 없다.
+--                 proposed(답변 대기) -> accepted | declined(거절/무응답) -> completed | failed
+--   trade       : 플레이어가 먼저 요청한 거래 (Trade.lua). 위치가 없다. 수락 후 대가를 내면 물건이 보급 퀘스트로 온다.
+--   horde       : NPC 가 부탁한 좀비 무리 소탕 (C단계). proposed -> accepted 가 되면 건물 주변에 무리를 배치하고,
+--                 구역 안에서 죽은 좀비 수를 센다 (좀비 개별 태그는 청크가 내려가면 사라질 수 있어 쓰지 않는다).
+--                 배치한 수의 80% 를 처치하면 완료, 보상 보급은 그 자리 근처. 기한을 넘기면 실패.
+-- 상태
+--   진행 중: offered -> approached(반경 15) -> entered(건물 진입) -> retrieved(fetch: 아이템을 집음)
+--   끝남  : completed | failed (기한 초과). 실패하면 남은 퀘스트 아이템을 지운다.
+-- 등급(tier) 1~5 가 클수록 멀리 생성되고, 기한은 거리에 비례한다.
+--   1: 60~200타일 (근처)  2: 200~500 (같은 동네)  3: 500~1000 (마을 끝)
+--   4: 1000~2000, 가장 가까운 마을에서 450타일 이상 떨어진 교외
+--   5: 플레이어가 있는 마을이 아닌 다른 마을 (가까운 다른 마을 2~3곳 중 하나)
+
+if isClient() then return end
+
+require "StoryEngine/Items"
+require "StoryEngine/Core"
+require "StoryEngine/Net"
+require "StoryEngine/Places"
+require "StoryEngine/Store"
+require "StoryEngine/Sensor"
+require "StoryEngine/Factions"
+require "StoryEngine/Radio"
+require "StoryEngine/Loot"
+require "StoryEngine/Needs"
+require "StoryEngine/Trust"
+
+local Store = StoryEngine.Store
+local Places = StoryEngine.Places
+local Sensor = StoryEngine.Sensor
+local Factions = StoryEngine.Factions
+local Radio = StoryEngine.Radio
+local log = StoryEngine.log
+
+local Quests = {
+    ready = false,
+    seen = {},       -- questId -> 목표 칸이 로드된 것을 처음 본 시각 (실시간 ms)
+    attempts = {},   -- questId -> 건물이 덜 로드된 상태에서 기다린 횟수
+    waiting = 0,     -- 아직 배치 전인 진행 중 퀘스트 수 (LoadGridsquare 조기 종료용)
+}
+StoryEngine.Quests = Quests
+
+Quests.MAX_TIER = 5
+Quests.RANGES = { { 60, 200 }, { 200, 500 }, { 500, 1000 }, { 1000, 2000 } }
+Quests.RURAL_TOWN_DIST = 450      -- 4등급: 가장 가까운 마을 중심에서 이만큼 떨어진 곳
+Quests.CITY_MIN_DIST = 1200       -- 5등급: 다른 마을까지 최소 거리
+Quests.CITY_CHOICES = 3           -- 5등급: 가까운 다른 마을 몇 곳 중에서 고를지
+Quests.CITY_RADIUS = 250          -- 5등급: 마을 중심에서 이 반경 안의 건물
+Quests.RADIUS = 15
+Quests.SETTLE_MS = 2000
+Quests.MAX_ATTEMPTS = 5
+Quests.HORDE_SIZE = { 8, 14, 20, 30, 45 }
+Quests.HORDE_CLEAR = 0.8          -- 이 비율을 처치하면 완료
+Quests.HORDE_SPREAD = 8           -- 건물 경계에서 이만큼 바깥까지 배치
+Quests.HORDE_AREA = 25            -- 건물 경계에서 이만큼 바깥까지 처치를 센다
+Quests.FETCH_ITEMS = { "StoryEngine.SealedDocuments", "StoryEngine.SealedParcel", "StoryEngine.PhotoAlbum" }
+
+-- 보관함 우선순위. 조리 기구, 쓰레기통, 세탁기처럼 물자를 둘 곳이 아닌 것은 뺀다.
+Quests.PREFERRED = { crate = 1, metal_shelves = 2, shelves = 3, counter = 4, wardrobe = 5, dresser = 6,
+                     sidetable = 7, desk = 8, filingcabinet = 9, smallbox = 10 }
+Quests.EXCLUDED = { stove = true, microwave = true, fridge = true, freezer = true, bin = true, toilet = true,
+                    clothingwasher = true, clothingdryer = true, barbecue = true, fireplace = true, corpse = true }
+
+local ACTIVE = { offered = true, approached = true, entered = true, retrieved = true, accepted = true }
+Quests.RESPOND_MIN = 12 * 60      -- 부탁에 답할 시간 (게임 내 분)
+Quests.EXTORT_MINUTES = 36 * 60   -- 협박 기한
+
+local LEGACY = { looted = "completed", expired = "failed" }
+
+local function all()
+    return Store.data().quests
+end
+
+local function dist(ax, ay, bx, by)
+    local dx, dy = ax - bx, ay - by
+    return math.sqrt(dx * dx + dy * dy)
+end
+
+local function buildingKey(def)
+    return "b" .. StoryEngine.intToString(def:getX()) .. "_" .. StoryEngine.intToString(def:getY())
+end
+
+function Quests.isActive(q)
+    return ACTIVE[q.state] == true
+end
+
+function Quests.activeFor(psKey, kind)
+    for _, q in pairs(all()) do
+        if q.target == psKey and Quests.isActive(q) and (not kind or q.kind == kind) then return q end
+    end
+    return nil
+end
+
+-- 거리에 비례한 기한 (게임 내 분): 기본 이틀 + 100타일당 10시간
+function Quests.deadlineMinutes(distance)
+    return math.floor((48 + distance * 0.1) * 60)
+end
+
+-- 부탁 물건 전달 기한 (게임 내 분): 이틀 + 등급당 하루
+function Quests.deliverMinutes(tier)
+    return (48 + 24 * (tier or 1)) * 60
+end
+
+local function itemName(fullType)
+    local ok, name = pcall(getItemNameFromFullType, fullType)
+    return (ok and name) or fullType
+end
+
+-- 건물 위치가 있는 퀘스트인가 (부탁·거래는 무전으로만 주고받아 위치가 없다)
+local NO_LOCATION = { deliver = true, trade = true, extort = true }
+function Quests.hasLocation(q)
+    return not NO_LOCATION[q.kind]
+end
+
+-- 아이템 목록 요약 ("권총, 9mm 탄약 상자 x2")
+local function listText(list)
+    local order, counts = {}, {}
+    for _, ft in ipairs(list or {}) do
+        if not counts[ft] then counts[ft] = 0; order[#order + 1] = ft end
+        counts[ft] = counts[ft] + 1
+    end
+    local parts = {}
+    for _, ft in ipairs(order) do
+        local name = itemName(ft)
+        parts[#parts + 1] = counts[ft] > 1 and (name .. " x" .. StoryEngine.intToString(counts[ft])) or name
+    end
+    return table.concat(parts, ", ")
+end
+Quests.listText = listText
+
+-- 부탁 물건 목록을 사람이 읽는 문장으로 ("진통제 x2, 붕대 x3")
+function Quests.needText(q)
+    local parts = {}
+    for _, n in ipairs(q.need or {}) do
+        local name = itemName(n[1])
+        parts[#parts + 1] = n[2] > 1 and (name .. " x" .. StoryEngine.intToString(n[2])) or name
+    end
+    return table.concat(parts, ", ")
+end
+
+-- 진행 중이거나 답변을 기다리는 퀘스트
+function Quests.openFor(psKey, kind)
+    for _, q in pairs(all()) do
+        if q.target == psKey and (Quests.isActive(q) or q.state == "proposed") and (not kind or q.kind == kind) then
+            return q
+        end
+    end
+    return nil
+end
+
+local function notifyTarget(q)
+    for _, p in ipairs(Sensor.players()) do
+        if Store.playerKey(p) == q.target then
+            pcall(StoryEngine.Net.toClient, p, "questChanged", { id = q.id })
+        end
+    end
+end
+
+-- ---------------------------------------------------------------- building search
+
+local function groundRoom(def)
+    local rooms = def:getRooms()
+    for ri = 0, rooms:size() - 1 do
+        local rd = rooms:get(ri)
+        if rd:getZ() == 0 and rd:getArea() >= 6 then return rd end
+    end
+    return nil
+end
+
+-- 점 (px, py) 근처(반경 r)에서 조건에 맞는 건물 중 점에 가장 가까운 것.
+-- accept(def, cx, cy) 가 false 면 건너뛴다. 반환: { def, room, key, distance(플레이어부터) } | nil
+local function nearestBuilding(x, y, px, py, r, exclude, accept)
+    local list = ArrayList.new()
+    getWorld():getMetaGrid():getBuildingsIntersecting(math.floor(px - r), math.floor(py - r), r * 2, r * 2, list)
+    local best, bestD = nil, nil
+    for i = 0, list:size() - 1 do
+        local def = list:get(i)
+        local key = buildingKey(def)
+        local cx, cy = (def:getX() + def:getX2()) / 2, (def:getY() + def:getY2()) / 2
+        if not exclude[key] and (not accept or accept(def, cx, cy)) then
+            local room = groundRoom(def)
+            local fromPoint = dist(px, py, cx, cy)
+            if room and (not bestD or fromPoint < bestD) then
+                best, bestD = { def = def, room = room, key = key, distance = dist(x, y, cx, cy) }, fromPoint
+            end
+        end
+    end
+    return best
+end
+
+-- 무작위 방향으로 목표 거리 지점을 찍고, 그 근처에서 조건에 맞는 건물을 찾는다.
+function Quests.findBuilding(x, y, minD, maxD, exclude, accept)
+    for _ = 1, 12 do
+        local angle = ZombRandFloat(0, math.pi * 2)
+        local d = ZombRandFloat(minD, maxD)
+        local px, py = x + math.cos(angle) * d, y + math.sin(angle) * d
+        local found = nearestBuilding(x, y, px, py, 80, exclude, function(def, cx, cy)
+            local fromPlayer = dist(x, y, cx, cy)
+            if fromPlayer < minD * 0.8 or fromPlayer > maxD * 1.1 then return false end
+            return not accept or accept(def, cx, cy)
+        end)
+        if found then return found end
+    end
+    return nil
+end
+
+-- 5등급: 플레이어가 있는 마을이 아닌, 가까운 다른 마을 몇 곳 중 하나의 안쪽 건물
+function Quests.findInOtherTown(x, y, exclude)
+    local here = Places.describe(x, y).town
+    local towns = {}
+    for _, t in ipairs(Places.towns) do
+        local d = dist(x, y, t.x, t.y)
+        if t.key ~= here and d >= Quests.CITY_MIN_DIST then towns[#towns + 1] = { town = t, d = d } end
+    end
+    table.sort(towns, function(a, b) return a.d < b.d end)
+    local choices = math.min(#towns, Quests.CITY_CHOICES)
+    if choices == 0 then return nil end
+    for _ = 1, 8 do
+        local t = towns[ZombRand(choices) + 1].town
+        local px = t.x + ZombRandFloat(-Quests.CITY_RADIUS, Quests.CITY_RADIUS)
+        local py = t.y + ZombRandFloat(-Quests.CITY_RADIUS, Quests.CITY_RADIUS)
+        local found = nearestBuilding(x, y, px, py, 120, exclude, nil)
+        if found then return found end
+    end
+    return nil
+end
+
+-- 등급에 맞는 퀘스트 건물. 4등급은 교외를 먼저 찾고, 없으면 거리만 맞춘다.
+function Quests.findForTier(x, y, tier, exclude)
+    if tier >= 5 then
+        return Quests.findInOtherTown(x, y, exclude) or Quests.findBuilding(x, y, 2000, 3500, exclude)
+    end
+    local range = Quests.RANGES[tier]
+    if tier == 4 then
+        local rural = Quests.findBuilding(x, y, range[1], range[2], exclude, function(def, cx, cy)
+            return Places.describe(cx, cy).townDist >= Quests.RURAL_TOWN_DIST
+        end)
+        if rural then return rural end
+    end
+    return Quests.findBuilding(x, y, range[1], range[2], exclude)
+end
+
+local function roomNames(def)
+    local names, seen = {}, {}
+    local rooms = def:getRooms()
+    for i = 0, math.min(rooms:size(), 30) - 1 do
+        local n = rooms:get(i):getName()
+        if n and not seen[n] and #names < 5 then
+            seen[n] = true
+            names[#names + 1] = n
+        end
+    end
+    return names
+end
+
+-- ---------------------------------------------------------------- spawn
+
+-- 건물 1층 전체를 훑어 가장 적합한 보관함을 고른다. 반환: container | nil, 건물 칸이 모두 로드됐는지
+local function pickContainer(q)
+    local x1, y1, x2, y2 = q.bx1, q.by1, q.bx2, q.by2
+    if not x1 then
+        local def = getWorld():getMetaGrid():getBuildingAt(q.x, q.y)
+        if not def then return nil, true end
+        x1, y1, x2, y2 = def:getX(), def:getY(), def:getX2(), def:getY2()
+    end
+    local cell = getCell()
+    local best, bestRank, missing = nil, 999, 0
+    for x = x1, x2 do
+        for y = y1, y2 do
+            local sq = cell:getGridSquare(x, y, q.z)
+            if not sq then
+                missing = missing + 1
+            else
+                local b = sq:getBuilding()
+                local def = b and b:getDef()
+                if def and buildingKey(def) == q.building then
+                    local objs = sq:getObjects()
+                    for i = 0, objs:size() - 1 do
+                        local obj = objs:get(i)
+                        for ci = 0, obj:getContainerCount() - 1 do
+                            local c = obj:getContainerByIndex(ci)
+                            local t = c:getType()
+                            if not Quests.EXCLUDED[t] then
+                                local rank = Quests.PREFERRED[t] or 50
+                                if rank < bestRank then best, bestRank = c, rank end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+    return best, missing == 0
+end
+
+local function spawnAt(q, sq, container)
+    local placed = {}
+    if container then
+        for _, fullType in ipairs(q.items) do
+            if StoryEngine.Items.addTo(container, fullType, q.id) then
+                placed[#placed + 1] = fullType
+            end
+        end
+        container:setExplored(true)
+        local parent = container:getParent()
+        local csq = parent:getSquare()
+        q.containerType = container:getType()
+        q.containerSprite = parent:getSprite() and parent:getSprite():getName() or nil
+        q.sx, q.sy, q.sz = csq:getX(), csq:getY(), csq:getZ()
+    else
+        local target = sq
+        local room = sq:getRoom()
+        if room then
+            local free = room:getRoomDef():getFreeSquare()
+            if free then target = free end
+        end
+        for _, fullType in ipairs(q.items) do
+            local item = target:AddWorldInventoryItem(fullType, ZombRandFloat(0.2, 0.8), ZombRandFloat(0.2, 0.8), 0)
+            if item then
+                item:getModData().storyQuest = q.id
+                placed[#placed + 1] = fullType
+            end
+        end
+        q.containerType = nil
+        q.sx, q.sy, q.sz = target:getX(), target:getY(), target:getZ()
+    end
+    q.placed = placed
+    q.spawned = true
+    if q.origin and q.origin.source == "rescue" and q.bx1 then
+        local ok, zeds = pcall(addZombiesInOutfitArea, q.bx1, q.by1, q.bx2, q.by2, q.z or 0, (q.tier or 1) + 1, nil, nil)
+        log("rescue zombies", q.id, ok and zeds and zeds:size() or tostring(zeds))
+    end
+    log("quest spawned", q.id, q.kind, #placed, "items in", q.containerType or "floor", q.containerSprite or "",
+        "at", q.sx, q.sy, q.sz)
+    notifyTarget(q)
+end
+
+-- 칸이 로드되자마자 놓으면 건물의 나머지 칸과 가구가 아직 없어 보관함을 못 찾는다 (42.20.4 확인).
+-- 목표 칸이 처음 로드된 것을 본 뒤 SETTLE_MS 이상 지나고, 건물 칸이 모두 로드됐을 때 놓는다.
+local function trySpawn(q)
+    if q.spawned or not Quests.isActive(q) or not Quests.hasLocation(q) then return end
+    local sq = getCell():getGridSquare(q.x, q.y, q.z)
+    if not sq then
+        Quests.seen[q.id] = nil
+        return
+    end
+    local now = StoryEngine.nowMs()
+    if not Quests.seen[q.id] then
+        Quests.seen[q.id] = now
+        return
+    end
+    if now - Quests.seen[q.id] < Quests.SETTLE_MS then return end
+    if q.kind == "horde" then
+        Quests.spawnHorde(q)
+        return
+    end
+    local container, loaded = pickContainer(q)
+    if not loaded then
+        Quests.attempts[q.id] = (Quests.attempts[q.id] or 0) + 1
+        if Quests.attempts[q.id] < Quests.MAX_ATTEMPTS then return end
+    end
+    spawnAt(q, sq, container)
+end
+
+-- 소탕 퀘스트: 건물 주변에 좀비 무리를 배치한다
+function Quests.spawnHorde(q)
+    local spread = Quests.HORDE_SPREAD
+    local list = addZombiesInOutfitArea(q.bx1 - spread, q.by1 - spread, q.bx2 + spread, q.by2 + spread, 0,
+        q.size, nil, nil)
+    q.spawned = true
+    q.sx, q.sy = q.cx, q.cy
+    log("horde spawned", q.id, list and list:size() or 0, "zombies around", q.cx, q.cy)
+    notifyTarget(q)
+end
+
+-- ---------------------------------------------------------------- tagged items
+
+local function isTagged(item, id)
+    local mod = item and item:getModData()
+    return mod ~= nil and mod.storyQuest == id
+end
+
+local function removeFromContainer(container, item)
+    StoryEngine.Items.remove(item)
+end
+
+-- 놓은 자리에 남은 태그 아이템 수. 칸이 로드되지 않았으면 nil. remove=true 면 찾은 것을 지운다.
+local function atSpot(q, remove)
+    if not q.spawned then return 0 end
+    local sq = getCell():getGridSquare(q.sx, q.sy, q.sz)
+    if not sq then return nil end
+    local count = 0
+    if q.containerType then
+        local objs = sq:getObjects()
+        for i = 0, objs:size() - 1 do
+            local obj = objs:get(i)
+            for ci = 0, obj:getContainerCount() - 1 do
+                local c = obj:getContainerByIndex(ci)
+                local items = c:getItems()
+                local found = {}
+                for k = 0, items:size() - 1 do
+                    if isTagged(items:get(k), q.id) then found[#found + 1] = items:get(k) end
+                end
+                count = count + #found
+                if remove then
+                    for _, it in ipairs(found) do removeFromContainer(c, it) end
+                end
+            end
+        end
+    else
+        local objs = sq:getWorldObjects()
+        local found = {}
+        for i = 0, objs:size() - 1 do
+            local wo = objs:get(i)
+            if isTagged(wo:getItem(), q.id) then found[#found + 1] = wo end
+        end
+        count = #found
+        if remove then
+            for _, wo in ipairs(found) do sq:transmitRemoveItemFromSquare(wo) end
+        end
+    end
+    return count
+end
+
+-- 플레이어가 가진 태그 아이템 (가방 속까지)
+local function findInInventory(player, q)
+    local out = {}
+    for _, fullType in ipairs(q.items or {}) do
+        local list = player:getInventory():getAllTypeRecurse(fullType)
+        for i = 0, list:size() - 1 do
+            local it = list:get(i)
+            if isTagged(it, q.id) then out[#out + 1] = it end
+        end
+    end
+    return out
+end
+
+-- 실패한 퀘스트의 아이템 정리. 끝나면 true
+local function cleanup(q)
+    local left = atSpot(q, true)
+    if left == nil then return false end
+    if q.kind == "fetch" then
+        for _, p in ipairs(Sensor.players()) do
+            for _, it in ipairs(findInInventory(p, q)) do
+                local c = it:getContainer()
+                if c then removeFromContainer(c, it) end
+            end
+        end
+    end
+    q.cleanup = nil
+    log("quest cleaned", q.id)
+    return true
+end
+
+-- ---------------------------------------------------------------- state
+
+local function note(ps, kind, q, now, by)
+    if not ps then return end
+    Store.addNote(ps, {
+        kind = kind, clock = now.clock, place = q.place, by = by,
+        item = (q.kind == "fetch" and itemName(q.items[1])) or ((q.kind == "deliver" or q.kind == "extort") and Quests.needText(q))
+            or (q.kind == "trade" and listText(q.goods)) or nil,
+        faction = q.origin and q.origin.faction or nil,
+        fight = q.fight and (q.fight.kills > 0 or q.fight.hurt > 0)
+            and { kills = q.fight.kills, hurt = q.fight.hurt, bitten = q.fight.bitten } or nil,
+    })
+end
+
+-- 일지 사건 이름의 앞부분 (구조 신호는 보급 퀘스트지만 따로 부른다)
+function Quests.noteKind(q)
+    if q.origin and q.origin.source == "rescue" then return "rescue" end
+    return q.kind
+end
+
+-- NPC 가 퀘스트 결과에 무전으로 반응한다 (AI 에게 넘기는 상황 설명, 영어)
+local REACT = {
+    deliver = {
+        accepted = "The players agreed to bring you %s.",
+        declined = "The players refused your request for %s.",
+        ignored = "The players never answered your request for %s.",
+        completed = "The players delivered the %s you asked for. You already left their payment in a building and told them where.",
+        failed = "The players promised to bring you %s but never did.",
+    },
+    fetch = {
+        failed = "The players never brought back the %s you asked them to retrieve.",
+    },
+    trade = {
+        failed = "The players agreed to trade for %s but never paid.",
+    },
+    horde = {
+        accepted = "The players agreed to clear out the dead around %s.",
+        declined = "The players refused to deal with the horde around %s.",
+        ignored = "The players never answered when you asked them to clear the horde around %s.",
+        completed = "The players cleared out the horde around %s. You left their reward close by and told them.",
+        failed = "The players said they would clear the horde around %s but never did.",
+    },
+}
+REACT.extort = {
+    completed = "The players handed over what you demanded (%s). You leave them alone, for now.",
+}
+REACT.rescue = {
+    completed = "The players reached the building near %s where the distress call came from. The survivor was already gone; they found only what was left behind.",
+    failed = "Nobody went to check the distress call from near %s in time.",
+}
+local TRUST_STATES = { accepted = true, declined = true, completed = true, failed = true }
+
+function Quests.react(q, outcome)
+    local fid = q.origin and q.origin.faction
+    local byKind = REACT[Quests.noteKind(q)]
+    local template = byKind and byKind[outcome]
+    if not fid or not template then return end
+    local what = ((q.kind == "deliver" or q.kind == "extort") and Quests.needText(q)) or (q.kind == "trade" and listText(q.goods))
+        or (q.kind == "horde" and (q.place.landmark or ("a building near " .. q.place.town)))
+        or (Quests.noteKind(q) == "rescue" and q.place.town)
+        or itemName((q.items or {})[1] or "")
+    local topic = string.format(template, what)
+    local fight = outcome == "completed" and Quests.fightText(q) or nil
+    if fight then topic = topic .. " On the way " .. fight .. "." end
+    if outcome == "completed" then topic = topic .. Quests.creditText(q) end
+    Radio.react(fid, "event", topic, nil, Store.data().players[q.target])
+end
+
+-- outcome: 신뢰도·반응에 쓰는 결과 이름 (무응답은 state = declined, outcome = ignored)
+local function setState(q, state, now, entry, outcome)
+    q.state = state
+    if entry and entry.ps and (state == "completed" or state == "retrieved" or state == "entered") then
+        Quests.addHelper(q, entry.ps)
+    end
+    q.history = q.history or {}
+    local by = entry and entry.ps.name or nil
+    Store.push(q.history, { state = state, t = now.t, by = by }, 20)
+    if state == "completed" or state == "failed" or state == "declined" then q.endedT = now.t end
+    log("quest", q.id, q.kind, state, by or "")
+    local kind = Quests.noteKind(q) .. "_" .. state
+    if entry then
+        note(entry.ps, kind, q, now, by)
+        for _, name in ipairs(entry.companions or {}) do
+            note(Store.findByName(name), kind, q, now, by)
+        end
+    end
+    local targetPs = Store.data().players[q.target]
+    if targetPs and (not entry or entry.ps ~= targetPs) then note(targetPs, kind, q, now, by) end
+    if TRUST_STATES[state] then
+        local ok, err = pcall(StoryEngine.Trust.forQuest, q, outcome or state)
+        if not ok then log("trust error:", err) end
+        ok, err = pcall(Quests.react, q, outcome or state)
+        if not ok then log("react error:", err) end
+    end
+    if q.kind == "extort" and state == "failed" then
+        local ok, err = pcall(Quests.punish, q)
+        if not ok then log("extort punish error:", err) end
+    end
+    if StoryEngine.Monologue then
+        local ok, err = pcall(StoryEngine.Monologue.onQuest, q, state, entry)
+        if not ok then log("monologue quest error:", err) end
+    end
+    notifyTarget(q)
+end
+
+function Quests.fail(q, now)
+    setState(q, "failed", now, nil)
+    q.cleanup = true
+    cleanup(q)
+end
+
+-- ---------------------------------------------------------------- announce
+
+-- 퀘스트 소식을 세력의 무전으로 전한다. 방향·거리는 대상 플레이어 기준.
+-- 표시 문장은 클라이언트가 번역한다 (서버는 모드 번역을 못 찾고, 언어도 플레이어마다 다를 수 있다).
+-- 반환: 마을(서버 언어 지도 이름, AI 용), 방향 코드("NE"), 거리(10 단위 숫자), 영어 방향
+local DIR_CODES = { "E", "SE", "S", "SW", "W", "NW", "N", "NE" }
+local DIR_WORDS = { E = "east", SE = "southeast", S = "south", SW = "southwest", W = "west", NW = "northwest",
+                    N = "north", NE = "northeast" }
+local function whereFrom(q, player)
+    local dx, dy = q.cx - player:getX(), q.cy - player:getY()
+    local angle = math.atan2(dy, dx) * 180 / math.pi
+    local code = DIR_CODES[math.floor(((angle + 360 + 22.5) % 360) / 45) + 1]
+    local distance = math.floor(math.sqrt(dx * dx + dy * dy) / 10) * 10
+    local key = "MapLabel_" .. string.gsub(q.place.town, " ", "")
+    local town = getText(key)
+    if town == key then town = q.place.town end
+    return town, code, distance, DIR_WORDS[code]
+end
+
+-- 보상 보급이 무엇의 대가인지 (예전 세이브는 rewardFor 로 찾는다)
+function Quests.rewardKind(q)
+    local origin = q.origin
+    if not origin or origin.source ~= "reward" then return nil end
+    if origin.rewardKind then return origin.rewardKind end
+    local parent = origin.rewardFor and all()[origin.rewardFor]
+    return parent and parent.kind or nil
+end
+
+function Quests.announce(q, player)
+    local fid = q.origin and q.origin.faction
+    if not fid or not Factions.byId[fid] then return end
+    local _, code, distance, dirWord = whereFrom(q, player)
+    local where = "a building near " .. q.place.town .. ", about " .. StoryEngine.intToString(distance)
+        .. " tiles " .. dirWord .. " of you"
+
+    local lt = { key = "IGUI_StoryEngine_RadioSay_" .. q.kind, args = {
+        { t = "town", v = q.place.town }, { t = "dir", v = code }, { t = "num", v = distance },
+        q.kind == "fetch" and { t = "item", v = q.items[1] } or { t = "s", v = "" } } }
+    -- AI 가 다음 교신에서 읽는 기록 (영어)
+    local text = "I left some supplies for you in " .. where .. "."
+    if q.kind == "fetch" then
+        text = "I need a " .. itemName(q.items[1]) .. " brought back from " .. where .. "."
+    end
+    if q.origin.source == "rescue" then
+        lt.key = "IGUI_StoryEngine_RadioSay_rescue"
+        text = "I picked up a distress call. Someone says they are trapped in " .. where
+            .. ". I cannot get there. Can you check on them?"
+    end
+    if q.origin.source == "reward" then
+        lt.key = "IGUI_StoryEngine_RadioSay_reward"
+        local kind = Quests.rewardKind(q)
+        if kind then lt.alt, lt.key = lt.key, lt.key .. "_" .. kind end
+        text = "Your payment is in " .. where .. "."
+    end
+    Radio.push(fid, { from = "npc", text = text, lt = lt, clock = Sensor.now().clock, quest = q.id })
+end
+
+-- ---------------------------------------------------------------- create / submit
+
+-- kind: "supply_drop" | "fetch". origin: { source = "director"|"reward"|"debug", faction, rewardFor }
+function Quests.create(kind, player, ps, tier, now, origin, itemsOverride)
+    tier = math.max(1, math.min(Quests.MAX_TIER, math.floor(tier or 1)))
+    local exclude = {}
+    if ps.home and ps.home.building then exclude[ps.home.building] = true end
+    if ps.prev and ps.prev.building then exclude[ps.prev.building] = true end
+    local found = Quests.findForTier(math.floor(player:getX()), math.floor(player:getY()), tier, exclude)
+    if not found then return nil, "no_building" end
+
+    local d = Store.data()
+    d.questSeq = d.questSeq + 1
+    local def, room = found.def, found.room
+    local cx = math.floor((def:getX() + def:getX2()) / 2)
+    local cy = math.floor((def:getY() + def:getY2()) / 2)
+    local place = Places.describe(cx, cy)
+    place.inside = true
+    place.rooms = roomNames(def)
+    place.residential = def:isResidential() == true
+
+    local items
+    if itemsOverride then
+        items = itemsOverride
+    elseif kind == "fetch" then
+        items = { Quests.FETCH_ITEMS[ZombRand(#Quests.FETCH_ITEMS) + 1] }
+    else
+        items = StoryEngine.Loot.roll(tier, origin and origin.faction)
+    end
+    origin = origin or { source = "debug" }
+    origin.day = Store.dayIndex(now.dayKey)
+    origin.date = now.date
+    origin.clock = now.clock
+
+    local q = {
+        id = "Q" .. StoryEngine.intToString(d.questSeq),
+        kind = kind, tier = tier, origin = origin,
+        building = found.key, place = place,
+        x = math.floor((room:getX() + room:getX2()) / 2),
+        y = math.floor((room:getY() + room:getY2()) / 2),
+        z = room:getZ(),
+        cx = cx, cy = cy,
+        bx1 = def:getX(), by1 = def:getY(), bx2 = def:getX2(), by2 = def:getY2(),
+        radius = Quests.RADIUS, distance = math.floor(found.distance),
+        target = ps.key, targetName = ps.name,
+        state = "offered", createdT = now.t,
+        deadlineT = now.t + Quests.deadlineMinutes(found.distance),
+        spawned = false, items = items,
+    }
+    d.quests[q.id] = q
+    Quests.waiting = Quests.waiting + 1
+    trySpawn(q)
+    note(ps, kind .. "_offered", q, now, nil)
+    log("quest created", q.id, kind, "tier", tier, "for", ps.name, "at", q.x, q.y, place.town, "dist", q.distance)
+    local ok, err = pcall(Quests.announce, q, player)
+    if not ok then log("announce failed:", err) end
+    notifyTarget(q)
+    return q
+end
+
+-- NPC 의 부탁 제안. entry: { player, ps }. 성공하면 퀘스트
+function Quests.propose(player, ps, fid, tier, now)
+    tier = math.max(1, math.min(Quests.MAX_TIER, math.floor(tier or 1)))
+    local need = StoryEngine.Needs.pick(fid, tier)
+    if not need then return nil, "no_need" end
+    local d = Store.data()
+    d.questSeq = d.questSeq + 1
+    local items = {}
+    for i, n in ipairs(need.items) do items[i] = { n[1], n[2] } end
+    local q = {
+        id = "Q" .. StoryEngine.intToString(d.questSeq),
+        kind = "deliver", tier = need.tier, need = items, why = need.why,
+        origin = { source = "director", faction = fid, initiator = "npc",
+                   day = Store.dayIndex(now.dayKey), date = now.date, clock = now.clock },
+        target = ps.key, targetName = ps.name,
+        state = "proposed", createdT = now.t, respondBy = now.t + Quests.RESPOND_MIN,
+    }
+    d.quests[q.id] = q
+    note(ps, "deliver_proposed", q, now, nil)
+    log("quest proposed", q.id, fid, Quests.needText(q), "for", ps.name)
+    local tierWord = ({ "small", "modest", "good", "large", "huge" })[q.tier] or "small"
+    Radio.react(fid, "request", "You need " .. Quests.needText(q) .. " because " .. q.why
+        .. ". Payment: a " .. tierWord .. " supply cache.",
+        { text = "Could you find me " .. Quests.needText(q) .. "? I will pay you back. Answer me on the radio.",
+          lt = { key = "IGUI_StoryEngine_RadioSay_request", args = { { t = "need", v = q.need } } } }, ps)
+    notifyTarget(q)
+    return q
+end
+
+-- ---------------------------------------------------------------- 협박 (신뢰도가 아주 낮은 세력)
+
+-- 세력이 물건을 내놓으라고 협박한다. 거절 버튼은 없다 (바로 accepted). 기한 안에 무전으로 제출하면 작은 대가,
+-- 넘기지 못하면 보복(좀비 무리 또는 헬기)이 온다.
+function Quests.demand(player, ps, fid, tier, now)
+    tier = math.max(1, math.min(Quests.MAX_TIER, math.floor(tier or 1)))
+    local need = StoryEngine.Needs.pick(fid, tier)
+    if not need then return nil, "no_need" end
+    local d = Store.data()
+    d.questSeq = d.questSeq + 1
+    local items = {}
+    for i, n in ipairs(need.items) do items[i] = { n[1], n[2] } end
+    local q = {
+        id = "Q" .. StoryEngine.intToString(d.questSeq),
+        kind = "extort", tier = need.tier, need = items, why = need.why,
+        origin = { source = "director", faction = fid, initiator = "threat",
+                   day = Store.dayIndex(now.dayKey), date = now.date, clock = now.clock },
+        target = ps.key, targetName = ps.name,
+        state = "accepted", createdT = now.t, deadlineT = now.t + Quests.EXTORT_MINUTES,
+    }
+    d.quests[q.id] = q
+    note(ps, "extort_demanded", q, now, nil)
+    log("extort", q.id, fid, Quests.needText(q), "for", ps.name)
+    local hours = StoryEngine.intToString(math.floor(Quests.EXTORT_MINUTES / 60))
+    Radio.react(fid, "event", "You have lost all patience with these players and you are extorting them. Demand "
+        .. Quests.needText(q) .. ", handed over on the radio within " .. hours .. " hours, or you will make them pay: "
+        .. "lure a horde of the dead onto them or bring a helicopter down on their heads. Be menacing and brief; "
+        .. "do not ask politely and do not offer a trade.",
+        { text = "Hand over " .. Quests.needText(q) .. " within " .. hours .. " hours, or the dead come for you.",
+          lt = { key = "IGUI_StoryEngine_RadioSay_extort", args = { { t = "need", v = q.need }, { t = "s", v = hours } } } }, ps)
+    notifyTarget(q)
+    return q
+end
+
+-- 협박 보복. 그 세력의 신뢰도를 가장 최근에 떨어뜨린 플레이어에게 간다 (없으면 협박받은 사람).
+-- 대상이 접속해 있지 않으면 다음 접속 때 한다
+function Quests.punish(q)
+    local fid0 = q.origin and q.origin.faction
+    if not q.punishKey then
+        local ch = fid0 and Radio.channel(fid0)
+        q.punishKey = (ch and ch.lastOffender) or q.target
+    end
+    local target = nil
+    for _, p in ipairs(Sensor.players()) do
+        if Store.playerKey(p) == q.punishKey then target = p end
+    end
+    if not target then
+        q.punishPending = true
+        return
+    end
+    q.punishPending = nil
+    local ps = Store.player(target)
+    local now = Sensor.now()
+    local fid = q.origin and q.origin.faction
+    local how
+    -- 헬기는 무작위 플레이어에게 가므로 혼자 있을 때만 고른다
+    if #Sensor.players() == 1 and ZombRand(2) == 0 then
+        testHelicopter()
+        how = "helicopter"
+        for _, p in ipairs(Sensor.players()) do
+            pcall(StoryEngine.Net.toClient, p, "directorNotice", { kind = "helicopter" })
+        end
+    else
+        StoryEngine.Hunt.sendAt(target, "extort_punish")
+        how = "horde"
+    end
+    note(ps, "extort_punished", q, now, nil)
+    log("extort punishment", q.id, how, "for", ps.name)
+    if fid then
+        local who = ps.name
+        Radio.react(fid, "event", how == "horde"
+            and ("They never paid what you demanded, so you lured a pack of the dead onto " .. who .. ", the one who last "
+                .. "crossed you. It will follow them. Tell them it is coming.")
+            or ("They never paid what you demanded. A helicopter is now circling right over " .. who .. ", the one who last "
+                .. "crossed you, drawing every dead thing around. Gloat."), nil, ps)
+    end
+end
+
+-- 신뢰도가 높은 세력이 요청을 받고 대가 없이 준다 (Trade.fromReply). 가까운 건물(1등급 거리)에 둔다
+function Quests.giftTrade(ps, fid, tier, goods, now)
+    local player = nil
+    for _, p in ipairs(Sensor.players()) do
+        if Store.playerKey(p) == ps.key then player = p end
+    end
+    if not player then return nil end
+    local q = Quests.create("supply_drop", player, ps, 1, now,
+        { source = "gift_trade", faction = fid, initiator = "free" }, goods)
+    if q then log("trade gift", q.id, fid, "tier", tier, "for", ps.name) end
+    return q
+end
+
+-- 거래 제안 (Trade.fromReply 가 검증한 뒤 부른다). deal = { tier, category, goods, payCategory, price }
+function Quests.proposeTrade(ps, fid, deal, now)
+    local d = Store.data()
+    d.questSeq = d.questSeq + 1
+    local q = {
+        id = "Q" .. StoryEngine.intToString(d.questSeq),
+        kind = "trade", tier = deal.tier, category = deal.category, goods = deal.goods,
+        payCategory = deal.payCategory, price = deal.price,
+        origin = { source = "radio", faction = fid, initiator = "player",
+                   day = Store.dayIndex(now.dayKey), date = now.date, clock = now.clock },
+        target = ps.key, targetName = ps.name,
+        state = "proposed", createdT = now.t, respondBy = now.t + Quests.RESPOND_MIN,
+    }
+    d.quests[q.id] = q
+    log("trade proposed", q.id, fid, listText(q.goods), "for", q.payCategory, q.price)
+    notifyTarget(q)
+    return q
+end
+
+-- NPC 의 소탕 부탁. 위치를 먼저 정해 두고, 수락하면 무리를 배치한다.
+function Quests.proposeHorde(player, ps, fid, tier, now)
+    tier = math.max(1, math.min(Quests.MAX_TIER, math.floor(tier or 1)))
+    local exclude = {}
+    if ps.home and ps.home.building then exclude[ps.home.building] = true end
+    if ps.prev and ps.prev.building then exclude[ps.prev.building] = true end
+    local found = Quests.findForTier(math.floor(player:getX()), math.floor(player:getY()), tier, exclude)
+    if not found then return nil, "no_building" end
+
+    local d = Store.data()
+    d.questSeq = d.questSeq + 1
+    local def, room = found.def, found.room
+    local cx = math.floor((def:getX() + def:getX2()) / 2)
+    local cy = math.floor((def:getY() + def:getY2()) / 2)
+    local place = Places.describe(cx, cy)
+    place.inside = false
+    place.rooms = roomNames(def)
+    place.residential = def:isResidential() == true
+    local size = Quests.HORDE_SIZE[tier]
+    local q = {
+        id = "Q" .. StoryEngine.intToString(d.questSeq),
+        kind = "horde", tier = tier, building = found.key, place = place,
+        x = math.floor((room:getX() + room:getX2()) / 2), y = math.floor((room:getY() + room:getY2()) / 2),
+        z = room:getZ(), cx = cx, cy = cy,
+        bx1 = def:getX(), by1 = def:getY(), bx2 = def:getX2(), by2 = def:getY2(),
+        radius = Quests.RADIUS, distance = math.floor(found.distance),
+        size = size, killsNeeded = math.ceil(size * Quests.HORDE_CLEAR), killed = 0,
+        origin = { source = "director", faction = fid, initiator = "npc",
+                   day = Store.dayIndex(now.dayKey), date = now.date, clock = now.clock },
+        target = ps.key, targetName = ps.name,
+        state = "proposed", createdT = now.t, respondBy = now.t + Quests.RESPOND_MIN,
+        spawned = false,
+    }
+    d.quests[q.id] = q
+    note(ps, "horde_proposed", q, now, nil)
+    log("horde proposed", q.id, fid, size, "at", cx, cy, place.town, "dist", q.distance)
+    local town, code, distance, dirEn = whereFrom(q, player)
+    local tierWord = ({ "small", "modest", "good", "large", "huge" })[tier] or "small"
+    -- AI 에게는 영어 방향과, 서버 언어로 된 마을 이름을 준다 (기준은 플레이어 위치)
+    local spot = "a building near the town the players call " .. town
+    if place.landmark then spot = spot .. " (landmark: " .. place.landmark .. ")" end
+    Radio.react(fid, "request", "A horde of about " .. StoryEngine.intToString(size) .. " dead has gathered around "
+        .. spot .. ". It is about " .. StoryEngine.intToString(distance) .. " tiles to the " .. dirEn .. " of the players (measured from them, "
+        .. "not from you). Ask them to clear it out. Payment: a " .. tierWord .. " supply cache left near the spot. "
+        .. "Use the town name as given.",
+        { text = "About " .. StoryEngine.intToString(size) .. " dead are gathered around a building near "
+            .. place.town .. ", about " .. StoryEngine.intToString(distance) .. " tiles " .. dirEn
+            .. " of you. Can you clear them out? I will leave you something for it.",
+          lt = { key = "IGUI_StoryEngine_RadioSay_horde", args = { { t = "town", v = place.town }, { t = "dir", v = code },
+              { t = "num", v = distance }, { t = "num", v = size } } } }, ps)
+    notifyTarget(q)
+    return q
+end
+
+-- 퀘스트 전투 기록: 진행 중인 퀘스트 장소 반경 안에서 일어난 처치·부상을 붙인다 ("전투가 있었는지" 판정용)
+Quests.FIGHT_RADIUS = 40
+
+local function fightOf(q)
+    q.fight = q.fight or { kills = 0, hurt = 0, bitten = false }
+    return q.fight
+end
+
+local function nearQuest(q, x, y)
+    if not Quests.isActive(q) or not Quests.hasLocation(q) then return false end
+    return dist(x, y, q.cx or q.x, q.cy or q.y) <= Quests.FIGHT_RADIUS
+end
+
+-- 참여자: 퀘스트에 손을 보탠 플레이어 (장소 근처에 있었거나, 근처에서 좀비를 잡았거나, 물건을 꺼냈거나 제출함)
+function Quests.addHelper(q, ps)
+    if not q or not ps or not ps.key then return end
+    q.helpers = q.helpers or {}
+    q.helpers[ps.key] = ps.name
+end
+
+-- Sensor 10분 샘플: 진행 중인 위치 퀘스트 근처에 있던 플레이어를 참여자로 남긴다
+function Quests.recordPresence(entries)
+    for _, q in pairs(all()) do
+        for _, e in ipairs(entries) do
+            if nearQuest(q, e.s.x, e.s.y) then Quests.addHelper(q, e.ps) end
+        end
+    end
+end
+
+-- 참여하지 않은 사람이 그동안 한 일 (영어, AI 비아냥 재료)
+function Quests.activityText(ps)
+    local day = ps.day
+    local class = day and Sensor.classify(day) or nil
+    local town = ps.prev and Places.describe(ps.prev.x, ps.prev.y).town or nil
+    local where = town and (" near " .. town) or ""
+    if ps.prev and ps.prev.asleep then return "was asleep" .. where end
+    if class == "stayed_home" then return "stayed home" .. where end
+    if class == "local_scavenge" then return "was scavenging for themselves" .. where end
+    if class == "expedition" then return "was off on their own long trip" .. where end
+    if class == "combat_day" then
+        return "was busy with their own fights" .. where .. " (" .. StoryEngine.intToString(day.kills or 0) .. " kills today)"
+    end
+    return "was somewhere else" .. where
+end
+
+-- Sensor 10분 샘플의 새 부상 (entries[i].newHarm)
+function Quests.recordHarm(entries)
+    for _, q in pairs(all()) do
+        for _, e in ipairs(entries) do
+            if #(e.newHarm or {}) > 0 and nearQuest(q, e.s.x, e.s.y) then
+                local f = fightOf(q)
+                for _, h in ipairs(e.newHarm) do
+                    f.hurt = f.hurt + 1
+                    if h.kind == "bitten" then f.bitten = true end
+                end
+            end
+        end
+    end
+end
+
+-- 전투 요약 (영어, AI 상황 설명용). 없으면 nil
+function Quests.fightText(q)
+    local f = q.fight
+    if not f or (f.kills == 0 and f.hurt == 0) then return nil end
+    local parts = {}
+    if f.kills > 0 then parts[#parts + 1] = "they had to fight through about " .. StoryEngine.intToString(f.kills) .. " of the dead" end
+    if f.bitten then parts[#parts + 1] = "someone was bitten"
+    elseif f.hurt > 0 then parts[#parts + 1] = "someone got hurt" end
+    return table.concat(parts, " and ")
+end
+
+-- 완료 반응에 붙일 참여 기록 (영어). 여러 명이 접속해 있을 때만 의미가 있다
+function Quests.creditText(q)
+    local helpers, names = q.helpers or {}, {}
+    for _, name in pairs(helpers) do names[#names + 1] = name end
+    table.sort(names)
+    local idle = {}
+    for _, p in ipairs(Sensor.players()) do
+        local ps = Store.player(p)
+        if not helpers[ps.key] then idle[#idle + 1] = ps.name .. " (" .. Quests.activityText(ps) .. ")" end
+    end
+    local text = ""
+    if #names > 0 then
+        text = " The ones who actually helped: " .. table.concat(names, ", ") .. ". Thank them by name."
+    end
+    if #idle > 0 then
+        text = text .. " You MUST also call out by name each one who did not lift a finger, with one short jab each "
+            .. "about what they were doing instead: " .. table.concat(idle, "; ") .. "."
+    end
+    return text
+end
+
+-- 좀비가 죽었을 때: 진행 중인 소탕 구역 안이면 세고, 가까운 퀘스트에는 전투로 기록한다
+function Quests.onZombieDead(zombie)
+    local zx, zy = zombie:getX(), zombie:getY()
+    local killer, killerD = nil, nil
+    for _, p in ipairs(Sensor.players()) do
+        local d = dist(p:getX(), p:getY(), zx, zy)
+        if d <= Quests.FIGHT_RADIUS and (not killerD or d < killerD) then killer, killerD = p, d end
+    end
+    for _, q in pairs(all()) do
+        if nearQuest(q, zx, zy) then
+            fightOf(q).kills = fightOf(q).kills + 1
+            if killer then Quests.addHelper(q, Store.player(killer)) end
+        end
+    end
+    local area = Quests.HORDE_AREA
+    for _, q in pairs(all()) do
+        if q.kind == "horde" and q.state == "accepted" and q.spawned
+            and zx >= q.bx1 - area and zx <= q.bx2 + area and zy >= q.by1 - area and zy <= q.by2 + area then
+            q.killed = (q.killed or 0) + 1
+            if q.killed >= q.killsNeeded then
+                Quests.completeHorde(q)
+            elseif q.killed % 3 == 0 then
+                notifyTarget(q)
+            end
+        end
+    end
+end
+
+-- 소탕 완료: 가장 가까운 플레이어 근처에 보상 보급
+function Quests.completeHorde(q)
+    local now = Sensor.now()
+    local best, bestD = nil, nil
+    for _, p in ipairs(Sensor.players()) do
+        local d = dist(p:getX(), p:getY(), q.cx, q.cy)
+        if not bestD or d < bestD then best, bestD = p, d end
+    end
+    local ps = best and Store.player(best) or Store.data().players[q.target]
+    if best then
+        Quests.create("supply_drop", best, ps, 1, now,
+            { source = "reward", faction = q.origin and q.origin.faction, rewardFor = q.id, rewardKind = q.kind }, StoryEngine.Loot.roll(q.tier, q.origin and q.origin.faction))
+    end
+    setState(q, "completed", now, ps and { ps = ps } or nil)
+end
+
+-- 대가를 다 받았을 때 (Trade.pay). 물건은 가까운 건물(1~2등급 거리)에 두고 간다.
+function Quests.completeTrade(player, q)
+    local now = Sensor.now()
+    local ps = Store.player(player)
+    Quests.addHelper(q, ps)
+    local distanceTier = q.tier <= 2 and 1 or 2
+    local delivery = Quests.create("supply_drop", player, ps, distanceTier, now,
+        { source = "reward", faction = q.origin and q.origin.faction, rewardFor = q.id, rewardKind = q.kind }, q.goods)
+    setState(q, "completed", now, { ps = ps })
+    return true, delivery
+end
+
+-- 부탁·거래 제안에 대한 수락/거절. 멀티에서는 답한 사람이 대상이 된다.
+function Quests.respond(player, qid, accept)
+    local q = all()[qid]
+    if not q or (q.kind ~= "deliver" and q.kind ~= "trade" and q.kind ~= "horde") then return false, "no_quest" end
+    if q.state ~= "proposed" then return false, "not_proposed" end
+    local ps = Store.player(player)
+    local now = Sensor.now()
+    q.target, q.targetName = ps.key, ps.name
+    if accept then
+        q.deadlineT = now.t + (q.kind == "horde" and Quests.deadlineMinutes(q.distance or 0)
+            or Quests.deliverMinutes(q.tier))
+        setState(q, "accepted", now, { ps = ps })
+    else
+        setState(q, "declined", now, { ps = ps }, "declined")
+    end
+    return true
+end
+
+-- 부탁 물건을 인벤토리에서 꺼낸다. 장착하지 않은 것부터 쓴다. 모자라면 아무것도 꺼내지 않고 false
+local function takeNeed(player, need)
+    local inv = player:getInventory()
+    local plan = {}
+    for _, n in ipairs(need) do
+        local list = inv:getAllTypeRecurse(n[1])
+        local free, equipped = {}, {}
+        for i = 0, list:size() - 1 do
+            local it = list:get(i)
+            local mod = it:getModData()
+            if not (mod and mod.storyQuest) then
+                if player:isEquipped(it) then equipped[#equipped + 1] = it else free[#free + 1] = it end
+            end
+        end
+        if #free + #equipped < n[2] then return false end
+        local chosen = {}
+        for _, it in ipairs(free) do if #chosen < n[2] then chosen[#chosen + 1] = it end end
+        for _, it in ipairs(equipped) do if #chosen < n[2] then chosen[#chosen + 1] = it end end
+        plan[#plan + 1] = chosen
+    end
+    for _, chosen in ipairs(plan) do
+        for _, it in ipairs(chosen) do
+            StoryEngine.Items.remove(it, player)
+        end
+    end
+    return true
+end
+
+-- 무전으로 제출 (회수 물건 / 부탁 물건). 성공하면 true, 보상 퀘스트 / 실패하면 false, 오류 코드
+function Quests.submit(player, qid)
+    local q = all()[qid]
+    if not q or (q.kind ~= "fetch" and q.kind ~= "deliver" and q.kind ~= "extort") then return false, "no_quest" end
+    if q.kind == "deliver" or q.kind == "extort" then
+        if q.state ~= "accepted" then return false, "not_active" end
+        if not Factions.canTalk(player) then return false, "no_radio" end
+        if not takeNeed(player, q.need) then return false, "missing_items" end
+        local now = Sensor.now()
+        local ps = Store.player(player)
+        Quests.addHelper(q, Store.player(player))
+        -- 협박에 응하면 작은 대가(1등급)만 준다
+        local rewardTier = q.kind == "extort" and 1 or q.tier
+        local reward = Quests.create("supply_drop", player, ps, rewardTier, now,
+            { source = "reward", faction = q.origin and q.origin.faction, rewardFor = q.id, rewardKind = q.kind })
+        setState(q, "completed", now, { ps = ps })
+        return true, reward
+    end
+    if not Quests.isActive(q) then return false, "not_active" end
+    if not Factions.canTalk(player) then return false, "no_radio" end
+    local held = findInInventory(player, q)
+    if #held == 0 then return false, "no_item" end
+    Quests.addHelper(q, Store.player(player))
+    for _, it in ipairs(held) do StoryEngine.Items.remove(it, player) end
+    local now = Sensor.now()
+    local ps = Store.player(player)
+    setState(q, "completed", now, { ps = ps })
+    local reward = Quests.create("supply_drop", player, ps, q.tier, now,
+        { source = "reward", faction = q.origin and q.origin.faction, rewardFor = q.id, rewardKind = q.kind })
+    return true, reward
+end
+
+-- ---------------------------------------------------------------- tracking
+
+function Quests.track(entries, now)
+    local okHarm, errHarm = pcall(Quests.recordHarm, entries)
+    if not okHarm then log("quest harm error:", errHarm) end
+    local okP, errP = pcall(Quests.recordPresence, entries)
+    if not okP then log("quest presence error:", errP) end
+    if not Quests.ready then
+        Quests.ready = true
+        for _, q in pairs(all()) do
+            if LEGACY[q.state] then q.state = LEGACY[q.state] end
+            q.kind = q.kind or "supply_drop"
+            q.deadlineT = q.deadlineT or q.expiresT or now.t
+        end
+    end
+
+    for _, q in pairs(all()) do
+        if q.state == "proposed" then
+            if now.t > (q.respondBy or 0) then setState(q, "declined", now, nil, "ignored") end
+        elseif Quests.isActive(q) and not Quests.hasLocation(q) then
+            if now.t > q.deadlineT then setState(q, "failed", now, nil) end
+        elseif Quests.isActive(q) then
+            trySpawn(q)
+            for _, e in ipairs(entries) do
+                if q.state == "offered" and dist(e.s.x, e.s.y, q.cx or q.x, q.cy or q.y) <= q.radius then
+                    setState(q, "approached", now, e)
+                end
+                if (q.state == "offered" or q.state == "approached") and e.s.building == q.building then
+                    setState(q, "entered", now, e)
+                end
+            end
+            local left = q.kind ~= "horde" and atSpot(q, false) or nil
+            if left == 0 and q.spawned and q.state ~= "retrieved" then
+                local best, bestD = nil, 40
+                for _, e in ipairs(entries) do
+                    local dd = dist(e.s.x, e.s.y, q.sx, q.sy)
+                    if dd < bestD then best, bestD = e, dd end
+                end
+                if q.kind == "fetch" then
+                    setState(q, "retrieved", now, best)
+                else
+                    setState(q, "completed", now, best)
+                end
+            end
+            if Quests.isActive(q) and now.t > q.deadlineT then
+                Quests.fail(q, now)
+            end
+        elseif q.cleanup then
+            cleanup(q)
+        end
+        if q.punishPending then
+            local ok, err = pcall(Quests.punish, q)
+            if not ok then log("extort punish error:", err) end
+        end
+    end
+end
+
+-- 클라이언트 퀘스트 탭·지도용 목록: 이 플레이어가 대상인 퀘스트 (진행 중 + 최근 끝난 것)
+function Quests.listFor(psKey, now)
+    local active, done = {}, {}
+    for _, q in pairs(all()) do
+        if q.target == psKey then
+            local state = LEGACY[q.state] or q.state
+            local item = {
+                id = q.id, kind = q.kind or "supply_drop", state = state, tier = q.tier or 1,
+                origin = q.origin,
+                town = q.place and q.place.town, landmark = q.place and q.place.landmark,
+                rooms = q.place and q.place.rooms, residential = q.place and q.place.residential,
+                x = q.cx or q.x, y = q.cy or q.y,
+                spawned = q.spawned == true, container = q.containerType,
+                sx = q.sx, sy = q.sy, sz = q.sz, containerSprite = q.containerSprite,
+                rewardKind = Quests.rewardKind(q), fight = q.fight, helpers = q.helpers,
+                items = q.placed or q.items, need = q.need,
+                hoursLeft = math.max(0, math.floor(((q.deadlineT or q.expiresT or now.t) - now.t) / 60)),
+                respondHours = q.respondBy and math.max(0, math.floor((q.respondBy - now.t) / 60)) or nil,
+                created = q.createdT,
+            }
+            if not Quests.hasLocation(q) then item.x, item.y = nil, nil end
+            if q.kind == "trade" then
+                item.goods, item.payCategory, item.price, item.category = q.goods, q.payCategory, q.price, q.category
+            end
+            if q.kind == "horde" then
+                item.size, item.killed, item.killsNeeded = q.size, q.killed or 0, q.killsNeeded
+            end
+            if ACTIVE[state] or state == "proposed" then active[#active + 1] = item else done[#done + 1] = item end
+        end
+    end
+    table.sort(active, function(a, b)
+        local pa, pb = a.state == "proposed", b.state == "proposed"
+        if pa ~= pb then return pa end
+        return (a.created or 0) > (b.created or 0)
+    end)
+    table.sort(done, function(a, b) return (a.created or 0) > (b.created or 0) end)
+    for i = 1, math.min(#done, 20) do active[#active + 1] = done[i] end
+    return active
+end
+
+-- 디버그: 퀘스트 목록 요약
+function Quests.statusText()
+    local parts = {}
+    for _, q in pairs(all()) do
+        local spot = ""
+        if q.spawned and q.sx and Quests.isActive(q) and q.kind ~= "horde" then
+            local left = atSpot(q, false)
+            spot = " " .. tostring(q.containerType or "floor") .. "@" .. q.sx .. "," .. q.sy .. " left="
+                .. (left == nil and "unloaded" or tostring(left))
+        end
+        parts[#parts + 1] = q.id .. " " .. tostring(q.kind) .. " " .. q.state .. " " .. tostring(q.place and q.place.town)
+            .. (q.spawned and " spawned" or " waiting") .. spot
+    end
+    if #parts == 0 then return "no quests" end
+    return table.concat(parts, " | ")
+end
+
+Sensor.listeners.tick[#Sensor.listeners.tick + 1] = Quests.track
+
+Events.OnZombieDead.Add(function(zombie)
+    local ok, err = pcall(Quests.onZombieDead, zombie)
+    if not ok then log("zombie dead error:", err) end
+end)
+
+-- 목표 칸이 로드된 순간을 기록만 하고, 실제 배치와 정리는 EveryOneMinute 에서 한다.
+Events.LoadGridsquare.Add(function(sq)
+    if not Quests.ready or Quests.waiting <= 0 then return end
+    local x, y, z = sq:getX(), sq:getY(), sq:getZ()
+    for _, q in pairs(all()) do
+        if not q.spawned and q.x == x and q.y == y and q.z == z and not Quests.seen[q.id] then
+            Quests.seen[q.id] = StoryEngine.nowMs()
+        end
+    end
+end)
+
+Events.EveryOneMinute.Add(function()
+    if not Quests.ready then return end
+    local waiting = 0
+    for _, q in pairs(all()) do
+        local ok, err = true, nil
+        if not q.spawned and Quests.isActive(q) and Quests.hasLocation(q) then
+            ok, err = pcall(trySpawn, q)
+            if not q.spawned then waiting = waiting + 1 end
+        elseif q.cleanup then
+            ok, err = pcall(cleanup, q)
+        end
+        if not ok then log("quest minute error:", err) end
+    end
+    Quests.waiting = waiting
+end)
+
+return Quests
