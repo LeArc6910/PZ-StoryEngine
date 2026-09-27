@@ -1,0 +1,19 @@
+{
+    "ContextMenu_StoryEngine_Journal": "Survival journal",
+    "ContextMenu_StoryEngine_Ping": "StoryEngine: test bridge",
+    "ContextMenu_StoryEngine_Status": "StoryEngine: observation status",
+    "ContextMenu_StoryEngine_WriteJournal": "StoryEngine: write journal now",
+    "ContextMenu_StoryEngine_Director": "StoryEngine: run director",
+    "ContextMenu_StoryEngine_Supply": "StoryEngine: force supply drop",
+    "ContextMenu_StoryEngine_Quests": "StoryEngine: quest status",
+    "ContextMenu_StoryEngine_QuestLog": "Quests",
+    "ContextMenu_StoryEngine_Radio": "Radio",
+    "ContextMenu_StoryEngine_Fetch": "StoryEngine: force retrieval quest",
+    "ContextMenu_StoryEngine_Request": "StoryEngine: force NPC request",
+    "ContextMenu_StoryEngine_Horde": "StoryEngine: force horde request",
+    "ContextMenu_StoryEngine_Monologue": "StoryEngine: force monologue",
+    "ContextMenu_StoryEngine_Sync": "StoryEngine: multiplayer diagnostics",
+    "ContextMenu_StoryEngine_ItemPool": "StoryEngine: item pool (itempool.txt)",
+    "ContextMenu_StoryEngine_Event": "StoryEngine: force new event (horde / helicopter / distress call)",
+    "ContextMenu_StoryEngine_HuntNear": "StoryEngine: chasing horde test (10 zombies, 10 tiles away)"
+}

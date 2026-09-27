@@ -1,0 +1,55 @@
+VERSION = 1,
+
+option StoryEngine.Director
+{
+	type = boolean, default = true,
+	page = StoryEngine, translation = StoryEngine_Director,
+}
+
+option StoryEngine.NpcRequests
+{
+	type = boolean, default = true,
+	page = StoryEngine, translation = StoryEngine_NpcRequests,
+}
+
+option StoryEngine.DangerEvents
+{
+	type = boolean, default = true,
+	page = StoryEngine, translation = StoryEngine_DangerEvents,
+}
+
+option StoryEngine.Journal
+{
+	type = boolean, default = true,
+	page = StoryEngine, translation = StoryEngine_Journal,
+}
+
+option StoryEngine.Monologue
+{
+	type = boolean, default = true,
+	page = StoryEngine, translation = StoryEngine_Monologue,
+}
+
+option StoryEngine.MonologueAI
+{
+	type = boolean, default = true,
+	page = StoryEngine, translation = StoryEngine_MonologueAI,
+}
+
+option StoryEngine.MonologueGap
+{
+	type = integer, min = 10, max = 1440, default = 120,
+	page = StoryEngine, translation = StoryEngine_MonologueGap,
+}
+
+option StoryEngine.RequireRadio
+{
+	type = boolean, default = false,
+	page = StoryEngine, translation = StoryEngine_RequireRadio,
+}
+
+option StoryEngine.ModItemsRatio
+{
+	type = integer, min = 0, max = 100, default = 40,
+	page = StoryEngine, translation = StoryEngine_ModItemsRatio,
+}

@@ -1,0 +1,36 @@
+module StoryEngine
+{
+    imports
+    {
+        Base
+    }
+
+
+    item SealedDocuments
+    {
+        DisplayCategory = Memento,
+        ItemType = base:normal,
+        Weight = 0.3,
+        Icon = Paperwork1,
+        StaticModel = Paperwork1,
+        WorldStaticModel = Paperwork1,
+    }
+
+    item SealedParcel
+    {
+        DisplayCategory = Memento,
+        ItemType = base:normal,
+        Weight = 1.0,
+        Icon = Parcel4,
+        WorldStaticModel = Parcel5,
+    }
+
+    item PhotoAlbum
+    {
+        DisplayCategory = Memento,
+        ItemType = base:normal,
+        Weight = 0.5,
+        Icon = PhotoAlbum,
+        WorldStaticModel = PhotoAlbum,
+    }
+}

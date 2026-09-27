@@ -1,0 +1,21 @@
+{
+    "Sandbox_StoryEngine": "StoryEngine",
+    "Sandbox_StoryEngine_Monologue": "Inner monologue",
+    "Sandbox_StoryEngine_Monologue_tooltip": "The character mutters short thoughts when feelings change or something happens (first kill, bites, new towns...).",
+    "Sandbox_StoryEngine_MonologueAI": "Monologue: use AI",
+    "Sandbox_StoryEngine_MonologueAI_tooltip": "Write the thoughts with the AI bridge. When off, only built-in lines are used (no API cost).",
+    "Sandbox_StoryEngine_MonologueGap": "Monologue: minimum gap (in-game minutes)",
+    "Sandbox_StoryEngine_MonologueGap_tooltip": "Least time between two thoughts of the same character. Bites, low health and first kill ignore this.",
+    "Sandbox_StoryEngine_RequireRadio": "Require a two-way radio",
+    "Sandbox_StoryEngine_RequireRadio_tooltip": "When on, talking to radio contacts, handing over items and paying for trades need a walkie-talkie or ham radio (carried, or placed within 2 tiles).",
+    "Sandbox_StoryEngine_ModItemsRatio": "Other mods' items in rewards (%)",
+    "Sandbox_StoryEngine_ModItemsRatio_tooltip": "Chance that food, melee weapons and guns in rewards and trades are swapped for similar items from all installed items (including other mods). 0 = vanilla lists only.",
+    "Sandbox_StoryEngine_Director": "AI director",
+    "Sandbox_StoryEngine_Director_tooltip": "Twice a day (08:00, 20:00) the AI picks an event: supplies, storms, requests from radio contacts, hordes, helicopters, distress calls.",
+    "Sandbox_StoryEngine_NpcRequests": "Director: requests from radio contacts",
+    "Sandbox_StoryEngine_NpcRequests_tooltip": "Radio contacts ask for items or for help clearing a horde, about once or twice a week.",
+    "Sandbox_StoryEngine_DangerEvents": "Director: hordes and helicopters",
+    "Sandbox_StoryEngine_DangerEvents_tooltip": "Allow the director to send a small horde toward a survivor, or a helicopter over the area.",
+    "Sandbox_StoryEngine_Journal": "Survival journal",
+    "Sandbox_StoryEngine_Journal_tooltip": "The AI writes a diary entry when a character sleeps, and a memoir when they die."
+}

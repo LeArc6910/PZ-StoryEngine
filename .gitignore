@@ -1,0 +1,6 @@
+# 브릿지는 별도 저장소 (PZ-StoryEngine-Bridge)
+bridge/
+release/
+__pycache__/
+*.pyc
+.venv/
