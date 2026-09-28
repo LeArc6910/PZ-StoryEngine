@@ -37,10 +37,12 @@ Director.SLOTS = { [8] = true, [20] = true }
 Director.STORM_GAP_MIN = 2 * 24 * 60
 -- 간격은 모두 서버 전체 기준 (2026-09-27 사용자 결정)
 Director.SUPPLY_GAP_MIN = 24 * 60
--- NPC 가 먼저 청하는 일(부탁·회수·구조 신호·협박)은 서로 4일 간격. 4일이 지나면 그날 50%, 다음 날 60% ... 하루마다 +10%
+-- NPC 가 먼저 청하는 일(부탁·회수·구조 신호·협박)은 NPC(세력)마다 4일 간격. 4일이 지나면 그날 50%, 다음 날 60% ...
+-- 하루마다 +10% 로 그 NPC 의 관문이 열린다. 서버 전체로는 하루에 하나만 (2026-09-28 사용자 결정)
 Director.ASK_GAP_DAYS = 4
 Director.ASK_BASE = 50
 Director.ASK_STEP = 10
+Director.ASK_SERVER_GAP_DAYS = 2             -- 서버 전체로 NPC 가 먼저 청하는 일은 이 날수에 하나 (2026-09-28: 이틀에 하나)
 Director.HORDE_SHARE = 40
 Director.STORM_HOURS = { 6, 12, 18, 24, 36 }
 Director.MAX_INTENSITY = 5
@@ -101,6 +103,7 @@ Director.events.storm = {
             Store.addNote(e.ps, { kind = "storm", clock = ctx.now.clock })
         end
         notifyAll("directorNotice", { kind = "storm" })
+        if StoryEngine.Social then pcall(StoryEngine.Social.onStorm) end
         if StoryEngine.Monologue then
             local ok, err = pcall(StoryEngine.Monologue.onStorm, ctx.entries)
             if not ok then log("monologue storm error:", err) end
@@ -125,14 +128,18 @@ function Director.tierCap(ps, fid)
 end
 
 -- 퀘스트를 전해 줄 세력을 신뢰도 가중치로 고른다 (신뢰가 높은 세력일수록 연락이 잦다).
-function Director.pickFaction()
+-- only: { fid = true } 가 있으면 그 세력들 중에서만 (NPC 가 먼저 청하는 일은 관문이 열린 세력만)
+function Director.pickFaction(only)
     local Factions, Radio = StoryEngine.Factions, StoryEngine.Radio
     local total, weights = 0, {}
     for _, f in ipairs(Factions.list) do
-        local w = Radio.channel(f.id).trust + 10
-        weights[#weights + 1] = { id = f.id, w = w }
-        total = total + w
+        if not only or only[f.id] then
+            local w = Radio.channel(f.id).trust + 10
+            weights[#weights + 1] = { id = f.id, w = w }
+            total = total + w
+        end
     end
+    if #weights == 0 then return nil end
     local roll = ZombRandFloat(0, total)
     for _, it in ipairs(weights) do
         roll = roll - it.w
@@ -147,24 +154,70 @@ local function serverGap(ctx, key, gap)
     return not last or ctx.now.t - last >= gap
 end
 
--- NPC 가 먼저 청하는 일의 관문 (서버 전체). 마지막 요청 뒤 ASK_GAP_DAYS 일이 지나면 하루 한 번 확률을 굴린다
-function Director.askOpen(ctx)
+-- 세력별 관문 상태. 처음 보는 세력은 마지막 요청을 0~ASK_GAP_DAYS 일 전으로 흩어 두어 한꺼번에 열리지 않게 한다
+-- (예전 세이브의 서버 공통 lastAskT 가 있으면 그 시각 기준).
+local function askState(ctx, fid)
     local st = state()
-    local days = math.floor((ctx.now.t - (st.lastAskT or 0)) / (24 * 60))
-    if days < Director.ASK_GAP_DAYS then return false end
-    if st.askRollDay ~= ctx.now.dayKey then
-        st.askRollDay = ctx.now.dayKey
-        local chance = math.min(100, Director.ASK_BASE + Director.ASK_STEP * (days - Director.ASK_GAP_DAYS))
-        st.askOpenToday = ZombRand(100) < chance
-        log("npc ask roll:", days, "days since last,", chance .. "%", st.askOpenToday and "open" or "closed")
+    st.asks = st.asks or {}
+    local a = st.asks[fid]
+    if not a then
+        local base = st.lastAskT or ctx.now.t
+        a = { lastT = base - ZombRand(Director.ASK_GAP_DAYS + 1) * 24 * 60 }
+        st.asks[fid] = a
     end
-    return st.askOpenToday == true
+    return a
 end
 
-function Director.markAsked(ctx)
+-- 오늘 먼저 청할 수 있는 세력들 { fid = true } (없으면 nil). 서버 전체로 최근 ASK_SERVER_GAP_DAYS 일 안에
+-- 이미 하나 나갔으면 nil (예: 2 면 3일에 청했을 때 5일부터 다시). 세력마다 마지막 요청 뒤 ASK_GAP_DAYS 일이 지나면
+-- 하루 한 번 확률을 굴린다.
+function Director.openAskers(ctx)
     local st = state()
-    st.lastAskT = ctx.now.t
-    st.askOpenToday = false
+    if st.lastAskDay and Store.dayIndex(ctx.now.dayKey) - Store.dayIndex(st.lastAskDay) < Director.ASK_SERVER_GAP_DAYS then
+        return nil
+    end
+    local open, any = {}, false
+    for _, f in ipairs(StoryEngine.Factions.list) do
+        local a = askState(ctx, f.id)
+        local days = math.floor((ctx.now.t - a.lastT) / (24 * 60))
+        if days >= Director.ASK_GAP_DAYS then
+            if a.rollDay ~= ctx.now.dayKey then
+                a.rollDay = ctx.now.dayKey
+                local chance = math.min(100, Director.ASK_BASE + Director.ASK_STEP * (days - Director.ASK_GAP_DAYS))
+                a.open = ZombRand(100) < chance
+                log("npc ask roll:", f.id, days, "days since last,", chance .. "%", a.open and "open" or "closed")
+            end
+            if a.open then
+                open[f.id] = true
+                any = true
+            end
+        end
+    end
+    if any then return open end
+    return nil
+end
+
+function Director.askOpen(ctx)
+    return Director.openAskers(ctx) ~= nil
+end
+
+-- NPC 가 먼저 청하는 일에 쓸 세력: 관문이 열린 세력 중 신뢰도 가중치로. 디버그 강제 실행이면 아무 세력이나
+function Director.pickAsker(ctx)
+    local open = Director.openAskers(ctx)
+    if not open and ctx.forced then return Director.pickFaction() end
+    if not open then return nil end
+    return Director.pickFaction(open)
+end
+
+-- 이 세력이 먼저 청했다: 그 세력의 간격을 다시 세고, 서버 전체로 ASK_SERVER_GAP_DAYS 일 동안 더 청하지 않는다
+function Director.markAsked(ctx, fid)
+    local st = state()
+    st.lastAskDay = ctx.now.dayKey
+    if fid then
+        local a = askState(ctx, fid)
+        a.lastT = ctx.now.t
+        a.open = false
+    end
 end
 
 local function questEligible(kind)
@@ -193,9 +246,11 @@ local function stayedHomeDays(entry)
 end
 
 -- done(ctx): 성공한 뒤 서버 전체 간격을 기록한다
-local function questRunner(kind, done)
+local function questRunner(kind, done, picker)
     return function(ctx, entry, intensity)
-        local fid = Director.pickFaction()
+        local fid
+        if picker then fid = picker(ctx) else fid = Director.pickFaction() end
+        if not fid then return false end
         intensity = math.min(intensity, Director.tierCap(entry.ps, fid))
         local q, why = Quests.create(kind, entry.player, entry.ps, intensity, ctx.now,
             { source = "director", faction = fid })
@@ -203,7 +258,7 @@ local function questRunner(kind, done)
             log(kind .. " failed:", why)
             return false
         end
-        done(ctx)
+        done(ctx, fid)
         return true
     end
 end
@@ -219,7 +274,8 @@ Director.events.npc_request = {
     eligible = requestEligible,
     run = function(ctx, entry, intensity)
         -- 물건 부탁 60%, 좀비 무리 소탕 부탁 40% (둘 다 NPC 의 부탁이라 빈도 제한을 같이 쓴다)
-        local fid = Director.pickFaction()
+        local fid = Director.pickAsker(ctx)
+        if not fid then return false end
         intensity = math.min(intensity, Director.tierCap(entry.ps, fid))
         local q, why
         if ctx.forceKind == "horde" or (not ctx.forceKind and ZombRand(100) < Director.HORDE_SHARE) then
@@ -231,7 +287,7 @@ Director.events.npc_request = {
             log("npc_request failed:", why)
             return false
         end
-        Director.markAsked(ctx)
+        Director.markAsked(ctx, fid)
         return true
     end,
 }
@@ -251,7 +307,7 @@ Director.events.fetch_item = {
     canRun = anyEligible(fetchEligible, Director.askOpen),
     weight = function(ctx, entry) return 1 end,
     eligible = fetchEligible,
-    run = questRunner("fetch", Director.markAsked),
+    run = questRunner("fetch", Director.markAsked, Director.pickAsker),
 }
 
 -- ---------------------------------------------------------------- horde / helicopter / rescue
@@ -317,6 +373,7 @@ Director.events.helicopter = {
         -- 서버·싱글에서 testHelicopter 는 월드의 헬기를 무작위 플레이어에게 보낸다 (멀티 클라이언트면 /chopper start)
         testHelicopter()
         state().lastHeliT = ctx.now.t
+        if StoryEngine.Social then pcall(StoryEngine.Social.onHelicopter) end
         for _, e in ipairs(ctx.entries) do
             Store.addNote(e.ps, { kind = "helicopter", clock = ctx.now.clock })
         end
@@ -351,7 +408,8 @@ Director.events.rescue_signal = {
     end,
     eligible = rescueEligible,
     run = function(ctx, entry, intensity)
-        local fid = Director.pickFaction()
+        local fid = Director.pickAsker(ctx)
+        if not fid then return false end
         intensity = math.min(intensity, Director.tierCap(entry.ps, fid))
         local q, why = Quests.create("supply_drop", entry.player, entry.ps, intensity, ctx.now,
             { source = "rescue", faction = fid, initiator = "gift" }, StoryEngine.Loot.roll(intensity))
@@ -359,7 +417,7 @@ Director.events.rescue_signal = {
             log("rescue_signal failed:", why)
             return false
         end
-        Director.markAsked(ctx)
+        Director.markAsked(ctx, fid)
         return true
     end,
 }
@@ -398,12 +456,13 @@ Director.events.friend_gift = {
     end,
 }
 
--- 신뢰도가 바닥인 험한 세력의 협박
-local function threatFaction()
+-- 신뢰도가 바닥인 험한 세력의 협박. open 이 있으면 관문이 열린 세력 중에서만
+local function threatFaction(open)
     local best, bestTrust = nil, nil
     for _, f in ipairs(StoryEngine.Factions.list) do
         local trust = StoryEngine.Radio.channel(f.id).trust
-        if f.threat and trust <= Director.EXTORT_TRUST and (not bestTrust or trust < bestTrust) then
+        if f.threat and trust <= Director.EXTORT_TRUST and (not open or open[f.id])
+            and (not bestTrust or trust < bestTrust) then
             best, bestTrust = f.id, trust
         end
     end
@@ -413,7 +472,9 @@ end
 local function extortEligible(ctx, entry)
     if daysSeen() <= Director.MIN_DAYS then return false end
     if Quests.openFor(entry.ps.key, "extort") then return false end
-    return threatFaction() ~= nil
+    local open = Director.openAskers(ctx)
+    if not open and not ctx.forced then return false end
+    return threatFaction(open) ~= nil
 end
 
 Director.events.extortion = {
@@ -421,14 +482,15 @@ Director.events.extortion = {
     weight = function(ctx, entry) return 1 end,
     eligible = extortEligible,
     run = function(ctx, entry, intensity)
-        local fid = threatFaction()
+        local fid = threatFaction(Director.openAskers(ctx))
+        if not fid and ctx.forced then fid = threatFaction() end
         if not fid then return false end
         local q, why = Quests.demand(entry.player, entry.ps, fid, math.min(intensity, Director.tierCap(entry.ps)), ctx.now)
         if not q then
             log("extortion failed:", why)
             return false
         end
-        Director.markAsked(ctx)
+        Director.markAsked(ctx, fid)
         return true
     end,
 }
@@ -602,6 +664,7 @@ function Director.run(reason, forced, forcedEntryName, forceKind)
     if forced then
         if not Director.events[forced] then return false, "unknown_event" end
         local entry = forcedEntryName and findEntry(ctx, forcedEntryName) or ctx.entries[1]
+        ctx.forced = true
         Director.execute(ctx, { event = forced, intensity = 1, entry = entry, reason = "forced" }, "debug")
         return true
     end

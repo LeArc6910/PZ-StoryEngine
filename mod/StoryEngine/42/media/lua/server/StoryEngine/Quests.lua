@@ -154,11 +154,20 @@ function Quests.openFor(psKey, kind)
     return nil
 end
 
+-- 이 세력과 진행 중이거나 답을 기다리는 거래 (서버 전체에서 세력당 하나)
+function Quests.openTrade(fid)
+    for _, q in pairs(all()) do
+        if q.kind == "trade" and (Quests.isActive(q) or q.state == "proposed") and q.origin and q.origin.faction == fid then
+            return q
+        end
+    end
+    return nil
+end
+
+-- 퀘스트는 서버의 모든 플레이어가 함께 본다. 바뀌면 접속한 모두에게 알린다.
 local function notifyTarget(q)
     for _, p in ipairs(Sensor.players()) do
-        if Store.playerKey(p) == q.target then
-            pcall(StoryEngine.Net.toClient, p, "questChanged", { id = q.id })
-        end
+        pcall(StoryEngine.Net.toClient, p, "questChanged", { id = q.id })
     end
 end
 
@@ -560,6 +569,14 @@ local function setState(q, state, now, entry, outcome)
         local ok, err = pcall(StoryEngine.Monologue.onQuest, q, state, entry)
         if not ok then log("monologue quest error:", err) end
     end
+    if StoryEngine.Banter then
+        local ok, err = pcall(StoryEngine.Banter.onQuest, q, state)
+        if not ok then log("banter quest error:", err) end
+    end
+    if StoryEngine.Social and TRUST_STATES[state] then
+        local ok, err = pcall(StoryEngine.Social.onQuest, q, outcome or state)
+        if not ok then log("social quest error:", err) end
+    end
     notifyTarget(q)
 end
 
@@ -715,6 +732,84 @@ function Quests.propose(player, ps, fid, tier, now)
     return q
 end
 
+-- 이야기·위기에서 정한 부탁 (Social.lua). spec = { tier, why, items }, extra = { story = {...} | crisis = id, silent }
+function Quests.proposeCustom(player, ps, fid, spec, now, extra)
+    extra = extra or {}
+    local d = Store.data()
+    d.questSeq = d.questSeq + 1
+    local items = {}
+    for i, n in ipairs(spec.items or {}) do items[i] = { n[1], n[2] } end
+    if #items == 0 then return nil end
+    local q = {
+        id = "Q" .. StoryEngine.intToString(d.questSeq),
+        kind = "deliver", tier = math.max(1, math.min(Quests.MAX_TIER, spec.tier or 1)), need = items, why = spec.why,
+        origin = { source = extra.crisis and "crisis" or "story", faction = fid, initiator = "npc",
+                   story = extra.story or (extra.crisis and { crisis = extra.crisis }) or nil,
+                   day = Store.dayIndex(now.dayKey), date = now.date, clock = now.clock },
+        target = ps.key, targetName = ps.name,
+        state = "proposed", createdT = now.t, respondBy = now.t + Quests.RESPOND_MIN,
+    }
+    d.quests[q.id] = q
+    note(ps, "deliver_proposed", q, now, nil)
+    log("quest proposed", q.id, fid, Quests.needText(q), "for", ps.name, extra.story and "story" or "crisis")
+    if not extra.silent then
+        local tierWord = ({ "small", "modest", "good", "large", "huge" })[q.tier] or "small"
+        Radio.react(fid, "request", "You need " .. Quests.needText(q) .. " because " .. tostring(q.why)
+            .. ". This is part of what is going on in your life right now. Payment: a " .. tierWord .. " supply cache.",
+            { text = "Could you find me " .. Quests.needText(q) .. "? I will pay you back. Answer me on the radio.",
+              lt = { key = "IGUI_StoryEngine_RadioSay_request", args = { { t = "need", v = q.need } } } }, ps)
+    end
+    notifyTarget(q)
+    return q
+end
+
+-- 위기: 여러 세력이 동시에 부탁하고 플레이어가 하나를 고른다 (Social.startCrisis)
+function Quests.proposeChoice(player, ps, crisis, now)
+    local d = Store.data()
+    d.questSeq = d.questSeq + 1
+    local options, top = {}, 1
+    for i, o in ipairs(crisis.options) do
+        options[i] = { faction = o.faction, ask = o.ask, tier = o.tier, items = o.items }
+        top = math.max(top, o.tier or 1)
+    end
+    local q = {
+        id = "Q" .. StoryEngine.intToString(d.questSeq),
+        kind = "choice", tier = top, crisis = crisis.id, situation = crisis.situation, options = options,
+        origin = { source = "crisis", faction = crisis.options[1].faction, initiator = "crisis",
+                   day = Store.dayIndex(now.dayKey), date = now.date, clock = now.clock },
+        target = ps.key, targetName = ps.name,
+        state = "proposed", createdT = now.t, respondBy = now.t + Quests.RESPOND_MIN,
+    }
+    d.quests[q.id] = q
+    log("crisis proposed", q.id, crisis.id)
+    notifyTarget(q)
+    return q
+end
+
+-- 위기에서 한 세력을 고른다. 고른 부탁은 Social.onChoice 가 퀘스트로 만든다
+function Quests.choose(player, qid, index)
+    local q = all()[qid]
+    if not q or q.kind ~= "choice" then return false, "no_quest" end
+    if q.state ~= "proposed" then return false, "not_proposed" end
+    local opt = q.options and q.options[math.floor(tonumber(index) or 0)]
+    if not opt then return false, "bad_option" end
+    local ps = Store.player(player)
+    local now = Sensor.now()
+    q.target, q.targetName = ps.key, ps.name
+    q.chosen = opt.faction
+    q.state = "completed"
+    q.endedT = now.t
+    q.history = q.history or {}
+    Store.push(q.history, { state = "completed", t = now.t, by = ps.name }, 20)
+    log("crisis choice", q.id, q.crisis, opt.faction, "by", ps.name)
+    notifyTarget(q)
+    if StoryEngine.Social then
+        local ok, err = pcall(StoryEngine.Social.onChoice, q, opt, player)
+        if not ok then log("crisis choice error:", err) end
+    end
+    return true
+end
+
 -- ---------------------------------------------------------------- 협박 (신뢰도가 아주 낮은 세력)
 
 -- 세력이 물건을 내놓으라고 협박한다. 거절 버튼은 없다 (바로 accepted). 기한 안에 무전으로 제출하면 작은 대가,
@@ -778,14 +873,25 @@ function Quests.punish(q)
             pcall(StoryEngine.Net.toClient, p, "directorNotice", { kind = "helicopter" })
         end
     else
-        StoryEngine.Hunt.sendAt(target, "extort_punish")
-        how = "horde"
+        -- A-Life 가 있으면 그 세력의 무장 무리를 보낸다 (없거나 실패하면 추적 호드)
+        local ALife = StoryEngine.ALife
+        local okA, sent = false, false
+        if ALife and fid then okA, sent = pcall(ALife.sendAttack, target, fid) end
+        if okA and sent then
+            how = "squad"
+        else
+            StoryEngine.Hunt.sendAt(target, "extort_punish")
+            how = "horde"
+        end
     end
     note(ps, "extort_punished", q, now, nil)
     log("extort punishment", q.id, how, "for", ps.name)
     if fid then
         local who = ps.name
-        Radio.react(fid, "event", how == "horde"
+        Radio.react(fid, "event", how == "squad"
+            and ("They never paid what you demanded, so you sent your armed people after " .. who .. ", the one who last "
+                .. "crossed you. They are on their way. Threaten them.")
+            or how == "horde"
             and ("They never paid what you demanded, so you lured a pack of the dead onto " .. who .. ", the one who last "
                 .. "crossed you. It will follow them. Tell them it is coming.")
             or ("They never paid what you demanded. A helicopter is now circling right over " .. who .. ", the one who last "
@@ -813,7 +919,7 @@ function Quests.proposeTrade(ps, fid, deal, now)
     local q = {
         id = "Q" .. StoryEngine.intToString(d.questSeq),
         kind = "trade", tier = deal.tier, category = deal.category, goods = deal.goods,
-        payCategory = deal.payCategory, price = deal.price,
+        payCategory = deal.payCategory, price = deal.price, basePrice = deal.price, haggles = 0,
         origin = { source = "radio", faction = fid, initiator = "player",
                    day = Store.dayIndex(now.dayKey), date = now.date, clock = now.clock },
         target = ps.key, targetName = ps.name,
@@ -823,6 +929,27 @@ function Quests.proposeTrade(ps, fid, deal, now)
     log("trade proposed", q.id, fid, listText(q.goods), "for", q.payCategory, q.price)
     notifyTarget(q)
     return q
+end
+
+-- 흥정으로 바뀐 조건 (Trade.negotiate 가 검증한 뒤 부른다). 답할 시간은 다시 센다.
+function Quests.reviseTrade(q, price, payCategory, now)
+    q.oldPrice, q.oldPayCategory = q.price, q.payCategory
+    q.price, q.payCategory = price, payCategory
+    q.haggles = (q.haggles or 0) + 1
+    q.respondBy = now.t + Quests.RESPOND_MIN
+    log("trade revised", q.id, q.oldPrice, "->", price, payCategory, "round", q.haggles)
+    notifyTarget(q)
+end
+
+-- NPC 가 흥정 중에 제안을 거둔다. 플레이어가 거절한 것이 아니므로 신뢰도·반응 없이 끝낸다.
+function Quests.withdrawTrade(q, now)
+    q.state = "declined"
+    q.withdrawn = true
+    q.endedT = now.t
+    q.history = q.history or {}
+    Store.push(q.history, { state = "declined", t = now.t }, 20)
+    log("trade withdrawn", q.id)
+    notifyTarget(q)
 end
 
 -- NPC 의 소탕 부탁. 위치를 먼저 정해 두고, 수락하면 무리를 배치한다.
@@ -1162,11 +1289,12 @@ function Quests.track(entries, now)
     end
 end
 
--- 클라이언트 퀘스트 탭·지도용 목록: 이 플레이어가 대상인 퀘스트 (진행 중 + 최근 끝난 것)
+-- 클라이언트 퀘스트 탭·지도용 목록: 서버의 모든 퀘스트 (진행 중 + 최근 끝난 것). 누가 받았든 함께 보고,
+-- 누구나 수락·제출·지불할 수 있다. psKey 는 표시용 (내가 받은 퀘스트 구분)
 function Quests.listFor(psKey, now)
     local active, done = {}, {}
     for _, q in pairs(all()) do
-        if q.target == psKey then
+        do
             local state = LEGACY[q.state] or q.state
             local item = {
                 id = q.id, kind = q.kind or "supply_drop", state = state, tier = q.tier or 1,
@@ -1181,14 +1309,25 @@ function Quests.listFor(psKey, now)
                 hoursLeft = math.max(0, math.floor(((q.deadlineT or q.expiresT or now.t) - now.t) / 60)),
                 respondHours = q.respondBy and math.max(0, math.floor((q.respondBy - now.t) / 60)) or nil,
                 created = q.createdT,
+                owner = q.targetName, mine = q.target == psKey or nil,
             }
             if not Quests.hasLocation(q) then item.x, item.y = nil, nil end
             if q.kind == "trade" then
                 item.goods, item.payCategory, item.price, item.category = q.goods, q.payCategory, q.price, q.category
+                item.basePrice, item.withdrawn = q.basePrice, q.withdrawn
+                local Trade = StoryEngine.Trade
+                item.haggleLeft = Trade and math.max(0, Trade.MAX_HAGGLES - (q.haggles or 0)) or 0
             end
             if q.kind == "horde" then
                 item.size, item.killed, item.killsNeeded = q.size, q.killed or 0, q.killsNeeded
             end
+            if q.kind == "choice" then
+                item.crisis, item.chosen, item.options = q.crisis, q.chosen, {}
+                for i, o in ipairs(q.options or {}) do
+                    item.options[i] = { faction = o.faction, tier = o.tier, need = o.items }
+                end
+            end
+            if q.origin and q.origin.story then item.story = q.origin.story.crisis and "crisis" or "story" end
             if ACTIVE[state] or state == "proposed" then active[#active + 1] = item else done[#done + 1] = item end
         end
     end

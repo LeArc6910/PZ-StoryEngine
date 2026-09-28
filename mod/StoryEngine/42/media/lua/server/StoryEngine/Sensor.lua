@@ -16,7 +16,8 @@ local log = StoryEngine.log
 
 local Sensor = {
     buildingCache = {},   -- buildingKey -> { rooms = {...}, residential = bool }
-    listeners = { sleep = {}, tick = {} },   -- tick(entries, now): 집계 후 호출
+    -- tick(entries, now): 집계 후 호출. dayEnd(player, ps, day): 날짜가 바뀌어 어제를 닫기 직전 (자정 일지)
+    listeners = { sleep = {}, tick = {}, dayEnd = {} },
 }
 StoryEngine.Sensor = Sensor
 
@@ -182,7 +183,7 @@ end
 local function newDay(now)
     return {
         key = now.dayKey, index = Store.dayIndex(now.dayKey), date = now.date,
-        travel = 0, maxFromHome = 0, outsideMin = 0, kills = 0, harmed = false, moodlePeaks = {},
+        travel = 0, maxFromHome = 0, outsideMin = 0, kills = 0, harmed = false, moodlePeaks = {}, acts = {},
     }
 end
 
@@ -198,7 +199,7 @@ function Sensor.daySummary(day)
         class = Sensor.classify(day),
         travel = math.floor(day.travel), maxFromHome = math.floor(day.maxFromHome),
         outsideMin = day.outsideMin, kills = day.kills, harmed = day.harmed,
-        moodlePeaks = day.moodlePeaks,
+        moodlePeaks = day.moodlePeaks, acts = day.acts,
     }
 end
 
@@ -229,7 +230,7 @@ local function newSegment(key, s, companions)
     return {
         key = key, from = s.clock, to = s.clock, firstT = s.t, lastT = s.t,
         place = placeOf(s), with = companions, kills = 0, zombiesNear = s.zombies, harm = {},
-        slept = s.asleep,
+        slept = s.asleep, acts = {},
     }
 end
 
@@ -239,7 +240,7 @@ function Sensor.closeSegment(ps, seg)
     local ep = {
         from = seg.from, to = seg.to, place = seg.place, with = seg.with,
         kills = seg.kills, zombiesNear = seg.zombiesNear, harm = seg.harm, slept = seg.slept,
-        withKey = table.concat(seg.with, ","), lastT = seg.lastT,
+        acts = seg.acts, withKey = table.concat(seg.with, ","), lastT = seg.lastT,
     }
     local last = ps.pending[#ps.pending]
     if last and not last.place.inside and not ep.place.inside and last.withKey == ep.withKey
@@ -249,6 +250,13 @@ function Sensor.closeSegment(ps, seg)
         last.kills = last.kills + ep.kills
         last.zombiesNear = math.max(last.zombiesNear or 0, ep.zombiesNear or 0)
         for _, h in ipairs(ep.harm) do last.harm[#last.harm + 1] = h end
+        last.acts = last.acts or {}
+        for kind, a in pairs(ep.acts or {}) do
+            for what, n in pairs(a.w or {}) do Sensor.addAct(last.acts, kind, what, n) end
+            local named = 0
+            for _, n in pairs(a.w or {}) do named = named + n end
+            if a.n > named then Sensor.addAct(last.acts, kind, nil, a.n - named) end
+        end
         if ep.place.town ~= last.place.town then
             last.place.via = last.place.via or {}
             local via = last.place.via
@@ -257,6 +265,89 @@ function Sensor.closeSegment(ps, seg)
         return
     end
     Store.push(ps.pending, ep, Store.MAX_PENDING)
+end
+
+-- ---------------------------------------------------------------- activities
+
+-- 일지용 행동 (클라이언트 Activity.lua 가 보고). kind 는 이 목록에 있는 것만 받는다.
+Sensor.ACT_KINDS = {
+    craft = true, dismantle = true, cook = true, build = true, forage = true, fish = true, fish_net = true,
+    chop = true, plant = true, harvest = true, plow = true, water_plants = true, trap = true, butcher = true,
+    animals = true, read = true, treat_other = true, sew = true, barricade = true, bury = true,
+    burn_corpse = true, mechanic = true, write = true, exercise = true,
+}
+-- what 이 레시피 이름인 종류 (CamelCase 를 풀어 쓴다). 나머지는 아이템 이름 또는 그대로
+local RECIPE_KINDS = { craft = true, dismantle = true, cook = true, build = true }
+Sensor.MAX_ACT_NAMES = 8
+
+-- acts[kind] = { n = 횟수, w = { 대상 이름 = 횟수 } } (대상 이름은 종류마다 최대 MAX_ACT_NAMES 개)
+function Sensor.addAct(acts, kind, what, n)
+    local a = acts[kind]
+    if not a then
+        a = { n = 0, w = {} }
+        acts[kind] = a
+    end
+    a.n = a.n + n
+    if what and what ~= "" then
+        if a.w[what] then
+            a.w[what] = a.w[what] + n
+        else
+            local names = 0
+            for _, _ in pairs(a.w) do names = names + 1 end
+            if names < Sensor.MAX_ACT_NAMES then a.w[what] = n end
+        end
+    end
+end
+
+-- "DismantleRadio" / "Make_Spear" -> "Dismantle Radio" / "Make Spear"
+local function humanize(name)
+    local ok, out = pcall(function()
+        local s = string.gsub(name, "_", " ")
+        s = string.gsub(s, "(%l)(%u)", "%1 %2")
+        s = string.gsub(s, "(%a)(%d)", "%1 %2")
+        return s
+    end)
+    return ok and out or name
+end
+
+local function actName(kind, what)
+    if type(what) ~= "string" or what == "" then return nil end
+    what = string.sub(what, 1, 60)
+    if string.find(what, ".", 1, true) then
+        -- 아이템 전체 이름이면 표시 이름으로 (없는 아이템이면 점 뒤만)
+        local ok, script = pcall(function() return getScriptManager():FindItem(what) end)
+        if ok and script then
+            local okName, name = pcall(getItemNameFromFullType, what)
+            if okName and name and name ~= "" then return name end
+        end
+        what = string.match(what, "%.([^%.]+)$") or what
+        return humanize(what)
+    end
+    if RECIPE_KINDS[kind] then return humanize(what) end
+    return what
+end
+
+function Sensor.recordActivity(player, list)
+    if type(list) ~= "table" then return end
+    local ps = Store.player(player)
+    if ps.dead then return end
+    local count = 0
+    for _, e in ipairs(list) do
+        count = count + 1
+        if count > 40 then break end
+        if type(e) == "table" and Sensor.ACT_KINDS[e.k] then
+            local n = math.max(1, math.min(50, math.floor(tonumber(e.n) or 1)))
+            local what = actName(e.k, e.w)
+            if ps.day then
+                ps.day.acts = ps.day.acts or {}
+                Sensor.addAct(ps.day.acts, e.k, what, n)
+            end
+            if ps.seg then
+                ps.seg.acts = ps.seg.acts or {}
+                Sensor.addAct(ps.seg.acts, e.k, what, n)
+            end
+        end
+    end
 end
 
 -- 현재 열린 에피소드를 닫고 같은 자리에서 새로 연다 (일지 작성 직전에 사용).
@@ -270,12 +361,24 @@ end
 -- ---------------------------------------------------------------- tick
 
 local function process(player, ps, s, companions, harmNearby, now)
-    -- 날짜가 바뀌면 어제를 닫는다
-    if ps.day and ps.day.key ~= now.dayKey then closeDay(ps) end
+    -- 날짜가 바뀌면 어제를 닫는다. 오프라인이던 플레이어는 다시 접속한 첫 샘플에서 마지막 날을 닫는다.
+    if ps.day and ps.day.key ~= now.dayKey then
+        local day = ps.day
+        for _, fn in ipairs(Sensor.listeners.dayEnd) do
+            local ok, err = pcall(fn, player, ps, day)
+            if not ok then log("day end listener error:", err) end
+        end
+        closeDay(ps)
+    end
     if not ps.day then ps.day = newDay(now) end
     local day = ps.day
     local prev = ps.prev
     local continuous = prev and (s.t - prev.t) <= Sensor.MAX_GAP_MIN
+
+    -- 함께 보낸 시간 (분). 다른 생존자가 죽었을 때 일지·추모에 얼마나 가까웠는지 알려 준다
+    ps.met = ps.met or {}
+    local step = continuous and (s.t - prev.t) or 10
+    for _, name in ipairs(companions) do ps.met[name] = (ps.met[name] or 0) + step end
 
     updateHome(player, ps, s)
 
@@ -307,6 +410,17 @@ local function process(player, ps, s, companions, harmNearby, now)
 
     -- 에피소드 구분: 건물 또는 야외 마을 권역 + 동행 구성
     local town = Places.describe(s.x, s.y).town
+    -- 오늘 어느 NPC 거점 근처에 갔는지 (그 NPC 가 소문으로 듣는다, Social.onDayEnd)
+    local Factions = StoryEngine.Factions
+    if Factions then
+        day.near = day.near or {}
+        for _, f in ipairs(Factions.list) do
+            if f.x and not day.near[f.id] then
+                local dx, dy = s.x - f.x, s.y - f.y
+                if dx * dx + dy * dy <= 600 * 600 then day.near[f.id] = town end
+            end
+        end
+    end
     local placeKey = s.building or ("out:" .. town)
     local key = placeKey .. "|" .. table.concat(companions, ",")
     local seg = ps.seg

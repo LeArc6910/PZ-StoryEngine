@@ -2,7 +2,11 @@
 --
 -- 1. 플레이어가 무전으로 물건을 요청하면, Radio 가 Trade.context 로 계산한 "지금 가능한 거래 한도"를 AI 에 넘긴다.
 -- 2. AI 는 답장과 함께 trade = { action, category, tier, pay_category } 를 돌려준다.
--- 3. Trade.fromReply 가 한도로 다시 검증하고(넘으면 낮추거나 버림), 실제 물건과 가격은 게임이 정해 거래 제안을 만든다.
+-- 3. Trade.fromReply 가 한도로 다시 검증하고(넘으면 낮추지 않고 버림 + "신뢰도 N 필요" 안내), 실제 물건과 가격은
+--    게임이 정해 거래 제안을 만든다. AI 가 한도 때문에 거절하면 Trade.blocked 로 필요한 신뢰도를 알린다.
+-- 3-1. 제안이 답을 기다리는 동안 플레이어는 무전으로 흥정할 수 있다 (Trade.negotiate). AI 가 action = "counter" 로
+--    새 가격·대가 품목을 내면 게임이 신뢰도별 하한선(HAGGLE)과 횟수(MAX_HAGGLES)로 검증해 조건을 바꾼다.
+--    "withdraw" 면 NPC 가 제안을 거둔다 (신뢰도 변화 없음).
 -- 4. 플레이어가 수락하면 대가 제출 창에서 아이템을 골라 보낸다 (Trade.pay). 가치를 채우면 물건이 보급 퀘스트로 온다.
 -- 신뢰도: 성사 +3, 수락 후 미지불 -4 (Trust.lua, initiator = "player").
 
@@ -42,6 +46,7 @@ Trade.LIMITS = {
 --   guard: 총기·탄약은 신뢰도 gunTrust 이상에서만
 --   rats : 신뢰도 한도보다 stretch 등급 높은 것도 팔지만 그만큼은 stretchMult 배 비싸다
 --   pike : 값을 덜 받는다 (priceMult)
+--   haggle: 흥정 하한선 보정 (+ 면 덜 깎아 준다)
 Trade.FACTIONS = {
     ray = { goods = { food = 5, medical = 3, tools = 3, melee = 2, firearm = 1, ammo = 2 },
             wants = { "food", "medical", "tools", "ammo" } },
@@ -50,15 +55,15 @@ Trade.FACTIONS = {
     doc = { goods = { medical = 5, food = 2, tools = 2 },
             wants = { "food", "tools", "melee" } },
     pike = { goods = { food = 5, medical = 2, tools = 2, melee = 1 },
-             wants = { "medical", "tools", "food" }, priceMult = 0.8 },
+             wants = { "medical", "tools", "food" }, priceMult = 0.8, haggle = -0.05 },
     dewey = { goods = { tools = 5, melee = 3, food = 1 },
               wants = { "food", "medical", "ammo" } },
     hunter = { goods = { firearm = 4, ammo = 4, melee = 4, food = 3 },
                wants = { "medical", "tools" } },
     guard = { goods = { food = 3, medical = 3, tools = 3, melee = 3, firearm = 5, ammo = 5 },
-              wants = { "medical", "tools", "food" }, gunTrust = 60 },
+              wants = { "medical", "tools", "food" }, gunTrust = 60, haggle = 0.05 },
     rats = { goods = { food = 3, medical = 3, tools = 5, melee = 5, firearm = 4, ammo = 4 },
-             wants = { "ammo", "firearm", "medical", "tools" }, stretch = 1, stretchMult = 1.5 },
+             wants = { "ammo", "firearm", "medical", "tools" }, stretch = 1, stretchMult = 1.5, haggle = 0.1 },
 }
 
 -- 품목·등급별로 건네는 물건 묶음 ({ 아이템, 개수 } 목록 중 하나를 고른다)
@@ -197,6 +202,15 @@ function Trade.recordRequest(fid, ps)
     return #list
 end
 
+-- 흥정: 신뢰도별로 처음 제안 가격의 몇 %까지 깎아 주는지 (세력 haggle 로 보정), 제안 하나에 몇 번까지
+Trade.HAGGLE = {
+    { min = 80, floor = 0.6 },
+    { min = 60, floor = 0.7 },
+    { min = 40, floor = 0.8 },
+    { min = 0, floor = 0.9 },
+}
+Trade.MAX_HAGGLES = 3
+
 local function limitFor(trust)
     for _, row in ipairs(Trade.LIMITS) do
         if trust >= row.min then return row end
@@ -204,20 +218,107 @@ local function limitFor(trust)
     return Trade.LIMITS[#Trade.LIMITS]
 end
 
+local function isGunCat(category)
+    return category == "firearm" or category == "ammo"
+end
+
+-- 이 품목·등급을 거래하려면 필요한 신뢰도. 이 세력이 아예 취급하지 않으면 nil
+function Trade.needTrust(fid, category, tier)
+    local rules = Trade.FACTIONS[fid]
+    if not rules or tier > (rules.goods[category] or 0) then return nil end
+    local need = nil
+    for _, row in ipairs(Trade.LIMITS) do        -- 높은 신뢰도부터: 조건을 만족하는 마지막 줄이 가장 낮은 신뢰도
+        if row.maxTier > 0 and row.maxTier + (rules.stretch or 0) >= tier then need = row.min end
+    end
+    if need and rules.gunTrust and isGunCat(category) then need = math.max(need, rules.gunTrust) end
+    return need
+end
+
+local function minTradeTrust()
+    local low = 100
+    for _, row in ipairs(Trade.LIMITS) do
+        if row.maxTier > 0 then low = math.min(low, row.min) end
+    end
+    return low
+end
+
+-- 신뢰도 때문에 거래할 수 없는 요청이면 안내 정보를 돌려준다.
+-- { category, tier, need = 필요한 신뢰도 } | { category, tier?, never = true } (취급 안 함) | { need } (아예 거래 전) | nil
+function Trade.blocked(fid, category, tier)
+    local rules = Trade.FACTIONS[fid]
+    if not rules then return nil end
+    local trust = Radio.channel(fid).trust
+    local known = false
+    for _, cat in ipairs(Value.CATEGORIES) do
+        if cat == category then known = true end
+    end
+    if not known then
+        local low = minTradeTrust()
+        if trust < low then return { need = low } end
+        return nil
+    end
+    if (rules.goods[category] or 0) <= 0 then return { category = category, never = true } end
+    tier = math.max(1, math.min(5, math.floor(tonumber(tier) or 1)))
+    local need = Trade.needTrust(fid, category, tier)
+    if not need then return { category = category, tier = tier, never = true } end
+    if trust >= need then return nil end
+    return { category = category, tier = tier, need = need }
+end
+
+-- 흥정해도 내려가지 않는 가격
+function Trade.haggleFloor(fid, trust, base)
+    local rules = Trade.FACTIONS[fid] or {}
+    local f = Trade.HAGGLE[#Trade.HAGGLE].floor
+    for _, row in ipairs(Trade.HAGGLE) do
+        if trust >= row.min then
+            f = row.floor
+            break
+        end
+    end
+    f = math.max(0.5, math.min(1, f + (rules.haggle or 0)))
+    return math.max(1, math.ceil(base * f))
+end
+
+-- 답을 기다리는 거래 제안에 대해 흥정할 때 AI 에 넘기는 조건
+local function haggleContext(fid, q, trust)
+    local rules = Trade.FACTIONS[fid]
+    local base = q.basePrice or q.price
+    local haggles = q.haggles or 0
+    return {
+        allowed = false, reason = "negotiating", negotiating = true, trust = trust,
+        deal = { category = q.category, tier = q.tier, price = q.price, basePrice = base, payCategory = q.payCategory },
+        floor = Trade.haggleFloor(fid, trust, base),
+        haggles = haggles, haggleLeft = math.max(0, Trade.MAX_HAGGLES - haggles),
+        wants = rules.wants,
+    }
+end
+
 -- 이 세력이 지금 이 플레이어와 할 수 있는 거래. AI 에 넘기고, 제안 검증에도 쓴다.
 function Trade.context(fid, ps)
     local rules = Trade.FACTIONS[fid]
     if not rules then return { allowed = false, reason = "no_trader" } end
     local trust = Radio.channel(fid).trust
+    -- 거래는 모두가 함께 보는 퀘스트라 세력당 하나씩. 답을 기다리는 제안이면 누구든 흥정할 수 있다.
+    local open = Quests.openTrade(fid)
+    if open and open.state == "proposed" then return haggleContext(fid, open, trust) end
+    if open or (ps and Quests.openFor(ps.key, "trade")) then
+        return { allowed = false, reason = "open_deal", trust = trust }
+    end
     local limit = limitFor(trust)
-    if limit.maxTier == 0 then return { allowed = false, reason = "low_trust", trust = trust } end
-    if ps and Quests.openFor(ps.key, "trade") then return { allowed = false, reason = "open_deal", trust = trust } end
+    if limit.maxTier == 0 then return { allowed = false, reason = "low_trust", trust = trust, need = minTradeTrust() } end
 
-    local goods = {}
+    -- goods: 지금 줄 수 있는 것 (검증용). catalog: 취급하는 모든 품목과 등급별 필요 신뢰도 (AI 가 한도를 말하도록)
+    local goods, catalog = {}, {}
     for _, cat in ipairs(Value.CATEGORIES) do
-        local best = math.min(rules.goods[cat] or 0, limit.maxTier + (rules.stretch or 0))
-        if rules.gunTrust and (cat == "firearm" or cat == "ammo") and trust < rules.gunTrust then best = 0 end
+        local cap = rules.goods[cat] or 0
+        local best = math.min(cap, limit.maxTier + (rules.stretch or 0))
+        if rules.gunTrust and isGunCat(cat) and trust < rules.gunTrust then best = 0 end
         if best > 0 then goods[#goods + 1] = { category = cat, maxTier = best } end
+        if cap > 0 then
+            local needs = {}
+            for t = 1, cap do needs[t] = Trade.needTrust(fid, cat, t) or 101 end
+            catalog[#catalog + 1] = { category = cat, maxTier = best, needs = needs }
+        end
     end
     if #goods == 0 then return { allowed = false, reason = "nothing", trust = trust } end
     local recent = Trade.recentRequests(fid)
@@ -227,7 +328,7 @@ function Trade.context(fid, ps)
         freeMaxTier = (trust >= Trade.FREE_TRUST and not suspicious and ZombRand(100) < Trade.FREE_CHANCE)
             and Trade.FREE_MAX_TIER or 0,
         allowed = true, trust = trust, maxTier = limit.maxTier, mult = limit.mult * (rules.priceMult or 1),
-        stretchMult = rules.stretchMult, goods = goods, wants = rules.wants,
+        stretchMult = rules.stretchMult, goods = goods, catalog = catalog, wants = rules.wants,
     }
 end
 
@@ -274,17 +375,20 @@ function Trade.fromReply(fid, ps, trade)
     local ctx = Trade.context(fid, ps)
     if not ctx.allowed then
         log("trade offer ignored:", fid, ctx.reason)
+        if ctx.reason == "low_trust" then return nil, "blocked", Trade.blocked(fid, trade.category, trade.tier) end
         return nil
     end
     local maxForCat = nil
     for _, g in ipairs(ctx.goods) do
         if g.category == trade.category then maxForCat = g.maxTier end
     end
-    if not maxForCat then
-        log("trade offer ignored: category not allowed", fid, tostring(trade.category))
-        return nil
+    local tier = math.max(1, math.min(5, math.floor(tonumber(trade.tier) or 1)))
+    if trade.action == "gift" and maxForCat then tier = math.min(tier, maxForCat) end
+    -- 한도를 넘는 제안은 낮춰서 만들지 않는다. 무엇이 막혔는지 플레이어에게 알린다.
+    if not maxForCat or tier > maxForCat then
+        log("trade offer blocked:", fid, tostring(trade.category), tier, "max", tostring(maxForCat))
+        return nil, "blocked", Trade.blocked(fid, trade.category, tier)
     end
-    local tier = math.max(1, math.min(maxForCat, math.floor(tonumber(trade.tier) or 1)))
     local payCategory = ctx.wants[1]
     for _, w in ipairs(ctx.wants) do
         if w == trade.pay_category then payCategory = w end
@@ -311,6 +415,36 @@ function Trade.fromReply(fid, ps, trade)
 end
 
 -- 대가 제출. itemIds 는 클라이언트가 고른 아이템 ID 목록. 성공하면 true, 배송 퀘스트 / 실패하면 false, 오류 코드
+-- 흥정 결과를 반영한다. trade = AI 의 { action = "counter" | "withdraw", price, pay_category }
+-- 돌려주는 값: q, "counter" | "withdraw" (바뀐 것이 없으면 nil)
+function Trade.negotiate(fid, ps, trade)
+    if type(trade) ~= "table" or not ps then return nil end
+    local q = Quests.openTrade(fid)
+    if not q or q.state ~= "proposed" then return nil end
+    local now = Sensor.now()
+    if trade.action == "withdraw" then
+        Quests.withdrawTrade(q, now)
+        return q, "withdraw"
+    end
+    if trade.action ~= "counter" then return nil end
+    if (q.haggles or 0) >= Trade.MAX_HAGGLES then
+        log("trade haggle ignored: no rounds left", q.id)
+        return nil
+    end
+    local base = q.basePrice or q.price
+    local floor = Trade.haggleFloor(fid, Radio.channel(fid).trust, base)
+    local price = math.floor(tonumber(trade.price) or 0)
+    if price <= 0 then price = q.price end
+    price = math.max(floor, math.min(base, price))
+    local pay = q.payCategory
+    for _, w in ipairs((Trade.FACTIONS[fid] or {}).wants or {}) do
+        if w == trade.pay_category then pay = w end
+    end
+    if price == q.price and pay == q.payCategory then return nil end
+    Quests.reviseTrade(q, price, pay, now)
+    return q, "counter"
+end
+
 function Trade.pay(player, qid, itemIds)
     local q = Store.data().quests[qid]
     if not q or q.kind ~= "trade" then return false, "no_quest" end

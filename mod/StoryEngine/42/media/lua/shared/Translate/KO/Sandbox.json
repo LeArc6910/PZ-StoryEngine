@@ -8,7 +8,7 @@
     "Sandbox_StoryEngine_MonologueGap_tooltip": "같은 캐릭터의 혼잣말 사이 최소 시간. 물림, 체력 위험, 첫 킬은 이 간격을 무시한다.",
     "Sandbox_StoryEngine_RequireRadio": "양방향 무전기 필요",
     "Sandbox_StoryEngine_RequireRadio_tooltip": "켜면 교신, 물건 제출, 거래 대가 지불에 워키토키나 햄 라디오(소지하거나 2타일 안에 설치)가 있어야 한다.",
-    "Sandbox_StoryEngine_ModItemsRatio": "보상에 다른 모드 아이템 비율 (%)",
+    "Sandbox_StoryEngine_ModItemsRatio": "보상에 다른 모드 아이템 비율 (%%)",
     "Sandbox_StoryEngine_ModItemsRatio_tooltip": "보상과 거래의 음식·근접 무기·총을 설치된 전체 아이템(다른 모드 포함) 중 비슷한 것으로 바꿀 확률. 0이면 바닐라 목록만 쓴다.",
     "Sandbox_StoryEngine_Director": "AI 디렉터",
     "Sandbox_StoryEngine_Director_tooltip": "하루 두 번(08:00, 20:00) AI가 사건을 고른다: 보급, 폭풍, 무전 상대의 부탁, 좀비 무리, 헬기, 구조 신호.",
@@ -17,5 +17,11 @@
     "Sandbox_StoryEngine_DangerEvents": "디렉터: 좀비 무리와 헬기",
     "Sandbox_StoryEngine_DangerEvents_tooltip": "디렉터가 생존자 쪽으로 작은 좀비 무리를 보내거나 헬기를 띄울 수 있다.",
     "Sandbox_StoryEngine_Journal": "생존 일지",
-    "Sandbox_StoryEngine_Journal_tooltip": "잠들 때 AI가 일기를 쓰고, 죽으면 회고록을 쓴다."
+    "Sandbox_StoryEngine_Journal_tooltip": "매일 자정에 AI가 그날의 일기를 쓰고, 죽으면 회고록을 쓴다. 서버의 다른 플레이어 일지도 읽을 수 있다.",
+    "Sandbox_StoryEngine_ALifeSupport": "Project A-Life 연동 (지원·습격)",
+    "Sandbox_StoryEngine_ALifeSupport_tooltip": "Project A-Life가 켜져 있으면: 신뢰도 50 이상인 무전 상대에게 무장 지원을 요청할 수 있고, 70 이상이면 크게 위험하거나 습격(A-Life의 습격·강도, 이 모드의 추적 호드·무장 무리)을 당할 때 자동으로 지원이 온다(3일에 한 번). 협박을 무시하면 좀비 무리 대신 그 세력의 무장 무리가 온다.",
+    "Sandbox_StoryEngine_Banter": "캐릭터끼리 대화 (멀티)",
+    "Sandbox_StoryEngine_Banter_tooltip": "캐릭터가 10타일 안에 모여 있으면 게임 시간 3시간마다, 그리고 사건(함께 싸움, 물림, 호드 접근, 퀘스트, 무전, 죽음 소식 등)이 생기면 바로 AI가 짧은 대화를 만들어 머리 위에 띄운다. 대화는 일지에도 남는다. 동료가 곁에 있으면 혼잣말 대신 대화가 된다.",
+    "Sandbox_StoryEngine_Social": "NPC 사회생활 (먼저 연락·이야기·공용 주파수·위기)",
+    "Sandbox_StoryEngine_Social_tooltip": "NPC들이 하루 4~6번 용건 없이도 먼저 무전하고, 각자의 이야기가 연계 퀘스트 결과에 따라 갈라지며, 공용 주파수에서 서로 이야기하고, 가끔 여러 세력이 동시에 도움을 청하는 선택지가 생긴다."
 }

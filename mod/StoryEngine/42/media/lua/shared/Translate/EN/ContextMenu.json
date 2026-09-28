@@ -15,5 +15,13 @@
     "ContextMenu_StoryEngine_Sync": "StoryEngine: multiplayer diagnostics",
     "ContextMenu_StoryEngine_ItemPool": "StoryEngine: item pool (itempool.txt)",
     "ContextMenu_StoryEngine_Event": "StoryEngine: force new event (horde / helicopter / distress call)",
-    "ContextMenu_StoryEngine_HuntNear": "StoryEngine: chasing horde test (10 zombies, 10 tiles away)"
+    "ContextMenu_StoryEngine_HuntNear": "StoryEngine: chasing horde test (10 zombies, 10 tiles away)",
+    "ContextMenu_StoryEngine_ALifeSupport": "StoryEngine: A-Life backup test (contact selected in the radio tab, ignores trust)",
+    "ContextMenu_StoryEngine_ALifeAttack": "StoryEngine: A-Life attack test (Vic's crew)",
+    "ContextMenu_StoryEngine_Trust": "StoryEngine: set trust (%1, contact selected in the radio tab)",
+    "ContextMenu_StoryEngine_Banter": "StoryEngine: force banter (needs another character within 10 tiles)",
+    "ContextMenu_StoryEngine_Contact": "StoryEngine: NPC calls you now",
+    "ContextMenu_StoryEngine_Scene": "StoryEngine: open channel scene now",
+    "ContextMenu_StoryEngine_Crisis": "StoryEngine: crisis choice now",
+    "ContextMenu_StoryEngine_Story": "StoryEngine: advance %1's story"
 }

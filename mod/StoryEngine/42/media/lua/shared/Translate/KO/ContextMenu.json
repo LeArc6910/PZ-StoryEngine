@@ -15,5 +15,13 @@
     "ContextMenu_StoryEngine_Sync": "StoryEngine: 멀티 진단",
     "ContextMenu_StoryEngine_ItemPool": "StoryEngine: 아이템 분류 (itempool.txt)",
     "ContextMenu_StoryEngine_Event": "StoryEngine: 새 이벤트 강제 (호드 / 헬기 / 구조 신호)",
-    "ContextMenu_StoryEngine_HuntNear": "StoryEngine: 추적 무리 테스트 (10마리, 10타일 거리)"
+    "ContextMenu_StoryEngine_HuntNear": "StoryEngine: 추적 무리 테스트 (10마리, 10타일 거리)",
+    "ContextMenu_StoryEngine_ALifeSupport": "StoryEngine: A-Life 지원 테스트 (교신 탭에서 고른 상대, 신뢰도 무시)",
+    "ContextMenu_StoryEngine_ALifeAttack": "StoryEngine: A-Life 습격 테스트 (빅 패거리)",
+    "ContextMenu_StoryEngine_Trust": "StoryEngine: 신뢰도 조절 (%1, 교신 탭에서 고른 상대)",
+    "ContextMenu_StoryEngine_Banter": "StoryEngine: 동료와 대화 강제 (10타일 안에 다른 캐릭터 필요)",
+    "ContextMenu_StoryEngine_Contact": "StoryEngine: NPC가 먼저 연락 (바로)",
+    "ContextMenu_StoryEngine_Scene": "StoryEngine: 공용 주파수 장면 (바로)",
+    "ContextMenu_StoryEngine_Crisis": "StoryEngine: 위기 선택지 (바로)",
+    "ContextMenu_StoryEngine_Story": "StoryEngine: %1 이야기 다음 단계로"
 }

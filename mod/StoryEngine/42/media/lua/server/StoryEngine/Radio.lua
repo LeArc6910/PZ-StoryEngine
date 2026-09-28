@@ -51,11 +51,14 @@ local function channels()
     return d.radio.channels
 end
 
+Radio.OPEN = "open"      -- 공용 주파수: 모든 NPC 가 듣고 말한다 (Social.scene). 신뢰도·거래 없음
+
 function Radio.channel(fid)
     local all = channels()
     local ch = all[fid]
     if not ch then
-        ch = { messages = {}, trust = Factions.byId[fid].trust, seq = 0 }
+        local f = Factions.byId[fid]
+        ch = { messages = {}, trust = f and f.trust or 0, seq = 0 }
         all[fid] = ch
     end
     return ch
@@ -74,12 +77,38 @@ function Radio.followUpIn(ch)
     return math.max(0, math.ceil((ch.followUp.dueT - Sensor.now().t) / 60))
 end
 
-local function push(fid, msg)
+-- 일지·회고록용 교신 기록. ps.radioLog = 지난 일기 이후 (Journal 이 가져가고 비움),
+-- ps.radioLife = 평생 최근 것 (회고록용). 줄마다 { clock, day, faction, from = "player" | "npc", text }
+Radio.LOG_MAX = 30
+Radio.LIFE_MAX = 60
+Radio.LOG_TEXT = 220
+
+function Radio.logLine(ps, fid, from, text, clock, day)
+    if not ps or type(text) ~= "string" or text == "" then return end
+    local line = { clock = clock, day = day, faction = fid, from = from, text = string.sub(text, 1, Radio.LOG_TEXT) }
+    ps.radioLog = ps.radioLog or {}
+    ps.radioLife = ps.radioLife or {}
+    Store.push(ps.radioLog, line, Radio.LOG_MAX)
+    Store.push(ps.radioLife, line, Radio.LIFE_MAX)
+end
+
+-- audience: 이 줄을 들은 사람 (ps). 없으면 NPC 가 먼저 한 말로 보고 접속한 모든 플레이어가 들은 것으로 남긴다.
+local function push(fid, msg, audience)
     local ch = Radio.channel(fid)
     if not msg.day then msg.day = Store.dayIndex(Sensor.now().dayKey) end
     ch.seq = ch.seq + 1
     msg.n = ch.seq
     Store.push(ch.messages, msg, Radio.KEEP)
+    if msg.from == "npc" and type(msg.text) == "string" then
+        local who = msg.npc or fid       -- 공용 주파수에서는 말한 NPC
+        if audience then
+            Radio.logLine(audience, who, "npc", msg.text, msg.clock, msg.day)
+        else
+            for _, p in ipairs(Sensor.players()) do
+                Radio.logLine(Store.player(p), who, "npc", msg.text, msg.clock, msg.day)
+            end
+        end
+    end
     broadcast("radioMessage", { faction = fid, msg = msg, trust = ch.trust, followUpIn = Radio.followUpIn(ch) })
 end
 Radio.push = push   -- 퀘스트 소식 등 모드가 직접 보내는 세력 메시지
@@ -148,7 +177,15 @@ function Radio.request(fid, lang, opts)
     for _, p in ipairs(Sensor.players()) do players[#players + 1] = Store.characterName(p) end
     ch.lang = lang
 
+    -- 이 NPC 의 이야기·다른 NPC 에 대한 생각·들은 소식 (Social.lua)
+    local story = nil
+    if StoryEngine.Social then
+        local okS, ctx = pcall(StoryEngine.Social.context, fid)
+        if okS then story = ctx end
+    end
+
     Bridge.request("radio", {
+        story = story,
         faction = fid, lang = lang, trust = ch.trust, memory = ch.memory,
         day = Store.dayIndex(now.dayKey), date = now.date, clock = now.clock,
         players = players, history = history,
@@ -175,25 +212,52 @@ function Radio.request(fid, lang, opts)
                 log("radio follow-up scheduled", fid, hours .. "h", topic)
             end
 
+            -- 플레이어 발언에 대한 답장은 말한 사람의 기록에, NPC 가 먼저 한 말은 접속한 모두의 기록에
             push(fid, { from = "npc", text = string.sub(json.reply, 1, Radio.MAX_REPLY), clock = t.clock,
-                        day = Store.dayIndex(t.dayKey), followUp = followUp or nil })
+                        day = Store.dayIndex(t.dayKey), followUp = followUp or nil }, (not mode) and speaker or nil)
+            -- 곁의 동료와 방금 들은 말을 두고 대화
+            if not mode and speaker and StoryEngine.Banter then
+                local okB, errB = pcall(StoryEngine.Banter.onRadio, speaker, fid, json.reply)
+                if not okB then log("banter radio error:", errB) end
+            end
 
             -- 거래 제안: 게임 규칙으로 다시 검증한 뒤 퀘스트로 만들고, 대화 기록에 조건을 남긴다
             local action = speaker and Trade and type(json.trade) == "table" and json.trade.action or nil
-            if action == "offer" or action == "refuse" or action == "gift" then
+            if trade.negotiating then
+                -- 답을 기다리는 제안에 대한 흥정: 조건 변경 또는 제안 철회
+                if action == "counter" or action == "withdraw" then
+                    local ok, q, how = pcall(Trade.negotiate, fid, speaker, json.trade)
+                    if not ok then
+                        log("trade haggle error:", q)
+                    elseif q and how == "counter" then
+                        push(fid, { from = "system", clock = t.clock, quest = q.id, revised = {
+                            goods = q.goods, payCategory = q.payCategory, price = q.price,
+                            oldPrice = q.oldPrice, oldPayCategory = q.oldPayCategory } })
+                    elseif q and how == "withdraw" then
+                        push(fid, { from = "system", clock = t.clock, quest = q.id, withdrawn = true })
+                    end
+                end
+            elseif action == "offer" or action == "refuse" or action == "gift" then
                 -- 물건을 청한 것으로 센다 (너무 잦으면 의심)
                 local okR, errR = pcall(Trade.recordRequest, fid, speaker)
                 if not okR then log("trade request count error:", errR) end
-            end
-            if action == "offer" or action == "gift" then
-                local ok, deal, how = pcall(Trade.fromReply, fid, speaker, json.trade)
+                local ok, deal, how, info
+                if action == "refuse" then
+                    -- 신뢰도 한도 때문에 거절했으면 무엇이 얼마나 모자란지 알린다
+                    ok, info = pcall(Trade.blocked, fid, json.trade.category, json.trade.tier)
+                    how = ok and info and "blocked" or nil
+                else
+                    ok, deal, how, info = pcall(Trade.fromReply, fid, speaker, json.trade)
+                end
                 if not ok then
-                    log("trade error:", deal)
+                    log("trade error:", deal or info)
                 elseif deal and how == "gift" then
                     push(fid, { from = "system", clock = t.clock, quest = deal.id, gift = { goods = deal.items } })
                 elseif deal then
                     push(fid, { from = "system", clock = t.clock, quest = deal.id,
                                 offer = { goods = deal.goods, payCategory = deal.payCategory, price = deal.price } })
+                elseif how == "blocked" and info then
+                    push(fid, { from = "system", clock = t.clock, blocked = info })
                 end
             end
         elseif followUp then
@@ -281,7 +345,7 @@ end)
 
 -- 플레이어 발언. 성공하면 true, 실패하면 false, 오류 코드
 function Radio.say(player, fid, text)
-    if not Factions.byId[fid] then return false, "unknown_faction" end
+    if not Factions.byId[fid] and fid ~= Radio.OPEN then return false, "unknown_faction" end
     text = trim(string.sub(tostring(text or ""), 1, Radio.MAX_TEXT))
     if text == "" then return false, "empty" end
     if not Factions.canTalk(player) then return false, "no_radio" end
@@ -290,22 +354,26 @@ function Radio.say(player, fid, text)
     if limited then return false, limited end
 
     local now = Sensor.now()
-    push(fid, { from = "player", name = ps.name, text = text, clock = now.clock, day = Store.dayIndex(now.dayKey) })
+    local day = Store.dayIndex(now.dayKey)
+    push(fid, { from = "player", name = ps.name, text = text, clock = now.clock, day = day })
     Radio.speaker[fid] = ps
-
-    -- 다음 일지에 "누구와 교신했다"를 한 번만 남긴다 (발언 내용은 넣지 않는다)
-    local noted = false
-    for _, n in ipairs(ps.notes or {}) do
-        if n.kind == "radio_contact" and n.faction == fid then noted = true end
+    -- 일지에는 실제 발언과 답장을 넘긴다 (Radio.logLine)
+    Radio.logLine(ps, fid, "player", text, now.clock, day)
+    Radio.channel(fid).lastPlayerT = now.t
+    if fid == Radio.OPEN then
+        -- 공용 주파수: NPC 들이 각자 반응하고 서로 이야기한다
+        if StoryEngine.Social then StoryEngine.Social.onOpenSay(ps, text) end
+        return true
     end
-    if not noted then Store.addNote(ps, { kind = "radio_contact", faction = fid, clock = now.clock }) end
 
     Radio.request(fid, ps.lang or Radio.langFor(fid))
     return true
 end
 
 function Radio.channelList()
-    local out = {}
+    local open = Radio.channel(Radio.OPEN)
+    local out = { { id = Radio.OPEN, freq = "121.5", open = true, seq = open.seq, busy = StoryEngine.Social
+        and StoryEngine.Social.sceneBusy == true or false } }
     for _, f in ipairs(Factions.list) do
         local ch = Radio.channel(f.id)
         out[#out + 1] = { id = f.id, freq = f.freq, trust = ch.trust, seq = ch.seq, busy = Radio.busy[f.id] == true,
@@ -315,7 +383,7 @@ function Radio.channelList()
 end
 
 function Radio.history(fid)
-    if not Factions.byId[fid] then return {} end
+    if not Factions.byId[fid] and fid ~= Radio.OPEN then return {} end
     local ch = Radio.channel(fid)
     local out = {}
     for i = math.max(1, #ch.messages - Radio.CLIENT_HISTORY + 1), #ch.messages do

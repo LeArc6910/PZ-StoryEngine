@@ -17,6 +17,9 @@ require "StoryEngine/Monologue"
 require "StoryEngine/Diag"
 require "StoryEngine/Summary"
 require "StoryEngine/Hunt"
+require "StoryEngine/ALife"
+require "StoryEngine/Banter"
+require "StoryEngine/Social"
 
 local Net = StoryEngine.Net
 local Bridge = StoryEngine.Bridge
@@ -84,16 +87,94 @@ function Commands.hello(player, args)
     reply(player, "status", { state = Bridge.state })
 end
 
+-- 일지 목록. args.key 가 있으면 그 사람의 일지 (서버의 모든 플레이어 일지를 읽을 수 있다)
 function Commands.journalList(player, args)
-    local ps = StoryEngine.Store.player(player)
-    reply(player, "journalList", { entries = StoryEngine.Journal.list(ps) })
+    local own = StoryEngine.Store.player(player)
+    local ps = own
+    if type(args.key) == "string" and StoryEngine.Store.data().players[args.key] then
+        ps = StoryEngine.Store.data().players[args.key]
+    end
+    if args.memoir then
+        -- 회고록과 살아 있는 사람들의 추모
+        local m = StoryEngine.Journal.memoirOf(ps)
+        reply(player, "journalList", {
+            key = ps.key, own = own.key, memoir = true, name = ps.name,
+            entries = m and { m } or {}, comments = ps.memoirComments or {},
+            authors = StoryEngine.Journal.authors(own.key),
+        })
+        return
+    end
+    reply(player, "journalList", {
+        key = ps.key, own = own.key, entries = StoryEngine.Journal.list(ps),
+        authors = StoryEngine.Journal.authors(own.key),
+    })
 end
 
 function Commands.radioChannels(player, args)
     reply(player, "radioChannels", {
         channels = StoryEngine.Radio.channelList(),
         hasRadio = StoryEngine.Factions.canTalk(player),
+        support = StoryEngine.ALife.channelInfo(),     -- A-Life 연동이 켜져 있을 때만 (세력별 지원 가능 여부)
     })
+end
+
+-- A-Life 연동: 이 세력에 무장 지원을 요청한다
+function Commands.supportRequest(player, args)
+    local fid = tostring(args.faction or "")
+    if not StoryEngine.Factions.canTalk(player) then
+        reply(player, "supportResult", { ok = false, error = "no_radio", faction = fid })
+        return
+    end
+    local ok, info, wait = StoryEngine.ALife.request(player, fid)
+    reply(player, "supportResult", {
+        ok = ok, faction = fid, error = (not ok) and tostring(info) or nil,
+        count = ok and info.count or nil, wait = wait,
+    })
+    reply(player, "radioChannels", {
+        channels = StoryEngine.Radio.channelList(), hasRadio = StoryEngine.Factions.canTalk(player),
+        support = StoryEngine.ALife.channelInfo(),
+    })
+end
+
+-- 디버그: 세력 신뢰도 조절. args = { faction, delta } 또는 { faction, set }
+function Commands.debugTrust(player, args)
+    if not canUseDebug(player) then return end
+    local fid = tostring(args.faction or "")
+    if not StoryEngine.Factions.byId[fid] then
+        reply(player, "debugStatus", { text = "trust: unknown faction " .. fid })
+        return
+    end
+    local ch = StoryEngine.Radio.channel(fid)
+    local delta = math.floor(tonumber(args.delta) or 0)
+    if args.set ~= nil then delta = math.floor(tonumber(args.set) or ch.trust) - ch.trust end
+    StoryEngine.Trust.apply(fid, delta, "debug", nil, StoryEngine.Store.playerKey(player))
+    reply(player, "debugStatus", { text = "trust " .. fid .. " = " .. StoryEngine.intToString(ch.trust) })
+    reply(player, "radioChannels", {
+        channels = StoryEngine.Radio.channelList(), hasRadio = StoryEngine.Factions.canTalk(player),
+        support = StoryEngine.ALife.channelInfo(),
+    })
+end
+
+-- 디버그: 곁의 동료와 바로 잡담 (간격 무시)
+function Commands.debugBanter(player, args)
+    if not canUseDebug(player) then return end
+    local ok, why = StoryEngine.Banter.debug(player)
+    reply(player, "debugStatus", { text = ok and "banter requested" or ("banter: " .. tostring(why or "busy")) })
+end
+
+function Commands.debugALifeSupport(player, args)
+    if not canUseDebug(player) then return end
+    local fid = tostring(args.faction or "guard")
+    local ok, info = StoryEngine.ALife.sendSupport(player, fid, "debug", nil, 3)
+    reply(player, "debugStatus", { text = "alife support " .. fid .. ": " .. (ok and ("x" .. tostring(info.count)
+        .. " " .. tostring(info.factionId)) or tostring(info)) })
+end
+
+function Commands.debugALifeAttack(player, args)
+    if not canUseDebug(player) then return end
+    local ok, info = StoryEngine.ALife.sendAttack(player, "rats")
+    reply(player, "debugStatus", { text = "alife attack rats: " .. (ok and ("x" .. tostring(info.count) .. " "
+        .. tostring(info.factionId)) or tostring(info)) })
 end
 
 function Commands.radioHistory(player, args)
@@ -110,6 +191,11 @@ end
 function Commands.questList(player, args)
     local ps = StoryEngine.Store.player(player)
     reply(player, "questList", { quests = StoryEngine.Quests.listFor(ps.key, StoryEngine.Sensor.now()) })
+end
+
+-- 일지용 행동 보고 (클라이언트 Activity.lua, 게임 내 1분마다 모아서)
+function Commands.activity(player, args)
+    StoryEngine.Sensor.recordActivity(player, args.list)
 end
 
 -- 멀티에서 서버 OnPlayerDeath 가 오지 않을 때를 대비한 클라이언트 보고
@@ -203,6 +289,45 @@ function Commands.questRespond(player, args)
     reply(player, "questRespondResult", { ok = ok, accept = accept, error = not ok and why or nil })
 end
 
+-- 위기 선택: args = { id, index }
+function Commands.questChoose(player, args)
+    local ok, why = StoryEngine.Quests.choose(player, tostring(args.id or ""), args.index)
+    reply(player, "questRespondResult", { ok = ok, accept = true, error = not ok and why or nil })
+end
+
+-- 디버그: NPC 가 먼저 연락 / 공용 주파수 장면 / 위기
+function Commands.debugContact(player, args)
+    if not canUseDebug(player) then return end
+    local ok, what = StoryEngine.Social.debugContact()
+    reply(player, "debugStatus", { text = "contact: " .. tostring(what) })
+end
+
+function Commands.debugScene(player, args)
+    if not canUseDebug(player) then return end
+    local ok = StoryEngine.Social.scene(nil)
+    reply(player, "debugStatus", { text = ok and "open channel scene requested" or "scene busy" })
+end
+
+function Commands.debugCrisis(player, args)
+    if not canUseDebug(player) then return end
+    local ok, what = StoryEngine.Social.startCrisis(StoryEngine.Sensor.now())
+    reply(player, "debugStatus", { text = "crisis: " .. tostring(what) })
+end
+
+-- 디버그: 모든 NPC 이야기를 다음 단계로 (퀘스트 노드는 바로 부탁)
+function Commands.debugStory(player, args)
+    if not canUseDebug(player) then return end
+    local Social, Stories = StoryEngine.Social, StoryEngine.Stories
+    local now = StoryEngine.Sensor.now()
+    local fid = tostring(args.faction or "")
+    if StoryEngine.Factions.byId[fid] then
+        local st = Social.story(fid)
+        st.since = now.t - 30 * 24 * 60
+        Social.advance(fid, now)
+    end
+    reply(player, "debugStatus", { text = Social.debugStatus() })
+end
+
 -- 거래 대가 제출: args.items = 아이템 ID 목록
 function Commands.tradePay(player, args)
     local ids = {}
@@ -225,7 +350,8 @@ end
 function Commands.debugStatus(player, args)
     if not canUseDebug(player) then return end
     StoryEngine.Sensor.tick()   -- 10분을 기다리지 않고 바로 한 번 샘플링
-    reply(player, "debugStatus", { text = StoryEngine.Sensor.statusText(player) })
+    reply(player, "debugStatus", { text = StoryEngine.Sensor.statusText(player) .. " | " .. StoryEngine.ALife.statusText()
+        .. " | " .. StoryEngine.Social.debugStatus() })
 end
 
 local function onClientCommand(module, command, player, args)

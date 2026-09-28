@@ -105,6 +105,8 @@ local function lineFor(m)
     if m.from == "player" then return tostring(m.name or "someone") .. ": " .. string.sub(tostring(m.text or ""), 1, 200) end
     if m.from == "npc" then return "You: " .. string.sub(tostring(m.text or ""), 1, 200) end
     if m.from == "system" and m.offer then return "(you offered them a trade)" end
+    if m.from == "system" and m.revised then return "(you changed the terms of your trade offer after haggling)" end
+    if m.from == "system" and m.withdrawn then return "(you called off your trade offer)" end
     if m.from == "system" and m.trust then
         return "(your trust in them changed by " .. tostring(m.trust) .. ": " .. tostring(m.reason) .. ")"
     end

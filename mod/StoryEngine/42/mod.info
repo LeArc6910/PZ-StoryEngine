@@ -1,7 +1,7 @@
-name=StoryEngine
-id=StoryEngine
+name=AI Story Engine [DEV]
+id=StoryEngineDev
 description=AI story engine: radio contacts, AI director, quests, survival journal and inner monologue. AI features need the StoryEngine bridge running on the host/server PC; players who join only need this mod.
 poster=poster.png
 icon=icon.png
-modversion=0.1.0
+modversion=0.2.0
 versionMin=42.20
