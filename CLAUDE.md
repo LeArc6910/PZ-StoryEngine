@@ -113,7 +113,7 @@ LLM에는 3층만 전달. 1층 원시 데이터는 절대 프롬프트에 직접
 
 ## 배포 (2026-09-27)
 
-- 창작마당: https://steamcommunity.com/sharedfiles/filedetails/?id=3808950035 (업로드 폴더 `%USERPROFILE%\Zomboid\Workshop\StoryEngine`, 갱신은 `sync_workshop.bat` 후 게임 업로더)
+- 창작마당: https://steamcommunity.com/sharedfiles/filedetails/?id=3808950035 (업로드 폴더 `%USERPROFILE%\Zomboid\Workshop\StoryEngine`, 갱신은 `sync_workshop.bat` 후 게임 업로더). 0.2.0 업로드 완료(2026-09-28, 브릿지 v0.2.0과 짝)
 - **개발판과 배포판 구분 (2026-09-28)**: 저장소 `mod.info`는 개발판 `id=StoryEngineDev`, `name=AI Story Engine [DEV]` (`Zomboid\mods\StoryEngine` 링크로 로드). `sync_workshop.bat`이 업로드 폴더로 복사한 뒤 사본만 배포판 `id=StoryEngine`, `name=AI Story Engine`으로 바꾼다. Lua 경로가 같아 **두 판을 한 세이브에서 동시에 켜면 안 된다**. 로컬 설정(`mods/default.txt`, `Server/test.ini`의 `Mods=`, 기존 싱글 세이브 `mods.txt`)은 `StoryEngineDev`로 바꿔 둠(`.bak-storyengine` 백업)
 - 모드 저장소(공개): https://github.com/skditjdqja12/PZ-StoryEngine — 이 폴더. `bridge/`는 `.gitignore`로 제외
 - 브릿지 저장소(공개): https://github.com/skditjdqja12/PZ-StoryEngine-Bridge — `bridge/` 폴더가 별도 git 저장소. 릴리스 v0.1.0, v0.2.0(2026-09-28, 최신)에 Windows zip(+SHA256). 모드 `modversion`도 0.2.0. 새 버전은 `BRIDGE_VERSION` 올리고 `python build_release.py` → `gh release create`
