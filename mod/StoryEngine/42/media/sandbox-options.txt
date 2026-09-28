@@ -48,6 +48,24 @@ option StoryEngine.RequireRadio
 	page = StoryEngine, translation = StoryEngine_RequireRadio,
 }
 
+option StoryEngine.Social
+{
+	type = boolean, default = true,
+	page = StoryEngine, translation = StoryEngine_Social,
+}
+
+option StoryEngine.Banter
+{
+	type = boolean, default = true,
+	page = StoryEngine, translation = StoryEngine_Banter,
+}
+
+option StoryEngine.ALifeSupport
+{
+	type = boolean, default = true,
+	page = StoryEngine, translation = StoryEngine_ALifeSupport,
+}
+
 option StoryEngine.ModItemsRatio
 {
 	type = integer, min = 0, max = 100, default = 40,

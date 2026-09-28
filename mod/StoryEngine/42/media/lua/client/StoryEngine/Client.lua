@@ -60,14 +60,22 @@ end
 
 function Client.handlers.journalList(args)
     Cache.journal = args.entries or {}
+    Cache.journalAuthors = args.authors or Cache.journalAuthors or {}
+    Cache.journalKey = args.key
+    Cache.journalOwn = args.own
+    Cache.journalMemoir = args.memoir == true
+    Cache.journalComments = args.comments or {}
+    Cache.journalName = args.name
     StoryEngineMainWindow.refreshIfOpen("journal")
 end
 
+-- 누군가의 새 일지. 내 일지면 알림, 창이 열려 있으면 보고 있는 사람의 목록을 새로 받는다.
 function Client.handlers.journalNew(args)
     local player = getPlayer()
-    if player then
-        HaloTextHelper.addGoodText(player, getText("IGUI_StoryEngine_JournalWritten"))
-        if StoryEngineMainWindow.instance then Net.toServer(player, "journalList", {}) end
+    if not player then return end
+    if args.own then HaloTextHelper.addGoodText(player, getText("IGUI_StoryEngine_JournalWritten")) end
+    if StoryEngineMainWindow.instance then
+        Net.toServer(player, "journalList", { key = Cache.journalKey, memoir = Cache.journalMemoir or nil })
     end
 end
 
@@ -145,6 +153,7 @@ end
 
 function Client.handlers.radioChannels(args)
     Cache.hasRadio = args.hasRadio == true
+    Cache.support = args.support         -- A-Life 연동 (없으면 nil)
     for _, ch in ipairs(args.channels or {}) do Cache.channels[ch.id] = ch end
     StoryEngineMainWindow.refreshIfOpen("radio")
 end
@@ -181,6 +190,68 @@ function Client.handlers.radioMessage(args)
     StoryEngineMainWindow.refreshIfOpen("radio")
 end
 
+-- 캐릭터끼리의 대화: 말한 캐릭터 머리 위에 차례로 (Banter.lua)
+Client.BANTER_COLOR = { 1.0, 0.93, 0.75 }
+Client.banterQueue = {}
+
+local function findSpeaker(line)
+    if line.speaker and line.speaker >= 0 then
+        local ok, p = pcall(getPlayerByOnlineID, line.speaker)
+        if ok and p then return p end
+    end
+    -- 화면 분할처럼 online ID 가 없으면 이름으로
+    for i = 0, getNumActivePlayers() - 1 do
+        local p = getSpecificPlayer(i)
+        if p then
+            local d = p:getDescriptor()
+            if d and (d:getForename() .. " " .. d:getSurname()) == line.name then return p end
+        end
+    end
+    return nil
+end
+
+function Client.handlers.banter(args)
+    local now = getTimestampMs()
+    for _, l in ipairs(args.lines or {}) do
+        Client.banterQueue[#Client.banterQueue + 1] = { at = now + (tonumber(l.delay) or 0), line = l }
+    end
+end
+
+Events.OnTick.Add(function()
+    if #Client.banterQueue == 0 then return end
+    local now = getTimestampMs()
+    local keep = {}
+    for _, q in ipairs(Client.banterQueue) do
+        if now >= q.at then
+            local p = findSpeaker(q.line)
+            if p and not p:isDead() then
+                local c = Client.BANTER_COLOR
+                local ok = pcall(function() p:addLineChatElement(tostring(q.line.text), c[1], c[2], c[3]) end)
+                if not ok then pcall(function() p:Say(tostring(q.line.text)) end) end
+            end
+        else
+            keep[#keep + 1] = q
+        end
+    end
+    Client.banterQueue = keep
+end)
+
+-- A-Life 지원 요청 결과
+function Client.handlers.supportResult(args)
+    local player = getPlayer()
+    if not player then return end
+    local name = StoryEngine.Factions.name(args.faction)
+    if args.ok then
+        HaloTextHelper.addGoodText(player, getText("IGUI_StoryEngine_Support_Sent", name,
+            StoryEngine.intToString(args.count or 0)))
+        return
+    end
+    local key = "IGUI_StoryEngine_Support_Error_" .. tostring(args.error)
+    local text = getTextOrNull(key) and getText(key, StoryEngine.intToString(args.wait or 0))
+        or getText("IGUI_StoryEngine_Support_Error", tostring(args.error))
+    HaloTextHelper.addBadText(player, text)
+end
+
 function Client.handlers.radioError(args)
     local player = getPlayer()
     if not player then return end
@@ -198,13 +269,21 @@ end
 -- 멀티에서도 다른 플레이어에게 보이지 않는다. 실패하면 Say 로 대신한다.
 Client.MONO_COLOR = { 0.72, 0.82, 1.0 }
 
+-- 혼잣말: 말한 사람 머리 위에 띄운다. 멀티에서는 근처 플레이어도 받아서 그 사람 머리 위에 본다.
 function Client.handlers.monologue(args)
-    local player = getPlayer()
+    local speaker = nil
+    if args.own then
+        speaker = getPlayer()
+    elseif args.speaker then
+        local ok, found = pcall(getPlayerByOnlineID, args.speaker)
+        if ok then speaker = found end
+    end
+    speaker = speaker or (not args.speaker and getPlayer()) or nil
     local text = StoryEngine.UI.textOf(args)
-    if not player or text == "" or player:isDead() then return end
+    if not speaker or text == "" or speaker:isDead() then return end
     local c = Client.MONO_COLOR
-    local ok = pcall(function() player:addLineChatElement(text, c[1], c[2], c[3]) end)
-    if not ok then player:Say(text) end
+    local ok = pcall(function() speaker:addLineChatElement(text, c[1], c[2], c[3]) end)
+    if not ok and args.own then speaker:Say(text) end
 end
 
 -- 멀티 진단: 클라이언트가 보는 값과 이벤트 수
@@ -319,7 +398,39 @@ local function onFillWorldObjectContextMenu(playerNum, context, worldobjects, te
     context:addOption(getText("ContextMenu_StoryEngine_Horde"), worldobjects, send("debugHorde"), playerNum)
     context:addOption(getText("ContextMenu_StoryEngine_Event"), worldobjects, send("debugEvent"), playerNum)
     context:addOption(getText("ContextMenu_StoryEngine_HuntNear"), worldobjects, send("debugHuntNear"), playerNum)
+    context:addOption(getText("ContextMenu_StoryEngine_ALifeSupport"), worldobjects, function()
+        local p = getSpecificPlayer(playerNum)
+        if p then Net.toServer(p, "debugALifeSupport", { faction = Cache.faction }) end
+    end)
+    context:addOption(getText("ContextMenu_StoryEngine_ALifeAttack"), worldobjects, send("debugALifeAttack"), playerNum)
+    -- 신뢰도 조절: 교신 탭에서 고른 상대
+    local fid = Cache.faction
+    local trustOption = context:addOption(getText("ContextMenu_StoryEngine_Trust", StoryEngine.Factions.name(fid)), worldobjects, nil)
+    local sub = ISContextMenu:getNew(context)
+    context:addSubMenu(trustOption, sub)
+    local function trust(args)
+        return function()
+            local p = getSpecificPlayer(playerNum)
+            if p then
+                args.faction = fid
+                Net.toServer(p, "debugTrust", args)
+            end
+        end
+    end
+    sub:addOption("+10", worldobjects, trust({ delta = 10 }))
+    sub:addOption("-10", worldobjects, trust({ delta = -10 }))
+    for _, v in ipairs({ 0, 20, 40, 50, 60, 70, 80, 90, 100 }) do
+        sub:addOption("= " .. tostring(v), worldobjects, trust({ set = v }))
+    end
     context:addOption(getText("ContextMenu_StoryEngine_Monologue"), worldobjects, send("debugMonologue"), playerNum)
+    context:addOption(getText("ContextMenu_StoryEngine_Banter"), worldobjects, send("debugBanter"), playerNum)
+    context:addOption(getText("ContextMenu_StoryEngine_Contact"), worldobjects, send("debugContact"), playerNum)
+    context:addOption(getText("ContextMenu_StoryEngine_Scene"), worldobjects, send("debugScene"), playerNum)
+    context:addOption(getText("ContextMenu_StoryEngine_Crisis"), worldobjects, send("debugCrisis"), playerNum)
+    context:addOption(getText("ContextMenu_StoryEngine_Story", StoryEngine.Factions.name(Cache.faction)), worldobjects, function()
+        local p = getSpecificPlayer(playerNum)
+        if p then Net.toServer(p, "debugStory", { faction = Cache.faction }) end
+    end)
     context:addOption(getText("ContextMenu_StoryEngine_Sync"), worldobjects, send("debugSync"), playerNum)
     context:addOption(getText("ContextMenu_StoryEngine_ItemPool"), worldobjects, send("debugItems"), playerNum)
     context:addOption(getText("ContextMenu_StoryEngine_Quests"), worldobjects, send("debugQuests"), playerNum)

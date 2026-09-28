@@ -37,6 +37,7 @@ Monologue.STALE_MS = 45000             -- 응답이 이보다 늦으면 말하�
 Monologue.TIMEOUT_MS = 40000
 Monologue.MAX_SAID = 8
 Monologue.MAX_BYTES = 300
+Monologue.HEAR_RADIUS = 60              -- 이 거리(타일) 안의 다른 플레이어에게도 혼잣말이 보인다
 Monologue.LOW_HEALTH = 45
 Monologue.TOWN_RADIUS = 250
 Monologue.KILL_MARKS = { 10, 25, 50, 100, 200, 500, 1000 }
@@ -148,8 +149,17 @@ local function speak(player, ps, trig, text, source)
         Store.push(state(ps).said, text, Monologue.MAX_SAID)
         log("monologue", ps.name, trig, source, text)
     end
-    local ok, err = pcall(Net.toClient, player, "monologue", args)
-    if not ok then log("monologue send failed:", err) end
+    -- 멀티: 근처 플레이어에게도 보내 말한 사람 머리 위에 뜨게 한다 (클라이언트가 online ID 로 찾음)
+    args.speaker = player:getOnlineID()
+    local px, py = player:getX(), player:getY()
+    for _, p in ipairs(Sensor.players()) do
+        local dx, dy = p:getX() - px, p:getY() - py
+        if p == player or dx * dx + dy * dy <= Monologue.HEAR_RADIUS * Monologue.HEAR_RADIUS then
+            args.own = p == player or nil
+            local ok, err = pcall(Net.toClient, p, "monologue", args)
+            if not ok then log("monologue send failed:", err) end
+        end
+    end
 end
 
 function Monologue.fallbackText(trig, info)
@@ -240,6 +250,8 @@ end
 function Monologue.fire(player, ps, trig, info, force)
     local def = Monologue.TRIGGERS[trig]
     if not def or not player or ps.dead then return false end
+    -- 동료가 곁에 있으면 혼잣말 대신 대화 (Banter.lua)
+    if not force and StoryEngine.Banter and StoryEngine.Banter.onEvent(player, trig, info) then return true end
     if not Monologue.enabled() and not force then return false end
     local m = state(ps)
     local now = Sensor.now()
@@ -343,7 +355,8 @@ local function baseline(ps, s)
 end
 
 function Monologue.check()
-    if not Monologue.enabled() then return end
+    -- 대화(Banter)도 같은 계기를 쓰므로 둘 중 하나라도 켜져 있으면 판정한다
+    if not Monologue.enabled() and not (StoryEngine.Banter and StoryEngine.Banter.enabled()) then return end
     local players = Sensor.players()
     if #players == 0 then return end
     local now = Sensor.now()

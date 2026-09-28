@@ -8,7 +8,7 @@
     "Sandbox_StoryEngine_MonologueGap_tooltip": "Least time between two thoughts of the same character. Bites, low health and first kill ignore this.",
     "Sandbox_StoryEngine_RequireRadio": "Require a two-way radio",
     "Sandbox_StoryEngine_RequireRadio_tooltip": "When on, talking to radio contacts, handing over items and paying for trades need a walkie-talkie or ham radio (carried, or placed within 2 tiles).",
-    "Sandbox_StoryEngine_ModItemsRatio": "Other mods' items in rewards (%)",
+    "Sandbox_StoryEngine_ModItemsRatio": "Other mods' items in rewards (%%)",
     "Sandbox_StoryEngine_ModItemsRatio_tooltip": "Chance that food, melee weapons and guns in rewards and trades are swapped for similar items from all installed items (including other mods). 0 = vanilla lists only.",
     "Sandbox_StoryEngine_Director": "AI director",
     "Sandbox_StoryEngine_Director_tooltip": "Twice a day (08:00, 20:00) the AI picks an event: supplies, storms, requests from radio contacts, hordes, helicopters, distress calls.",
@@ -17,5 +17,11 @@
     "Sandbox_StoryEngine_DangerEvents": "Director: hordes and helicopters",
     "Sandbox_StoryEngine_DangerEvents_tooltip": "Allow the director to send a small horde toward a survivor, or a helicopter over the area.",
     "Sandbox_StoryEngine_Journal": "Survival journal",
-    "Sandbox_StoryEngine_Journal_tooltip": "The AI writes a diary entry when a character sleeps, and a memoir when they die."
+    "Sandbox_StoryEngine_Journal_tooltip": "The AI writes a diary entry every midnight and a memoir when a character dies. Players can read each other's journals.",
+    "Sandbox_StoryEngine_ALifeSupport": "Project A-Life integration (backup and attacks)",
+    "Sandbox_StoryEngine_ALifeSupport_tooltip": "When Project A-Life is running: contacts with trust 50+ can send armed backup on request, and at 70+ they come on their own (once every 3 days) when you are in serious danger or under attack: A-Life raids and robberies, or this mod's chasing hordes and armed gangs. Ignoring a threat brings that group's armed men instead of a horde.",
+    "Sandbox_StoryEngine_Banter": "Characters talk to each other (multiplayer)",
+    "Sandbox_StoryEngine_Banter_tooltip": "When characters are within 10 tiles of each other, the AI writes a short exchange every 3 in-game hours, and right away when something happens (fighting together, a bite, a horde closing in, quests, radio news, a death). Shown above their heads and kept in the journal. With a companion nearby, this replaces the solo monologue.",
+    "Sandbox_StoryEngine_Social": "NPC social life (calls, stories, open channel, crises)",
+    "Sandbox_StoryEngine_Social_tooltip": "Contacts call you 4-6 times a day even without business, each has a personal story that branches on linked quests, they talk among themselves on an open channel, and sometimes several of them ask for help at once so you have to choose."
 }
