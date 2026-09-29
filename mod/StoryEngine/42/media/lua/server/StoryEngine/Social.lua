@@ -34,7 +34,7 @@ local log = StoryEngine.log
 
 local Social = {
     sceneBusy = false,
-    sceneAgain = nil,       -- 장면을 만드는 동안 플레이어가 또 말하면 끝난 뒤 한 번 더
+    sceneAgain = nil,       -- 장면을 만드는 동안 플레이어가 또 말하면 끝난 뒤 한 번 더 { said, cut }
 }
 StoryEngine.Social = Social
 
@@ -50,6 +50,8 @@ Social.NEAR_DIST = 600                   -- 이 거리 안에 다녀가면 그 N
 Social.SILENT_MIN = 3 * 24 * 60
 Social.SCENE_LOG = 12
 Social.MAX_SCENE_LINES = 6
+Social.SCENE_LINE_GAP = { 20, 40 }       -- 공용 주파수 장면은 한 줄씩 이 간격으로 (게임 분), 사이에 끼어들 수 있다
+Social.REPLY_LINE_GAP = { 8, 12 }        -- 플레이어에게 답하는 장면: 첫 줄은 바로, 나머지는 조금 빨리
 
 function Social.enabled()
     return StoryEngine.option("Social", true) == true
@@ -477,10 +479,35 @@ local function sceneTopic(ids)
     return "Evening chatter on the open channel: the weather, supplies, the dead, and old times before the outbreak."
 end
 
--- 공용 주파수 장면. said = { name, text } 이면 플레이어의 말에 반응한다
-function Social.scene(said)
+-- 장면의 다음 줄을 공용 주파수에 내보낸다. 남은 줄이 없으면 장면 끝
+local function releaseLine(s, now)
+    local p = s.pending
+    if not p then return end
+    local l = table.remove(p.lines, 1)
+    if l then
+        Radio.push(Social.OPEN, { from = "npc", npc = l.npc, text = l.text,
+                                  clock = now.clock, day = Store.dayIndex(now.dayKey) })
+    end
+    if #p.lines == 0 then
+        s.pending = nil
+    else
+        p.nextT = now.t + rand(p.gap or Social.SCENE_LINE_GAP)
+    end
+end
+
+-- 게임 내 1분마다: 기다리던 줄을 내보낸다 (접속자가 없으면 멈춤)
+function Social.release()
+    local s = state()
+    if not s.pending or #Sensor.players() == 0 then return end
+    local now = Sensor.now()
+    if now.t >= (s.pending.nextT or 0) then releaseLine(s, now) end
+end
+
+-- 공용 주파수 장면. said = { name, text } 이면 플레이어의 말에 반응한다.
+-- cut = 플레이어가 끼어들어 끊긴 대화의 주제 (AI 에게 알려 준다)
+function Social.scene(said, cut)
     if Social.sceneBusy then
-        if said then Social.sceneAgain = said end
+        if said then Social.sceneAgain = { said = said, cut = cut } end
         return false
     end
     if #Sensor.players() == 0 then return false end
@@ -503,40 +530,58 @@ function Social.scene(said)
     local now = Sensor.now()
     local payload = {
         lang = Radio.langFor(Social.OPEN), participants = parts, log = openLog(), players = players,
-        said = said, topic = (not said) and sceneTopic(ids) or nil,
+        said = said, topic = (not said) and sceneTopic(ids) or nil, interrupted = cut,
         day = Store.dayIndex(now.dayKey), clock = now.clock,
     }
     log("open scene", said and "reply" or "scheduled", table.concat(ids, ","))
     Bridge.request("radio_scene", payload, function(res)
         Social.sceneBusy = false
-        local valid = {}
-        for _, fid in ipairs(ids) do valid[fid] = true end
-        local lines = res.ok and res.json and res.json.lines
-        local t = Sensor.now()
-        local n = 0
-        if type(lines) == "table" then
-            for _, l in ipairs(lines) do
-                if type(l) == "table" and valid[l.speaker] and type(l.text) == "string" and l.text ~= ""
-                    and n < Social.MAX_SCENE_LINES then
-                    n = n + 1
-                    Radio.push(Social.OPEN, { from = "npc", npc = l.speaker, text = string.sub(l.text, 1, Radio.MAX_REPLY),
-                                              clock = t.clock, day = Store.dayIndex(t.dayKey) })
-                end
-            end
-        end
-        if n == 0 then log("open scene failed", tostring(res.error)) end
+        -- 만드는 동안 플레이어가 또 말했으면 이 장면은 버리고 그 말에 반응한다 (기록에 두 말이 모두 있다)
         if Social.sceneAgain then
             local again = Social.sceneAgain
             Social.sceneAgain = nil
-            Social.scene(again)
+            Social.scene(again.said, again.cut)
+            return
         end
+        local valid = {}
+        for _, fid in ipairs(ids) do valid[fid] = true end
+        local lines = res.ok and res.json and res.json.lines
+        local queue = {}
+        if type(lines) == "table" then
+            for _, l in ipairs(lines) do
+                if type(l) == "table" and valid[l.speaker] and type(l.text) == "string" and l.text ~= ""
+                    and #queue < Social.MAX_SCENE_LINES then
+                    queue[#queue + 1] = { npc = l.speaker, text = string.sub(l.text, 1, Radio.MAX_REPLY) }
+                end
+            end
+        end
+        if #queue == 0 then
+            log("open scene failed", tostring(res.error))
+            return
+        end
+        -- 첫 줄은 바로, 나머지는 한 줄씩 (Social.release)
+        local s = state()
+        s.pending = {
+            lines = queue,
+            gap = said and Social.REPLY_LINE_GAP or Social.SCENE_LINE_GAP,
+            topic = said and ("answering " .. tostring(said.name) .. ': "' .. string.sub(tostring(said.text), 1, 200) .. '"')
+                or payload.topic,
+        }
+        releaseLine(s, Sensor.now())
     end, { timeoutMs = 60000 })
     return true
 end
 
--- 플레이어가 공용 주파수에서 말했다 (Radio.say)
+-- 플레이어가 공용 주파수에서 말했다 (Radio.say). 아직 안 나간 줄은 버리고 그 말에 반응한다
 function Social.onOpenSay(ps, text)
-    Social.scene({ name = ps.name, text = text })
+    local s = state()
+    local cut = nil
+    if s.pending then
+        cut = s.pending.topic
+        log("open scene interrupted,", #s.pending.lines, "lines dropped")
+        s.pending = nil
+    end
+    Social.scene({ name = ps.name, text = text }, cut)
 end
 
 -- ---------------------------------------------------------------- ticks
@@ -553,7 +598,7 @@ function Social.tick()
         if c then Social.contact(c, now) end
         s.nextContactT = now.t + rand(Social.CONTACT_GAP)
     end
-    if now.t >= s.nextSceneT and not Social.sceneBusy then
+    if now.t >= s.nextSceneT and not Social.sceneBusy and not s.pending then
         Social.scene(nil)
         s.nextSceneT = now.t + rand(Social.SCENE_GAP)
     end
@@ -601,6 +646,10 @@ end
 Events.EveryTenMinutes.Add(function()
     local ok, err = pcall(Social.tick)
     if not ok then log("social tick error:", err) end
+end)
+Events.EveryOneMinute.Add(function()
+    local ok, err = pcall(Social.release)
+    if not ok then log("social release error:", err) end
 end)
 Events.EveryHours.Add(function()
     local ok, err = pcall(Social.hourly)

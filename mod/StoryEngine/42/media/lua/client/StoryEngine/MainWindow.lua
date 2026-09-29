@@ -805,10 +805,26 @@ function StoryEngineQuestPanel:refresh()
     local choosing = proposed and selected.kind == "choice"
     self.acceptButton:setVisible(proposed and not choosing)
     self.declineButton:setVisible(proposed and not choosing)
+    -- 선택지 버튼: 오른쪽 칸 너비를 나눠 쓰고, 이름은 괄호(거점) 없이 짧게, 전체 이름은 툴팁으로
+    local count = 0
+    for i = 1, #(self.choiceButtons or {}) do
+        if choosing and selected.options and selected.options[i] then count = i end
+    end
+    local left = self.detail:getX()
+    local bw = count > 0 and math.floor((self.width - left - PAD - PAD * (count - 1)) / count) or 0
     for i, b in ipairs(self.choiceButtons or {}) do
         local opt = choosing and selected.options and selected.options[i] or nil
         b:setVisible(opt ~= nil)
-        if opt then b:setTitle(getText("IGUI_StoryEngine_Crisis_Choose", Factions.name(opt.faction))) end
+        if opt then
+            local full = Factions.name(opt.faction)
+            local short = full
+            local cut = string.find(full, " (", 1, true)
+            if cut and cut > 1 then short = string.sub(full, 1, cut - 1) end
+            b:setX(left + (i - 1) * (bw + PAD))
+            b:setWidth(bw)
+            b:setTitle(fit(getText("IGUI_StoryEngine_Crisis_Choose", short), bw - 12))
+            b.tooltip = getText("IGUI_StoryEngine_Crisis_Choose", full)
+        end
     end
     local canSubmit = selected ~= nil and active
         and (selected.kind == "fetch" or selected.kind == "deliver" or selected.kind == "trade" or selected.kind == "extort")
