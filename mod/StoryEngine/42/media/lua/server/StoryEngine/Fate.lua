@@ -57,6 +57,15 @@ function Fate.enabled()
     return StoryEngine.option("NpcFate", true) == true
 end
 
+-- 원인별로 켜져 있는지 (샌드박스 NpcFateCause: 1 둘 다, 2 이야기만, 3 고갈만)
+function Fate.causeOn(cause)
+    if not Fate.enabled() then return false end
+    local c = StoryEngine.Tuning and StoryEngine.Tuning.num("NpcFateCause") or 1
+    if c == 2 then return cause == "story" end
+    if c == 3 then return cause == "starve" end
+    return true
+end
+
 local function nameOf(fid) return Stories.NAMES[fid] or fid end
 
 function Fate.of(fid)
@@ -104,7 +113,7 @@ function Fate.onStoryFinal(fid, node)
     local st = StoryEngine.Social.story(fid)
     if (st.wins or 0) > 0 or (st.losses or 0) < Fate.STORY_LOSSES then return end
     local now = Sensor.now()
-    if not Fate.enabled() then
+    if not Fate.causeOn("story") then
         -- 끄면 최악 결말도 "크게 다쳤지만 살아 있음"
         for _, r in ipairs(Life.RESOURCES) do
             if Life.get(fid, r) < Life.SELF_MIN then Life.change(fid, r, Life.SELF_MIN - Life.get(fid, r), "survived") end
@@ -135,7 +144,7 @@ function Fate.daily()
             end
             if all then
                 n.starve = (n.starve or 0) + 1
-                if n.starve >= Fate.STARVE_DAYS and Fate.enabled() then
+                if n.starve >= Fate.STARVE_DAYS and Fate.causeOn("starve") then
                     Fate.apply(fid, "gone", "starve")
                 else
                     if n.starve >= Fate.STARVE_DAYS then n.starve = Fate.STARVE_DAYS - 1 end

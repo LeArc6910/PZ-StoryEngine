@@ -11,6 +11,7 @@ require "StoryEngine/Core"
 require "StoryEngine/Net"
 require "StoryEngine/Value"
 require "StoryEngine/Factions"
+require "StoryEngine/Tuning"
 
 local Value = StoryEngine.Value
 
@@ -20,7 +21,10 @@ local BUTTON_H = FONT_H + 12
 local ROW_H = FONT_H + 10
 local MULT, CAP = 2, 40
 local TRUST_STEPS = { { 30, 3 }, { 15, 2 }, { 5, 1 } }
-local PROJECT_CAP = 100              -- 프로젝트 지원 한 번에 최대 점수 (서버 Projects.DONATE_CAP)
+-- 프로젝트 지원 한 번에 최대 점수 (서버 Projects.DONATE_CAP, 샌드박스 ProjectDonateCap)
+local function projectCap()
+    return math.max(10, math.floor(StoryEngine.Tuning.num("ProjectDonateCap")))
+end
 
 StoryEngineDonateWindow = ISCollapsableWindow:derive("StoryEngineDonateWindow")
 StoryEngineDonateWindow.instance = nil
@@ -116,12 +120,12 @@ function StoryEngineDonateWindow:render()
     local line1 = #gains > 0 and table.concat(gains, ", ") or getText("IGUI_StoryEngine_Life_PickItems")
     if self.mode == "project" and self.npc.project then
         -- 프로젝트 지원: 점수는 물건마다 Value.projectItem (서버와 같은 규칙)
-        local pts = math.min(PROJECT_CAP, math.floor(points + 0.5))
+        local pts = math.min(projectCap(), math.floor(points + 0.5))
         local goal = self.npc.project.goal or 1000
         local now = math.min(goal, (self.npc.project.points or 0) + pts)
         line1 = getText("IGUI_StoryEngine_Project_Preview", StoryEngine.intToString(pts), StoryEngine.intToString(now),
             StoryEngine.intToString(goal))
-        if points >= PROJECT_CAP then line1 = line1 .. "  " .. getText("IGUI_StoryEngine_Project_CapReached") end
+        if points >= projectCap() then line1 = line1 .. "  " .. getText("IGUI_StoryEngine_Project_CapReached") end
     end
     self:drawText(line1, PAD, y, 0.8, 0.9, 0.7, 1, UIFont.Small)
     self:drawText(getText("IGUI_StoryEngine_Life_Preview", fmt(total), "+" .. StoryEngine.intToString(trust)),
@@ -134,7 +138,7 @@ function StoryEngineDonateWindow:onToggle(data)
     -- 프로젝트: 한 번에 최대 점수를 채웠으면 더 고르지 못한다 (고른 것을 빼는 건 된다)
     if self.mode == "project" and not data.selected then
         local _, _, points = self:totals()
-        if points >= PROJECT_CAP then return end
+        if points >= projectCap() then return end
     end
     data.selected = not data.selected
 end

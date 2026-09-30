@@ -101,3 +101,235 @@ option StoryEngine.ModItemsRatio
 	type = integer, min = 0, max = 100, default = 40,
 	page = StoryEngine, translation = StoryEngine_ModItemsRatio,
 }
+
+-- ---- tuning (Tuning.lua) ----
+
+option StoryEngine.Difficulty
+{
+	type = enum, numValues = 4, default = 1,
+	page = StoryEngineBalance, translation = StoryEngine_Difficulty,
+	valueTranslation = StoryEngine_Difficulty,
+}
+
+option StoryEngine.TrustStart
+{
+	type = integer, min = -30, max = 50, default = 0,
+	page = StoryEngineBalance, translation = StoryEngine_TrustStart,
+}
+
+option StoryEngine.TrustGainMult
+{
+	type = double, min = 0.0, max = 3.0, default = 1.0,
+	page = StoryEngineBalance, translation = StoryEngine_TrustGainMult,
+}
+
+option StoryEngine.TrustLossMult
+{
+	type = double, min = 0.0, max = 3.0, default = 1.0,
+	page = StoryEngineBalance, translation = StoryEngine_TrustLossMult,
+}
+
+option StoryEngine.SuspiciousRequests
+{
+	type = integer, min = 2, max = 20, default = 3,
+	page = StoryEngineBalance, translation = StoryEngine_SuspiciousRequests,
+}
+
+option StoryEngine.Spillover
+{
+	type = boolean, default = true,
+	page = StoryEngineBalance, translation = StoryEngine_Spillover,
+}
+
+option StoryEngine.RequestGapDays
+{
+	type = integer, min = 1, max = 30, default = 4,
+	page = StoryEngineBalance, translation = StoryEngine_RequestGapDays,
+}
+
+option StoryEngine.RequestServerGapDays
+{
+	type = integer, min = 0, max = 14, default = 2,
+	page = StoryEngineBalance, translation = StoryEngine_RequestServerGapDays,
+}
+
+option StoryEngine.QuestTimeMult
+{
+	type = double, min = 0.25, max = 4.0, default = 1.0,
+	page = StoryEngineBalance, translation = StoryEngine_QuestTimeMult,
+}
+
+option StoryEngine.RewardMult
+{
+	type = double, min = 0.25, max = 3.0, default = 1.0,
+	page = StoryEngineBalance, translation = StoryEngine_RewardMult,
+}
+
+option StoryEngine.StageMidDay
+{
+	type = integer, min = 2, max = 365, default = 31,
+	page = StoryEngineBalance, translation = StoryEngine_StageMidDay,
+}
+
+option StoryEngine.StageLateDay
+{
+	type = integer, min = 3, max = 730, default = 91,
+	page = StoryEngineBalance, translation = StoryEngine_StageLateDay,
+}
+
+option StoryEngine.PriceMult
+{
+	type = double, min = 0.25, max = 3.0, default = 1.0,
+	page = StoryEngineBalance, translation = StoryEngine_PriceMult,
+}
+
+option StoryEngine.GiftChance
+{
+	type = integer, min = 0, max = 100, default = 35,
+	page = StoryEngineBalance, translation = StoryEngine_GiftChance,
+}
+
+option StoryEngine.HuntSizeMult
+{
+	type = double, min = 0.1, max = 3.0, default = 1.0,
+	page = StoryEngineDanger, translation = StoryEngine_HuntSizeMult,
+}
+
+option StoryEngine.Extortion
+{
+	type = boolean, default = true,
+	page = StoryEngineDanger, translation = StoryEngine_Extortion,
+}
+
+option StoryEngine.StayHorde
+{
+	type = boolean, default = true,
+	page = StoryEngineDanger, translation = StoryEngine_StayHorde,
+}
+
+option StoryEngine.StayHordeDays
+{
+	type = integer, min = 1, max = 30, default = 4,
+	page = StoryEngineDanger, translation = StoryEngine_StayHordeDays,
+}
+
+option StoryEngine.HeliGapDays
+{
+	type = integer, min = 1, max = 60, default = 5,
+	page = StoryEngineDanger, translation = StoryEngine_HeliGapDays,
+}
+
+option StoryEngine.RaidSizeMult
+{
+	type = double, min = 0.3, max = 2.0, default = 1.0,
+	page = StoryEngineDanger, translation = StoryEngine_RaidSizeMult,
+}
+
+option StoryEngine.LifeDrift
+{
+	type = integer, min = 0, max = 20, default = 5,
+	page = StoryEngineNPC, translation = StoryEngine_LifeDrift,
+}
+
+option StoryEngine.LifeLossMult
+{
+	type = double, min = 0.0, max = 3.0, default = 1.0,
+	page = StoryEngineNPC, translation = StoryEngine_LifeLossMult,
+}
+
+option StoryEngine.StarveDays
+{
+	type = integer, min = 1, max = 30, default = 3,
+	page = StoryEngineNPC, translation = StoryEngine_StarveDays,
+}
+
+option StoryEngine.NpcFateCause
+{
+	type = enum, numValues = 3, default = 1,
+	page = StoryEngineNPC, translation = StoryEngine_NpcFateCause,
+	valueTranslation = StoryEngine_NpcFateCause,
+}
+
+option StoryEngine.ProjectGoal
+{
+	type = integer, min = 100, max = 5000, default = 1000,
+	page = StoryEngineNPC, translation = StoryEngine_ProjectGoal,
+}
+
+option StoryEngine.ProjectDonateCap
+{
+	type = integer, min = 10, max = 1000, default = 100,
+	page = StoryEngineNPC, translation = StoryEngine_ProjectDonateCap,
+}
+
+option StoryEngine.DonateGapDays
+{
+	type = integer, min = 0, max = 30, default = 3,
+	page = StoryEngineNPC, translation = StoryEngine_DonateGapDays,
+}
+
+option StoryEngine.SpecialtyCooldownMult
+{
+	type = double, min = 0.0, max = 5.0, default = 1.0,
+	page = StoryEngineNPC, translation = StoryEngine_SpecialtyCooldownMult,
+}
+
+option StoryEngine.SpecialtyTrustOffset
+{
+	type = integer, min = -40, max = 20, default = 0,
+	page = StoryEngineNPC, translation = StoryEngine_SpecialtyTrustOffset,
+}
+
+option StoryEngine.AutoSupportTrust
+{
+	type = integer, min = 50, max = 100, default = 70,
+	page = StoryEngineNPC, translation = StoryEngine_AutoSupportTrust,
+}
+
+option StoryEngine.AutoSupportDays
+{
+	type = integer, min = 1, max = 60, default = 7,
+	page = StoryEngineNPC, translation = StoryEngine_AutoSupportDays,
+}
+
+option StoryEngine.AISaver
+{
+	type = boolean, default = false,
+	page = StoryEngineAI, translation = StoryEngine_AISaver,
+}
+
+option StoryEngine.ContactHours
+{
+	type = integer, min = 1, max = 48, default = 5,
+	page = StoryEngineAI, translation = StoryEngine_ContactHours,
+}
+
+option StoryEngine.SceneHours
+{
+	type = integer, min = 1, max = 48, default = 6,
+	page = StoryEngineAI, translation = StoryEngine_SceneHours,
+}
+
+option StoryEngine.BanterHours
+{
+	type = integer, min = 1, max = 48, default = 3,
+	page = StoryEngineAI, translation = StoryEngine_BanterHours,
+}
+
+option StoryEngine.LetterChance
+{
+	type = integer, min = 0, max = 100, default = 30,
+	page = StoryEngineAI, translation = StoryEngine_LetterChance,
+}
+
+option StoryEngine.BroadcastHour
+{
+	type = integer, min = 13, max = 23, default = 19,
+	page = StoryEngineAI, translation = StoryEngine_BroadcastHour,
+}
+
+option StoryEngine.BroadcastRerun
+{
+	type = boolean, default = true,
+	page = StoryEngineAI, translation = StoryEngine_BroadcastRerun,
+}

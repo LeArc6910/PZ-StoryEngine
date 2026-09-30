@@ -58,7 +58,10 @@ function Radio.channel(fid)
     local ch = all[fid]
     if not ch then
         local f = Factions.byId[fid]
-        ch = { messages = {}, trust = f and f.trust or 0, seq = 0 }
+        local start = f and f.trust or 0
+        -- 샌드박스 시작 신뢰도 보정 (새로 만드는 채널만, 공용 주파수 제외)
+        if f and StoryEngine.Tuning then start = math.max(0, math.min(100, start + StoryEngine.Tuning.num("TrustStart"))) end
+        ch = { messages = {}, trust = start, seq = 0 }
         all[fid] = ch
     end
     return ch

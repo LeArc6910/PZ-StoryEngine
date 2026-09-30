@@ -71,6 +71,12 @@ end
 -- src: 관계 파급일 때 도움받은 NPC (클라이언트가 "빅을 도운 것" 처럼 보여 준다)
 function Trust.apply(fid, delta, reason, questId, byKey, src)
     if not Factions.byId[fid] or delta == 0 then return 0 end
+    -- 샌드박스 배율 (디버그 조절은 그대로)
+    local Tuning = StoryEngine.Tuning
+    if Tuning and reason ~= "debug" then
+        delta = Tuning.scale(delta, Tuning.num(delta > 0 and "TrustGainMult" or "TrustLossMult"))
+        if delta == 0 then return 0 end
+    end
     local ch = Radio.channel(fid)
     if delta < 0 and byKey then ch.lastOffender = byKey end
     local before = ch.trust

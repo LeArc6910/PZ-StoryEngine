@@ -98,13 +98,17 @@ function Quests.activeFor(psKey, kind)
 end
 
 -- 거리에 비례한 기한 (게임 내 분): 기본 이틀 + 100타일당 10시간
+local function timeMult()
+    return StoryEngine.Tuning and StoryEngine.Tuning.num("QuestTimeMult") or 1
+end
+
 function Quests.deadlineMinutes(distance)
-    return math.floor((48 + distance * 0.1) * 60)
+    return math.floor((48 + distance * 0.1) * 60 * timeMult())
 end
 
 -- 부탁 물건 전달 기한 (게임 내 분): 이틀 + 등급당 하루
 function Quests.deliverMinutes(tier)
-    return (48 + 24 * (tier or 1)) * 60
+    return math.floor((48 + 24 * (tier or 1)) * 60 * timeMult())
 end
 
 local function itemName(fullType)

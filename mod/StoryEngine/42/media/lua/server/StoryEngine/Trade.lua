@@ -331,7 +331,7 @@ function Trade.context(fid, ps)
         freeMaxTier = (trust >= Trade.FREE_TRUST and not suspicious and ZombRand(100) < Trade.FREE_CHANCE)
             and Trade.FREE_MAX_TIER or 0,
         allowed = true, trust = trust, maxTier = limit.maxTier,
-        mult = limit.mult * (rules.priceMult or 1),
+        mult = limit.mult * (rules.priceMult or 1) * (StoryEngine.Tuning and StoryEngine.Tuning.num("PriceMult") or 1),
         stretchMult = (not tradingPost) and rules.stretchMult or nil, goods = goods, catalog = catalog, wants = rules.wants, catMult = catMult,
     }
 end

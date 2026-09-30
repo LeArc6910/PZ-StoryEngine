@@ -103,8 +103,15 @@ function Life.get(fid, res)
 end
 
 -- 자원을 바꾼다. 실제로 바뀐 양을 돌려준다
+Life.PLAIN_LOSS = { debug = true, specialty = true, share = true }
+
 function Life.change(fid, res, delta, reason)
     if not Factions.byId[fid] or not res or delta == 0 then return 0 end
+    -- 샌드박스 손실 배율 (특기 사용 비용·NPC 나눔·디버그는 그대로)
+    if delta < 0 and StoryEngine.Tuning and not Life.PLAIN_LOSS[reason or ""] then
+        delta = StoryEngine.Tuning.scale(delta, StoryEngine.Tuning.num("LifeLossMult"))
+        if delta == 0 then return 0 end
+    end
     local n = Life.npc(fid)
     local before = n.res[res] or 0
     n.res[res] = math.max(0, math.min(100, before + delta))
@@ -253,6 +260,7 @@ end
 -- 플레이어들이 fid 를 크게 도왔다. always = 소문 확률 없이 항상 알려짐 (위기 선택)
 -- skip: 이미 따로 반응한 NPC (위기 선택지의 당사자들) 는 파급에서 뺀다
 function Life.spill(fid, who, always, skip)
+    if StoryEngine.Tuning and StoryEngine.Tuning.get("Spillover") ~= true then return end
     local now = Sensor.now()
     local Trust = StoryEngine.Trust
     local Social = StoryEngine.Social

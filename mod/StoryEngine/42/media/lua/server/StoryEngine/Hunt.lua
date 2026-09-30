@@ -259,6 +259,7 @@ local function checkStay(e, now)
     local days = math.floor((now.t - stay.sinceT) / (24 * 60))
     if days < Hunt.STAY_DAYS then return end
     if StoryEngine.option("DangerEvents", true) ~= true then return end
+    if StoryEngine.Tuning and StoryEngine.Tuning.get("StayHorde") ~= true then return end
     local chance = math.min(100, Hunt.STAY_BASE + Hunt.STAY_STEP * (days - Hunt.STAY_DAYS))
     local hit = ZombRand(100) < chance
     log("stay roll", ps.name, days, "days", chance .. "%", hit and "hit" or "miss")

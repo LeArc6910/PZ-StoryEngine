@@ -30,6 +30,8 @@ require "StoryEngine/Broadcast"
 require "StoryEngine/World"
 require "StoryEngine/Letters"
 require "StoryEngine/Legacy"
+require "StoryEngine/Tuning"
+StoryEngine.Tuning.safeApply()
 
 local Net = StoryEngine.Net
 local Bridge = StoryEngine.Bridge
@@ -286,7 +288,7 @@ function Commands.debugLife(player, args)
     elseif args.fate == "dead" or args.fate == "gone" then
         StoryEngine.Fate.apply(fid, args.fate, "debug")
     end
-    reply(player, "debugStatus", { text = StoryEngine.Life.statusText() })
+    reply(player, "debugStatus", { text = StoryEngine.Life.statusText() .. " | " .. StoryEngine.Tuning.statusText() })
     reply(player, "lifeList", { npcs = StoryEngine.Life.list() })
 end
 
