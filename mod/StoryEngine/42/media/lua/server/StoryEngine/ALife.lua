@@ -52,7 +52,7 @@ ALife.SIZE = { 4, 5, 6, 7, 8 }            -- A-Life 한 그룹 최대 8명
 ALife.HOURS = { 2, 3, 4, 5, 6 }
 ALife.FRIEND_DIST = { 10, 15 }            -- 아군은 바로 옆에
 ALife.REQUEST_COOLDOWN_MIN = 3 * 24 * 60  -- 세력당 요청 간격 (3일)
-ALife.AUTO_COOLDOWN_MIN = 3 * 24 * 60     -- 플레이어당 자동 지원 간격 (3일)
+ALife.AUTO_COOLDOWN_MIN = 7 * 24 * 60     -- 플레이어당 자동 지원 간격 (7일, 2026-09-29 변경)
 ALife.HUNT_TRIGGER_DIST = 40              -- 우리 추적 무리(Hunt)가 이만큼 다가오면 자동 지원
 ALife.DANGER_RADIUS = 15
 ALife.DANGER_ZOMBIES = 10
@@ -293,6 +293,10 @@ function ALife.protect(sup)
             local held = type(perception.attackers) == "table" and perception.attackers[uid] or nil
             if held and isPlayerObj(held.attacker) then perception.attackers[uid] = nil end
         end
+        local okS, errS = pcall(ALife.suppress, uid)
+        if not okS then
+            ALife.suppressLogged[uid .. "!"] = ALife.suppressLogged[uid .. "!"] or (log("alife suppressor error:", errS) or true)
+        end
         local record = actor(uid)
         local m = record and record.memory
         if type(m) == "table" then
@@ -432,6 +436,122 @@ function ALife.threatsTo(player)
     return out, event
 end
 
+-- 플레이어에게 적대적인 A-Life 무리 위치 (케이시 정찰). 15타일 안끼리 한 무리로 묶는다: { x, y, n }
+function ALife.hostileGroups(player, radius)
+    local out = {}
+    local pa = PA()
+    local key = ALife.playerKey(player)
+    if type(pa) ~= "table" or not key or type(pa.ActorRegistry) ~= "table" then return out end
+    local rel = pa.Relations
+    local px, py = player:getX(), player:getY()
+    local pts = {}
+    pcall(pa.ActorRegistry.each, function(record)
+        if record.lifecycle ~= "active" then return end
+        local m = record.memory or {}
+        if m.encounterKind == "storyengine_support" then return end
+        local hostile = m.targetUsername == key or m.combatTargetPlayerKey == key or m.encounterKind == "storyengine_attack"
+        if not hostile and type(rel) == "table" and type(rel.hostileToPlayer) == "function" then
+            local ok, yes = pcall(rel.hostileToPlayer, record, player)
+            hostile = ok and yes == true
+        end
+        if not hostile then return end
+        local x, y = positionOf(record)
+        if x and dist(x, y, px, py) <= radius then pts[#pts + 1] = { x = x, y = y } end
+    end)
+    for _, pt in ipairs(pts) do
+        local group = nil
+        for _, g in ipairs(out) do
+            if dist(g.x, g.y, pt.x, pt.y) <= 15 then group = g end
+        end
+        if group then
+            group.sx, group.sy, group.n = group.sx + pt.x, group.sy + pt.y, group.n + 1
+            group.x, group.y = group.sx / group.n, group.sy / group.n
+        else
+            out[#out + 1] = { x = pt.x, y = pt.y, sx = pt.x, sy = pt.y, n = 1 }
+        end
+    end
+    return out
+end
+
+-- ---------------------------------------------------------------- suppressor
+
+-- 지원 대원 총에 소음기: 총 인스턴스의 소음 반경·크기를 줄인다 (A-Life 는 쏠 때 getSoundRadius/Volume 로 addSound,
+-- ALifeCombatFire.lua reportSound). 원래 값은 modData 에 두고, 대원이 죽으면 되돌린다 (떨어진 총을 주워 쓰지 않게).
+-- 들리는 총소리는 그대로다.
+ALife.SUPPRESS = 0.25
+ALife.suppressLogged = {}
+
+local function shellOf(uid)
+    local wd = PA().Watchdog
+    local b = type(wd) == "table" and type(wd.bindings) == "table" and wd.bindings[uid] or nil
+    return b and b.shell or nil
+end
+
+-- 대원이 가진 총: 손에 든 것 + 인벤토리 (A-Life 는 교전 전에는 총을 손에 들지 않을 수 있다)
+local function gunsOf(shell)
+    local out = {}
+    local function add(w)
+        if w and w.isRanged and w:isRanged() then out[#out + 1] = w end
+    end
+    pcall(function() add(shell:getPrimaryHandItem()) end)
+    pcall(function()
+        local items = shell:getInventory():getItems()
+        for i = 0, items:size() - 1 do
+            local it = items:get(i)
+            if it ~= shell:getPrimaryHandItem() and instanceof(it, "HandWeapon") then add(it) end
+        end
+    end)
+    return out
+end
+
+local function quiet(w)
+    local md = w:getModData()
+    if md.seSuppressed then return false end
+    local r, v = w:getSoundRadius(), w:getSoundVolume()
+    md.seOrigRadius, md.seOrigVolume, md.seSuppressed = r, v, true
+    w:setSoundRadius(math.max(1, math.floor(r * ALife.SUPPRESS)))
+    w:setSoundVolume(math.max(1, math.floor(v * ALife.SUPPRESS)))
+    return true
+end
+
+function ALife.suppress(uid)
+    local shell = shellOf(uid)
+    local guns = shell and gunsOf(shell) or {}
+    local changed = {}
+    for _, w in ipairs(guns) do
+        if quiet(w) then changed[#changed + 1] = tostring(w:getFullType()) .. " " .. tostring(w:getModData().seOrigRadius)
+            .. "->" .. tostring(w:getSoundRadius()) end
+    end
+    -- 대원마다 한 번: 소음기를 달았는지, 못 달았으면 왜인지
+    if #changed > 0 then
+        log("alife suppressor", uid, table.concat(changed, ", "))
+        ALife.suppressLogged[uid] = true
+    elseif not ALife.suppressLogged[uid] then
+        ALife.suppressLogged[uid] = true
+        log("alife suppressor skipped", uid, shell and ("no gun (" .. tostring(#guns) .. ")") or "no shell binding")
+    end
+end
+
+function ALife.unsuppress(w)
+    if not w or not w.getModData then return end
+    local md = w:getModData()
+    if not md.seSuppressed then return end
+    pcall(function()
+        w:setSoundRadius(md.seOrigRadius)
+        w:setSoundVolume(md.seOrigVolume)
+    end)
+    md.seSuppressed, md.seOrigRadius, md.seOrigVolume = nil, nil, nil
+end
+
+Events.OnZombieDead.Add(function(zombie)
+    pcall(function()
+        local md = zombie:getModData()
+        if md and md.ProjectALifeUID and ALife.isSupport(zombie) then
+            for _, w in ipairs(gunsOf(zombie)) do ALife.unsuppress(w) end
+        end
+    end)
+end)
+
 -- ---------------------------------------------------------------- support
 
 local function activeFor(psKey)
@@ -446,15 +566,28 @@ local function trustOf(fid)
 end
 
 -- 지원을 보낸다. how: "request" | "auto" | "debug". reason: 자동 지원의 이유 (AI 반응용)
-function ALife.sendSupport(player, fid, how, reason, levelOverride, retry)
+-- countOverride: 인원을 직접 정할 때 (방위대 특기 분대 2/4/6)
+function ALife.sendSupport(player, fid, how, reason, levelOverride, retry, countOverride)
     if not ALife.enabled() then return false, "disabled" end
     if not ALife.available() then return false, "alife_unavailable" end
     if not Factions.byId[fid] or not ALife.FACTIONS[fid] then return false, "no_faction" end
+    if Factions.isGone(fid) then return false, "gone" end
     local ps = Store.player(player)
     if activeFor(ps.key) then return false, "active" end
     local level = levelOverride or ALife.level(trustOf(fid))
     if level <= 0 then return false, "low_trust" end
-    local count = ALife.SIZE[level]
+    local count = countOverride or ALife.SIZE[level]
+    -- 방위대 검문소 프로젝트 완성: +2명 (A-Life 그룹 최대 8)
+    if fid == "guard" and StoryEngine.Projects and StoryEngine.Projects.done("guard") then
+        count = math.min(8, count + 2)
+    end
+    -- 생활 상태: 안전(탄약·방어)이 부족하면 인원이 줄고, 바닥이면 보낼 수 없다 (Life.lua)
+    local Life = StoryEngine.Life
+    if Life then
+        local safety = Life.get(fid, "safety")
+        if safety < Life.SELF_MIN then return false, "no_safety" end
+        if safety < Life.LOW then count = math.max(1, count - 2) end
+    end
     local now = Sensor.now()
     local st = state()
     local ok, info, failed = ALife.spawnSquad(player, fid, level, count, true, ALife.FRIEND_DIST, "support", {
@@ -476,12 +609,15 @@ function ALife.sendSupport(player, fid, how, reason, levelOverride, retry)
                 -- 막힌 칸·시야 문제로 그룹이 취소됐으면 다른 자리로 한 번 더 (대기 시간은 이미 기록됨)
                 if not retry and not player:isDead() then
                     st.active[info.requestId] = nil
-                    ALife.sendSupport(player, fid, how, reason, levelOverride, true)
+                    ALife.sendSupport(player, fid, how, reason, levelOverride, true, countOverride)
                 end
                 return
             end
             log("alife support arrived", s.fid, #s.uids)
             ALife.refresh(s)
+            if StoryEngine.Life and s.how == "auto" then
+                pcall(StoryEngine.Life.record, s.fid, "rescued", s.targetName, 0)
+            end
             if StoryEngine.Banter then
                 pcall(StoryEngine.Banter.onEvent, player, "support_arrived", { faction = fid, count = #s.uids })
             end
@@ -587,15 +723,22 @@ end
 
 -- ---------------------------------------------------------------- auto support
 
+-- 보낼 수 있는 세력인가: A-Life 세력이 있고, 안전 자원이 바닥이 아니다 (Life.lua)
+local function canSend(fid)
+    if not ALife.FACTIONS[fid] or Factions.isGone(fid) then return false end
+    local Life = StoryEngine.Life
+    return not Life or Life.get(fid, "safety") >= Life.SELF_MIN
+end
+
 -- 가장 신뢰하는 세력 (AUTO_TRUST 이상). 같으면 무작위
 local function bestFriend()
     local top = ALife.AUTO_TRUST
     for _, f in ipairs(Factions.list) do
-        if ALife.FACTIONS[f.id] and trustOf(f.id) > top then top = trustOf(f.id) end
+        if canSend(f.id) and trustOf(f.id) > top then top = trustOf(f.id) end
     end
     local best = {}
     for _, f in ipairs(Factions.list) do
-        if ALife.FACTIONS[f.id] and trustOf(f.id) >= ALife.AUTO_TRUST and trustOf(f.id) == top then best[#best + 1] = f.id end
+        if canSend(f.id) and trustOf(f.id) >= ALife.AUTO_TRUST and trustOf(f.id) == top then best[#best + 1] = f.id end
     end
     if #best == 0 then return nil end
     return best[ZombRand(#best) + 1]

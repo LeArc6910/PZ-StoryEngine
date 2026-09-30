@@ -141,6 +141,8 @@ end
 -- AI 가 먼저 거는 연락(mode 가 있는 것)은 실패해도 잡음을 남기지 않는다.
 -- event / request 는 채널이 바쁘면 대기열에 넣었다가 지금 답장이 끝나면 보낸다.
 function Radio.request(fid, lang, opts)
+    -- 죽었거나 떠난 NPC 는 말하지 않는다 (Fate.lua)
+    if Factions.isGone(fid) then return false end
     lang = lang or Radio.langFor(fid)
     local mode = opts and opts.mode or nil
     -- 플레이어 발언에 대한 답장에서만 거래를 다룬다 (B단계, Trade.lua)
@@ -184,8 +186,22 @@ function Radio.request(fid, lang, opts)
         if okS then story = ctx end
     end
 
+    -- 이 NPC 의 형편(생활 자원), 플레이어들과 있었던 일, 평판 (Life.lua)
+    local life = nil
+    if StoryEngine.Life then
+        local okL, ctx = pcall(StoryEngine.Life.context, fid)
+        if okL then life = ctx end
+    end
+
+    -- 이 NPC 에게 처음 말을 거는 캐릭터면: 함께 다니는 사람들과 최근 죽은 사람들 (Legacy.lua)
+    local newcomer = nil
+    if speaker and StoryEngine.Legacy then
+        local okN, info = pcall(StoryEngine.Legacy.newcomer, fid, speaker)
+        if okN then newcomer = info end
+    end
+
     Bridge.request("radio", {
-        story = story,
+        story = story, life = life, newcomer = newcomer,
         faction = fid, lang = lang, trust = ch.trust, memory = ch.memory,
         day = Store.dayIndex(now.dayKey), date = now.date, clock = now.clock,
         players = players, history = history,
@@ -198,7 +214,10 @@ function Radio.request(fid, lang, opts)
             -- 대화만으로는 신뢰도가 조금만 움직인다 (-1~+1). 큰 변화는 퀘스트 결과로 (Trust.lua).
             local change = math.max(-1, math.min(1, math.floor(tonumber(json.trust_change) or 0)))
             ch.trust = math.max(0, math.min(100, ch.trust + change))
-            if change < 0 and speaker then ch.lastOffender = speaker.key end
+            if change < 0 and speaker then
+                ch.lastOffender = speaker.key
+                if StoryEngine.Life then pcall(StoryEngine.Life.record, fid, "insult", speaker.name, change) end
+            end
 
             -- 다시 연락 예약. 약속한 연락과 플레이어 발언에 대한 답장에서만 받는다.
             -- 답장을 방송하기 전에 정해 두어야 남은 시간이 클라이언트에 같이 간다.
@@ -357,9 +376,14 @@ function Radio.say(player, fid, text)
     local day = Store.dayIndex(now.dayKey)
     push(fid, { from = "player", name = ps.name, text = text, clock = now.clock, day = day })
     Radio.speaker[fid] = ps
+    if StoryEngine.Legacy then StoryEngine.Legacy.talked(fid, ps.name) end
     -- 일지에는 실제 발언과 답장을 넘긴다 (Radio.logLine)
     Radio.logLine(ps, fid, "player", text, now.clock, day)
     Radio.channel(fid).lastPlayerT = now.t
+    if Factions.isGone(fid) then
+        push(fid, { from = "static", error = "gone", clock = now.clock, day = day })
+        return true
+    end
     if fid == Radio.OPEN then
         -- 공용 주파수: NPC 들이 각자 반응하고 서로 이야기한다
         if StoryEngine.Social then StoryEngine.Social.onOpenSay(ps, text) end
@@ -377,7 +401,7 @@ function Radio.channelList()
     for _, f in ipairs(Factions.list) do
         local ch = Radio.channel(f.id)
         out[#out + 1] = { id = f.id, freq = f.freq, trust = ch.trust, seq = ch.seq, busy = Radio.busy[f.id] == true,
-                          followUpIn = Radio.followUpIn(ch) }
+                          followUpIn = Radio.followUpIn(ch), gone = Factions.fateOf(f.id) }
     end
     return out
 end

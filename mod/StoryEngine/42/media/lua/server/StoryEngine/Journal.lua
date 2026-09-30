@@ -272,6 +272,11 @@ function Journal.onDeath(ps, death, now)
     if StoryEngine.Social then
         pcall(StoryEngine.Social.onDeath, ps.name, death.place and death.place.town)
     end
+    -- 함께한 일이 있는 NPC 들이 각자 반응 (Legacy.lua)
+    if StoryEngine.Legacy then
+        local ok, err = pcall(StoryEngine.Legacy.onDeath, ps.name, death.place and death.place.town)
+        if not ok then log("legacy death error:", err) end
+    end
     if StoryEngine.Banter then
         local ok, err = pcall(StoryEngine.Banter.onDeath, ps.name)
         if not ok then log("banter death error:", err) end

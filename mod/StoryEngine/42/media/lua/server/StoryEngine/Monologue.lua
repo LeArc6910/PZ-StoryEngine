@@ -162,6 +162,11 @@ local function speak(player, ps, trig, text, source)
     end
 end
 
+-- 준비된 문장을 혼잣말처럼 (케이시 정찰 경고 등, 간격 제한 없이). lt = { key, args }
+function Monologue.sayPrepared(player, ps, trig, lt)
+    speak(player, ps, trig, { lt = lt }, "prepared")
+end
+
 function Monologue.fallbackText(trig, info)
     local key = "IGUI_StoryEngine_Mono_" .. trig .. "_" .. StoryEngine.intToString(ZombRand(Monologue.FALLBACK_COUNT) + 1)
     local args = {}

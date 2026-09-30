@@ -312,7 +312,9 @@ local function spawnAt(q, sq, container)
     local placed = {}
     if container then
         for _, fullType in ipairs(q.items) do
-            if StoryEngine.Items.addTo(container, fullType, q.id) then
+            local item = StoryEngine.Items.addTo(container, fullType, q.id)
+            if item then
+                if q.letterId and fullType == "StoryEngine.Letter" then item:getModData().storyLetter = q.letterId end
                 placed[#placed + 1] = fullType
             end
         end
@@ -333,6 +335,7 @@ local function spawnAt(q, sq, container)
             local item = target:AddWorldInventoryItem(fullType, ZombRandFloat(0.2, 0.8), ZombRandFloat(0.2, 0.8), 0)
             if item then
                 item:getModData().storyQuest = q.id
+                if q.letterId and fullType == "StoryEngine.Letter" then item:getModData().storyLetter = q.letterId end
                 placed[#placed + 1] = fullType
             end
         end
@@ -555,11 +558,16 @@ local function setState(q, state, now, entry, outcome)
     end
     local targetPs = Store.data().players[q.target]
     if targetPs and (not entry or entry.ps ~= targetPs) then note(targetPs, kind, q, now, by) end
+    local trustDelta = 0
     if TRUST_STATES[state] then
         local ok, err = pcall(StoryEngine.Trust.forQuest, q, outcome or state)
-        if not ok then log("trust error:", err) end
+        if not ok then log("trust error:", err) else trustDelta = tonumber(err) or 0 end
         ok, err = pcall(Quests.react, q, outcome or state)
         if not ok then log("react error:", err) end
+    end
+    if StoryEngine.Life and TRUST_STATES[state] then
+        local ok, err = pcall(StoryEngine.Life.onQuest, q, outcome or state, trustDelta)
+        if not ok then log("life quest error:", err) end
     end
     if q.kind == "extort" and state == "failed" then
         local ok, err = pcall(Quests.punish, q)
@@ -578,6 +586,24 @@ local function setState(q, state, now, entry, outcome)
         if not ok then log("social quest error:", err) end
     end
     notifyTarget(q)
+end
+
+-- 죽거나 떠난 NPC 의 부탁·거래를 조용히 거둔다 (신뢰도·반응·생활 상태 변화 없음, Fate.lua).
+-- 이미 놓인 보급(보상·선물)은 그대로 둔다.
+local CANCELABLE = { deliver = true, trade = true, horde = true, extort = true }
+function Quests.cancelFor(fid, now)
+    for _, q in pairs(all()) do
+        if q.origin and q.origin.faction == fid and CANCELABLE[q.kind]
+            and (q.state == "proposed" or q.state == "accepted") then
+            q.state = "declined"
+            q.cancelled = true
+            q.endedT = now.t
+            q.history = q.history or {}
+            Store.push(q.history, { state = "cancelled", t = now.t }, 20)
+            log("quest", q.id, q.kind, "cancelled (npc gone)", fid)
+            notifyTarget(q)
+        end
+    end
 end
 
 function Quests.fail(q, now)
@@ -692,6 +718,11 @@ function Quests.create(kind, player, ps, tier, now, origin, itemsOverride)
         deadlineT = now.t + Quests.deadlineMinutes(found.distance),
         spawned = false, items = items,
     }
+    -- NPC 편지를 실을 수 있으면 물건에 더한다 (Letters.lua)
+    if StoryEngine.Letters then
+        local okL, errL = pcall(StoryEngine.Letters.attach, q, ps, now)
+        if not okL then log("letter attach error:", errL) end
+    end
     d.quests[q.id] = q
     Quests.waiting = Quests.waiting + 1
     trySpawn(q)
@@ -704,9 +735,17 @@ function Quests.create(kind, player, ps, tier, now, origin, itemsOverride)
 end
 
 -- NPC 의 부탁 제안. entry: { player, ps }. 성공하면 퀘스트
-function Quests.propose(player, ps, fid, tier, now)
+-- opts = { prefer = 채울 자원, urgent = true } : 급한 부탁 (NpcEvents, 수락하면 기한 24시간)
+function Quests.propose(player, ps, fid, tier, now, opts)
+    opts = opts or {}
     tier = math.max(1, math.min(Quests.MAX_TIER, math.floor(tier or 1)))
-    local need = StoryEngine.Needs.pick(fid, tier)
+    local prefer = opts.prefer or (StoryEngine.Life and StoryEngine.Life.needPrefer(fid)) or nil
+    local need = opts.urgent and opts.prefer and StoryEngine.Needs.pick(fid, tier, opts.prefer, true) or nil
+    if opts.when then
+        need = StoryEngine.Needs.pick(fid, tier, nil, false, opts.when)
+        if not need then return nil, "no_need" end
+    end
+    need = need or StoryEngine.Needs.pick(fid, tier, prefer)
     if not need then return nil, "no_need" end
     local d = Store.data()
     d.questSeq = d.questSeq + 1
@@ -714,7 +753,7 @@ function Quests.propose(player, ps, fid, tier, now)
     for i, n in ipairs(need.items) do items[i] = { n[1], n[2] } end
     local q = {
         id = "Q" .. StoryEngine.intToString(d.questSeq),
-        kind = "deliver", tier = need.tier, need = items, why = need.why,
+        kind = "deliver", tier = need.tier, need = items, why = need.why, urgent = opts.urgent or nil,
         origin = { source = "director", faction = fid, initiator = "npc",
                    day = Store.dayIndex(now.dayKey), date = now.date, clock = now.clock },
         target = ps.key, targetName = ps.name,
@@ -724,8 +763,10 @@ function Quests.propose(player, ps, fid, tier, now)
     note(ps, "deliver_proposed", q, now, nil)
     log("quest proposed", q.id, fid, Quests.needText(q), "for", ps.name)
     local tierWord = ({ "small", "modest", "good", "large", "huge" })[q.tier] or "small"
+    local urgency = opts.urgent and (" This is URGENT: your people have almost run out and cannot wait; they have one day"
+        .. " once they agree.") or ""
     Radio.react(fid, "request", "You need " .. Quests.needText(q) .. " because " .. q.why
-        .. ". Payment: a " .. tierWord .. " supply cache.",
+        .. "." .. urgency .. " Payment: a " .. tierWord .. " supply cache.",
         { text = "Could you find me " .. Quests.needText(q) .. "? I will pay you back. Answer me on the radio.",
           lt = { key = "IGUI_StoryEngine_RadioSay_request", args = { { t = "need", v = q.need } } } }, ps)
     notifyTarget(q)
@@ -816,7 +857,7 @@ end
 -- 넘기지 못하면 보복(좀비 무리 또는 헬기)이 온다.
 function Quests.demand(player, ps, fid, tier, now)
     tier = math.max(1, math.min(Quests.MAX_TIER, math.floor(tier or 1)))
-    local need = StoryEngine.Needs.pick(fid, tier)
+    local need = StoryEngine.Needs.pick(fid, tier, StoryEngine.Life and StoryEngine.Life.needPrefer(fid) or nil)
     if not need then return nil, "no_need" end
     local d = Store.data()
     d.questSeq = d.questSeq + 1
@@ -1164,7 +1205,7 @@ function Quests.respond(player, qid, accept)
     q.target, q.targetName = ps.key, ps.name
     if accept then
         q.deadlineT = now.t + (q.kind == "horde" and Quests.deadlineMinutes(q.distance or 0)
-            or Quests.deliverMinutes(q.tier))
+            or (q.urgent and 24 * 60) or Quests.deliverMinutes(q.tier))
         setState(q, "accepted", now, { ps = ps })
     else
         setState(q, "declined", now, { ps = ps }, "declined")
@@ -1328,6 +1369,7 @@ function Quests.listFor(psKey, now)
                 end
             end
             if q.origin and q.origin.story then item.story = q.origin.story.crisis and "crisis" or "story" end
+            item.urgent = q.urgent
             if ACTIVE[state] or state == "proposed" then active[#active + 1] = item else done[#done + 1] = item end
         end
     end

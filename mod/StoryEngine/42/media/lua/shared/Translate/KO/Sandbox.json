@@ -23,5 +23,15 @@
     "Sandbox_StoryEngine_Banter": "캐릭터끼리 대화 (멀티)",
     "Sandbox_StoryEngine_Banter_tooltip": "캐릭터가 10타일 안에 모여 있으면 게임 시간 3시간마다, 그리고 사건(함께 싸움, 물림, 호드 접근, 퀘스트, 무전, 죽음 소식 등)이 생기면 바로 AI가 짧은 대화를 만들어 머리 위에 띄운다. 대화는 일지에도 남는다. 동료가 곁에 있으면 혼잣말 대신 대화가 된다.",
     "Sandbox_StoryEngine_Social": "NPC 사회생활 (먼저 연락·이야기·공용 주파수·위기)",
-    "Sandbox_StoryEngine_Social_tooltip": "NPC들이 하루 4~6번 용건 없이도 먼저 무전하고, 각자의 이야기가 연계 퀘스트 결과에 따라 갈라지며, 공용 주파수에서 서로 이야기하고, 가끔 여러 세력이 동시에 도움을 청하는 선택지가 생긴다."
+    "Sandbox_StoryEngine_Social_tooltip": "NPC들이 하루 4~6번 용건 없이도 먼저 무전하고, 각자의 이야기가 연계 퀘스트 결과에 따라 갈라지며, 공용 주파수에서 서로 이야기하고, 가끔 여러 세력이 동시에 도움을 청하는 선택지가 생긴다.",
+    "Sandbox_StoryEngine_Specialty": "NPC 특기 지원",
+    "Sandbox_StoryEngine_Specialty_tooltip": "거점 탭에서 신뢰도 40 이상인 NPC에게 특기(분대 지원, 치료, 차량 수리, 정찰, 보급 전달, 위로, 저격, 미끼 소음)를 요청할 수 있다. NPC마다 대기 시간이 있다.",
+    "Sandbox_StoryEngine_NpcFate": "NPC가 죽거나 떠날 수 있음",
+    "Sandbox_StoryEngine_NpcFate_tooltip": "이야기 부탁을 하나도 성공하지 못한 채 마지막에 이르거나, 형편(식량·의약품·안전·사기)이 모두 바닥인 채 3일이 지나면 NPC가 죽거나 떠난다. 전투나 운으로는 일어나지 않는다. 끄면 최악의 결말도 크게 다쳤지만 살아 있음으로 바뀌고, 형편 고갈은 경고만 한다.",
+    "Sandbox_StoryEngine_Broadcast": "라디오 저녁 방송",
+    "Sandbox_StoryEngine_Broadcast_tooltip": "매일 19:00에 케이시(없으면 레이)가 게임 속 라디오 105.4 MHz(겹치면 가까운 빈 주파수)로 그날 일어난 일과 내일 날씨를 전한다. 다음 날 07:00 재방송. 라디오를 그 주파수에 맞춰 켜 두면 일지에 남는다. AI 연결이 필요하다.",
+    "Sandbox_StoryEngine_WorldChanges": "세계 변화를 NPC도 겪음",
+    "Sandbox_StoryEngine_WorldChanges_tooltip": "전기·수도가 끊기거나 겨울·첫눈이 오거나 30/90/180일이 되면 NPC들이 무전으로 반응하고 형편(전기: 케이시 사기·닥 의약품, 수도: 모두의 식량, 겨울: 매일 식량 조금 더)과 부탁(배터리·물·난방)이 바뀐다. 모두의 일지에도 남는다.",
+    "Sandbox_StoryEngine_Letters": "NPC 편지",
+    "Sandbox_StoryEngine_Letters_tooltip": "친한 NPC(신뢰도 70 이상)의 선물 보급, 레이 온실 보급에 가끔 손편지가 들어 있고, 장기 프로젝트를 끝낸 NPC와 떠나는 NPC는 다음 보급에 편지를 남긴다. 우클릭 \"편지 읽기\", 읽으면 일지에 남는다."
 }

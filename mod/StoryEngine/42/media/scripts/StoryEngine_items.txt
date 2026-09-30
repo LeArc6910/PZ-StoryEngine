@@ -25,6 +25,16 @@ module StoryEngine
         WorldStaticModel = Parcel5,
     }
 
+    item Letter
+    {
+        DisplayCategory = Memento,
+        ItemType = base:normal,
+        Weight = 0.05,
+        Icon = Paper,
+        StaticModel = SheetOfPaper,
+        WorldStaticModel = SheetOfPaper,
+    }
+
     item PhotoAlbum
     {
         DisplayCategory = Memento,

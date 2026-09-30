@@ -23,6 +23,10 @@ Factions.list = {
 Factions.byId = {}
 for _, f in ipairs(Factions.list) do Factions.byId[f.id] = f end
 
+-- 죽었거나 떠난 NPC 인가 (서버의 Fate.lua 가 채운다. 클라이언트는 목록의 gone 값을 본다)
+function Factions.isGone(id) return false end
+function Factions.fateOf(id) return nil end
+
 function Factions.name(id)
     return getText("IGUI_StoryEngine_Faction_" .. tostring(id))
 end

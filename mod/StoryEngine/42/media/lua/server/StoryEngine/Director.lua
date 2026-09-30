@@ -28,7 +28,7 @@ local log = StoryEngine.log
 local Director = {
     busy = false,
     events = {},
-    order = { "quiet_day", "storm", "supply_drop", "fetch_item", "npc_request", "horde_nearby", "helicopter",
+    order = { "quiet_day", "storm", "supply_drop", "fetch_item", "npc_request", "npc_emergency", "horde_nearby", "helicopter",
               "rescue_signal", "friend_gift", "extortion" },
 }
 StoryEngine.Director = Director
@@ -133,7 +133,7 @@ function Director.pickFaction(only)
     local Factions, Radio = StoryEngine.Factions, StoryEngine.Radio
     local total, weights = 0, {}
     for _, f in ipairs(Factions.list) do
-        if not only or only[f.id] then
+        if (not only or only[f.id]) and not Factions.isGone(f.id) then
             local w = Radio.channel(f.id).trust + 10
             weights[#weights + 1] = { id = f.id, w = w }
             total = total + w
@@ -180,7 +180,7 @@ function Director.openAskers(ctx)
     for _, f in ipairs(StoryEngine.Factions.list) do
         local a = askState(ctx, f.id)
         local days = math.floor((ctx.now.t - a.lastT) / (24 * 60))
-        if days >= Director.ASK_GAP_DAYS then
+        if days >= Director.ASK_GAP_DAYS and not StoryEngine.Factions.isGone(f.id) then
             if a.rollDay ~= ctx.now.dayKey then
                 a.rollDay = ctx.now.dayKey
                 local chance = math.min(100, Director.ASK_BASE + Director.ASK_STEP * (days - Director.ASK_GAP_DAYS))
@@ -288,6 +288,29 @@ Director.events.npc_request = {
             return false
         end
         Director.markAsked(ctx, fid)
+        return true
+    end,
+}
+
+-- 급한 부탁: 핵심 자원이 바닥인 NPC 가 NPC 별 관문을 무시하고 청한다 (NpcEvents, 서버 전체 하루 간격)
+Director.events.npc_emergency = {
+    canRun = anyEligible(requestEligible, function(ctx)
+        local NE = StoryEngine.NpcEvents
+        return NE ~= nil and NE.emergencyGapOk(ctx.now) and NE.emergency() ~= nil
+    end),
+    weight = function(ctx, entry) return 4 end,
+    eligible = requestEligible,
+    run = function(ctx, entry, intensity)
+        local NE = StoryEngine.NpcEvents
+        local fid, res = NE.emergency()
+        if not fid then return false end
+        intensity = math.min(intensity, Director.tierCap(entry.ps, fid))
+        local q, why = Quests.propose(entry.player, entry.ps, fid, intensity, ctx.now, { prefer = res, urgent = true })
+        if not q then
+            log("npc_emergency failed:", why)
+            return false
+        end
+        NE.markEmergency(ctx.now)
         return true
     end,
 }
@@ -426,7 +449,9 @@ Director.events.rescue_signal = {
 local function friendFaction()
     local list = {}
     for _, f in ipairs(StoryEngine.Factions.list) do
-        if StoryEngine.Radio.channel(f.id).trust >= Director.FRIEND_TRUST then list[#list + 1] = f.id end
+        if StoryEngine.Radio.channel(f.id).trust >= Director.FRIEND_TRUST and not StoryEngine.Factions.isGone(f.id) then
+            list[#list + 1] = f.id
+        end
     end
     if #list == 0 then return nil end
     return list[ZombRand(#list) + 1]
@@ -461,7 +486,10 @@ local function threatFaction(open)
     local best, bestTrust = nil, nil
     for _, f in ipairs(StoryEngine.Factions.list) do
         local trust = StoryEngine.Radio.channel(f.id).trust
-        if f.threat and trust <= Director.EXTORT_TRUST and (not open or open[f.id])
+        -- 장기 프로젝트: 빅 교역소 완성이면 협박 중단, 방위대 검문소 완성이면 빅의 협박이 절반
+        local P = StoryEngine.Projects
+        local quiet = f.id == "rats" and P ~= nil and (P.done("rats") or P.ratsQuietToday())
+        if f.threat and not quiet and trust <= Director.EXTORT_TRUST and (not open or open[f.id]) and not StoryEngine.Factions.isGone(f.id)
             and (not bestTrust or trust < bestTrust) then
             best, bestTrust = f.id, trust
         end
@@ -542,7 +570,7 @@ end
 
 -- 샌드박스로 끈 이벤트
 local function disabledByOption(id)
-    if id == "npc_request" and StoryEngine.option("NpcRequests", true) ~= true then return true end
+    if (id == "npc_request" or id == "npc_emergency") and StoryEngine.option("NpcRequests", true) ~= true then return true end
     if (id == "horde_nearby" or id == "helicopter" or id == "extortion")
         and StoryEngine.option("DangerEvents", true) ~= true then return true end
     return false
@@ -681,6 +709,8 @@ function Director.run(reason, forced, forcedEntryName, forceKind)
         weather = { raining = cm:isRaining(), snowing = cm:isSnowing(), thunder = cm:getIsThunderStorming(),
                     temp = math.floor(cm:getTemperature()) },
         players = players, recent = recent, events = events,
+        npcs = StoryEngine.NpcEvents and StoryEngine.NpcEvents.directorSummary() or nil,
+        world = StoryEngine.World and StoryEngine.World.conditions() or nil,
     }
 
     Director.busy = true

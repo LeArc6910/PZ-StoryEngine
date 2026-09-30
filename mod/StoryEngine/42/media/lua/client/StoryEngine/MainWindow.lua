@@ -1,4 +1,4 @@
--- StoryEngine 통합 창: 상단 탭 [교신] [퀘스트] [일지]
+-- StoryEngine 통합 창: 상단 탭 [교신] [퀘스트] [일지] [거점]
 --
 -- 교신: 왼쪽 주파수(세력) 목록, 오른쪽 대화 기록 + 입력창. 무전기가 있어야 말할 수 있다.
 -- 퀘스트: 왼쪽 목록(완료 초록, 실패 빨강), 오른쪽 경위·할 일·상세 + "지도에서 보기" / "무전으로 제출".
@@ -22,6 +22,7 @@ require "StoryEngine/QuestMap"
 require "StoryEngine/Factions"
 require "StoryEngine/Value"
 require "StoryEngine/TradePayWindow"
+require "StoryEngine/DonateWindow"
 
 local UI = StoryEngine.UI
 local Net = StoryEngine.Net
@@ -251,6 +252,8 @@ function StoryEngineRadioPanel:render()
             StoryEngine.intToString(proposal.size or 0)), 1, 0.85, 0.45
     elseif proposal then
         text, r, g, b = getText("IGUI_StoryEngine_Request_Bar", Factions.name(fid), UI.needText(proposal.need)), 1, 0.85, 0.45
+    elseif ch and ch.gone then
+        text, r, g, b = getText("IGUI_StoryEngine_Fate_Status_" .. tostring(ch.gone), Factions.name(fid)), 0.6, 0.6, 0.6
     elseif not Cache.hasRadio then
         text, r, g, b = getText("IGUI_StoryEngine_Radio_NoRadio"), 0.9, 0.45, 0.3
     elseif fid == "open" then
@@ -319,18 +322,22 @@ local function messageLine(fid, m)
             StoryEngine.intToString(r.oldPrice or 0))) .. " <LINE> "
     elseif m.from == "system" and m.withdrawn then
         return " <RGB:0.95,0.45,0.4> " .. UI.escape(clock .. getText("IGUI_StoryEngine_Trade_WithdrawnLine")) .. " <LINE> "
+    elseif m.from == "system" and m.fate then
+        return " <RGB:0.75,0.6,0.9> " .. UI.escape(clock .. getText("IGUI_StoryEngine_Fate_Line_" .. tostring(m.fate),
+            Factions.name(fid))) .. " <LINE> "
     elseif m.from == "system" and m.blocked then
         return " <RGB:0.95,0.6,0.4> " .. UI.escape(clock .. blockedText(m.blocked)) .. " <LINE> "
     elseif m.from == "system" then
         local delta = tonumber(m.trust) or 0
         local sign = delta > 0 and ("+" .. StoryEngine.intToString(delta)) or StoryEngine.intToString(delta)
         local key = "IGUI_StoryEngine_TrustReason_" .. tostring(m.reason)
-        local reason = getText(key)
+        local reason = m.src and getText(key, Factions.name(m.src)) or getText(key)
         if reason == key then reason = tostring(m.reason) end
         local color = delta >= 0 and "0.5,0.85,0.5" or "0.95,0.45,0.4"
         return " <RGB:" .. color .. "> " .. UI.escape(clock .. getText("IGUI_StoryEngine_Trust_Line", sign, reason)) .. " <LINE> "
     elseif m.from == "static" then
-        return " <RGB:0.5,0.5,0.5> " .. UI.escape(clock .. getText("IGUI_StoryEngine_Radio_Static")) .. " <LINE> "
+        local key = m.error == "gone" and "IGUI_StoryEngine_Radio_StaticGone" or "IGUI_StoryEngine_Radio_Static"
+        return " <RGB:0.5,0.5,0.5> " .. UI.escape(clock .. getText(key)) .. " <LINE> "
     end
     return " <RGB:0.55,0.75,1> " .. UI.escape(clock .. tostring(m.name or "?") .. ": ")
         .. " <RGB:0.85,0.85,0.85> " .. UI.escape(m.text) .. " <LINE> "
@@ -346,9 +353,14 @@ function StoryEngineRadioPanel:refresh()
         local unread = Cache.unread[f.id] or 0
         local sub = f.open and getText("IGUI_StoryEngine_Radio_OpenSub") or getText("IGUI_StoryEngine_Radio_ListSub", f.freq)
         if unread > 0 then sub = sub .. "   " .. getText("IGUI_StoryEngine_Radio_Unread", StoryEngine.intToString(unread)) end
+        local gone = Cache.channels[f.id] and Cache.channels[f.id].gone
+        local color = unread > 0 and { r = 1, g = 0.85, b = 0.45 } or nil
+        if gone then
+            sub = getText("IGUI_StoryEngine_Fate_" .. tostring(gone))
+            color = COLOR_DECLINED
+        end
         self.list:addItem(Factions.name(f.id), {
-            title = Factions.name(f.id), sub = sub, value = f.id,
-            color = unread > 0 and { r = 1, g = 0.85, b = 0.45 } or nil,
+            title = Factions.name(f.id), sub = sub, value = f.id, color = color,
         })
         if f.id == Cache.faction then selectedIndex = i end
     end
@@ -367,8 +379,9 @@ function StoryEngineRadioPanel:refresh()
     self.acceptButton:setVisible(proposal)
     self.declineButton:setVisible(proposal)
 
-    local support = Cache.support and Cache.support[Cache.faction]
-    self.supportButton:setVisible(support ~= nil)
+    -- 지원 요청 버튼은 2026-09-29부터 숨긴다: 방위대 특기(거점 탭)로 옮겼고, A-Life 자동 지원만 남았다
+    local support = nil
+    self.supportButton:setVisible(false)
     if support then
         local ready = (support.level or 0) > 0 and (support.wait or 0) == 0
         self.supportButton:setEnable(ready)
@@ -523,6 +536,7 @@ local function questSub(q)
     elseif q.story == "story" then
         sub = getText("IGUI_StoryEngine_Quest_StoryTag") .. " " .. sub
     end
+    if q.urgent then sub = getText("IGUI_StoryEngine_Quest_UrgentTag") .. " " .. sub end
     -- 다른 사람이 받은 퀘스트는 누가 받았는지 붙인다 (퀘스트는 서버 전체가 함께 본다)
     if q.owner and not q.mine then sub = sub .. "  -  " .. tostring(q.owner) end
     return sub
@@ -949,11 +963,286 @@ function StoryEngineJournalPanel:showMemoir()
     self.text:setYScroll(0)
 end
 
+-- ================================================================ life tab (거점: NPC 생활 상태)
+
+StoryEngineLifePanel = derivePanel("StoryEngineLifePanel")
+
+local RESOURCES = { "food", "medical", "safety", "morale" }
+local BAR_ROW = FONT_H + 8
+local LIFE_HEADER_H = LINE_H + PAD + BAR_ROW * 4
+local RES_LABEL_W = 90
+local DONATE_W = 150
+local SPEC_W = 190
+local PROJECT_W = 150
+
+local function levelOf(v)
+    if v < 20 then return "empty" end
+    if v < 40 then return "low" end
+    if v < 70 then return "ok" end
+    return "plenty"
+end
+
+local LEVEL_COLOR = {
+    empty = { 0.9, 0.3, 0.25 }, low = { 0.95, 0.6, 0.25 }, ok = { 0.9, 0.8, 0.35 }, plenty = { 0.45, 0.85, 0.45 },
+}
+
+local function lifeOf(fid)
+    for _, n in ipairs(Cache.life or {}) do
+        if n.id == fid then return n end
+    end
+    return nil
+end
+
+-- 목록 둘째 줄: 가장 급한 자원 하나
+local function lifeSub(n)
+    local low, value = nil, 101
+    for _, r in ipairs(RESOURCES) do
+        local v = (n.res or {})[r] or 0
+        if v < value then low, value = r, v end
+    end
+    local trust = getText("IGUI_StoryEngine_Life_Trust", StoryEngine.intToString(n.trust or 0))
+    if low and value < 40 then
+        return trust .. "  |  " .. getText("IGUI_StoryEngine_Life_Res_" .. low) .. " "
+            .. getText("IGUI_StoryEngine_Life_Level_" .. levelOf(value))
+    end
+    return trust .. "  |  " .. getText("IGUI_StoryEngine_Life_Fine")
+end
+
+function StoryEngineLifePanel:createChildren()
+    local h = self.height
+    self.list = newList(PAD, PAD, LIST_W, h - PAD * 2, self, StoryEngineLifePanel.onSelect)
+    self.list:setAnchorBottom(true)
+    self:addChild(self.list)
+
+    local x = PAD * 2 + LIST_W
+    local w = self.width - x - PAD
+    self.detail = newRichText(x, PAD + LIFE_HEADER_H + PAD, w, h - LIFE_HEADER_H - PAD * 4 - BUTTON_H)
+    self.detail:setAnchorRight(true)
+    self.detail:setAnchorBottom(true)
+    self:addChild(self.detail)
+
+    self.donateButton = newButton(x, h - PAD - BUTTON_H, DONATE_W, getText("IGUI_StoryEngine_Life_Donate"),
+        self, StoryEngineLifePanel.onDonate)
+    self:addChild(self.donateButton)
+    self.specButton = newButton(x + DONATE_W + PAD, h - PAD - BUTTON_H, SPEC_W, "", self, StoryEngineLifePanel.onSpecialty)
+    self:addChild(self.specButton)
+    self.projectButton = newButton(x + DONATE_W + SPEC_W + PAD * 2, h - PAD - BUTTON_H, PROJECT_W,
+        getText("IGUI_StoryEngine_Project_Button"), self, StoryEngineLifePanel.onProject)
+    self:addChild(self.projectButton)
+end
+
+function StoryEngineLifePanel:onProject()
+    local n = lifeOf(Cache.lifeFaction)
+    if n and n.project and StoryEngineDonateWindow then StoryEngineDonateWindow.open(n, "project") end
+end
+
+-- 특기 요청. 레이는 보급을 보낼 상대를 고른다
+function StoryEngineLifePanel:onSpecialty()
+    local n = lifeOf(Cache.lifeFaction)
+    if not n then return end
+    if n.id ~= "ray" then
+        request("specialtyRequest", { faction = n.id })
+        return
+    end
+    local menu = ISContextMenu.get(0, getMouseX(), getMouseY())
+    for _, other in ipairs(Cache.life or {}) do
+        if other.id ~= "ray" then
+            local low, value = nil, 101
+            for _, r in ipairs(RESOURCES) do
+                local v = (other.res or {})[r] or 0
+                if v < value then low, value = r, v end
+            end
+            local label = Factions.name(other.id)
+            if low then
+                label = label .. "  (" .. getText("IGUI_StoryEngine_Life_Res_" .. low) .. " "
+                    .. StoryEngine.intToString(value) .. ")"
+            end
+            menu:addOption(label, other.id, function(target)
+                request("specialtyRequest", { faction = "ray", target = target })
+            end)
+        end
+    end
+end
+
+function StoryEngineLifePanel:onSelect(fid)
+    if not fid then return end
+    Cache.lifeFaction = fid
+    self:refresh()
+end
+
+function StoryEngineLifePanel:onDonate()
+    local n = lifeOf(Cache.lifeFaction)
+    if n and StoryEngineDonateWindow then StoryEngineDonateWindow.open(n) end
+end
+
+-- 위쪽: 이름·신뢰도, 자원 막대 4개 (숫자, 어제 대비)
+function StoryEngineLifePanel:render()
+    ISPanel.render(self)
+    local n = lifeOf(Cache.lifeFaction)
+    if not n then return end
+    local x = self.detail:getX()
+    local w = self.detail:getWidth()
+    local y = PAD
+    self:drawText(Factions.name(n.id), x, y, 1, 0.9, 0.6, 1, UIFont.Small)
+    local trust = getText("IGUI_StoryEngine_Life_Trust", StoryEngine.intToString(n.trust or 0))
+    local tw = getTextManager():MeasureStringX(UIFont.Small, trust)
+    self:drawText(trust, x + w - tw, y, 0.75, 0.85, 0.75, 1, UIFont.Small)
+    y = y + LINE_H + PAD
+    local barX = x + RES_LABEL_W
+    local barW = math.max(40, w - RES_LABEL_W - 110)
+    for _, r in ipairs(RESOURCES) do
+        local v = (n.res or {})[r] or 0
+        local prev = (n.prev or {})[r] or v
+        local lvl = levelOf(v)
+        local c = LEVEL_COLOR[lvl]
+        local label = getText("IGUI_StoryEngine_Life_Res_" .. r)
+        if r == n.key then label = label .. " *" end
+        self:drawText(label, x, y + 4, 0.85, 0.85, 0.85, 1, UIFont.Small)
+        self:drawRect(barX, y + 3, barW, BAR_ROW - 6, 0.6, 0.12, 0.12, 0.12)
+        self:drawRect(barX, y + 3, math.floor(barW * v / 100), BAR_ROW - 6, 0.85, c[1], c[2], c[3])
+        self:drawRectBorder(barX, y + 3, barW, BAR_ROW - 6, 0.5, 0.5, 0.5, 0.5)
+        local diff = v - prev
+        local text = StoryEngine.intToString(v) .. "  " .. getText("IGUI_StoryEngine_Life_Level_" .. lvl)
+        if diff ~= 0 then text = text .. "  " .. (diff > 0 and "+" or "") .. StoryEngine.intToString(diff) end
+        self:drawText(text, barX + barW + 8, y + 4, c[1], c[2], c[3], 1, UIFont.Small)
+        y = y + BAR_ROW
+    end
+    -- 물자 지원 대기
+    if not n.fate and (n.donateWait or 0) > 0 then
+        self:drawText(getText("IGUI_StoryEngine_Life_DonateWait", StoryEngine.intToString(n.donateWait)),
+            self.projectButton:getRight() + PAD, self.donateButton:getY() + (BUTTON_H - FONT_H) / 2, 0.7, 0.7, 0.7, 1, UIFont.Small)
+    end
+end
+
+local function recordText(e)
+    local key = "IGUI_StoryEngine_Life_Rec_" .. tostring(e.kind)
+    local text = e.src and getText(key, Factions.name(e.src)) or getText(key)
+    if text == key then text = tostring(e.kind) end
+    local line = "D" .. StoryEngine.intToString(e.day or 0) .. "  "
+    if e.who then
+        line = line .. tostring(e.who) .. (e.dead and (" " .. getText("IGUI_StoryEngine_Life_Deceased")) or "") .. ": "
+    end
+    line = line .. text
+    local d = tonumber(e.d) or 0
+    if d ~= 0 then line = line .. "  (" .. (d > 0 and "+" or "") .. StoryEngine.intToString(d) .. ")" end
+    return line, d
+end
+
+function StoryEngineLifePanel:refresh()
+    self.list:clear()
+    local selectedIndex = 0
+    local npcs = Cache.life or {}
+    if not lifeOf(Cache.lifeFaction) and npcs[1] then Cache.lifeFaction = npcs[1].id end
+    for i, n in ipairs(npcs) do
+        local low = false
+        for _, r in ipairs(RESOURCES) do
+            if ((n.res or {})[r] or 0) < 20 then low = true end
+        end
+        local sub = n.fate and getText("IGUI_StoryEngine_Fate_" .. tostring(n.fate)) or lifeSub(n)
+        local color = low and COLOR_FAILED or nil
+        if n.fate then color = COLOR_DECLINED end
+        self.list:addItem(Factions.name(n.id), { title = Factions.name(n.id), sub = sub, value = n.id, color = color })
+        if n.id == Cache.lifeFaction then selectedIndex = i end
+    end
+    self.list.selected = selectedIndex
+
+    local n = lifeOf(Cache.lifeFaction)
+    self.donateButton:setVisible(n ~= nil)
+    self.specButton:setVisible(n ~= nil)
+    self.projectButton:setVisible(false)
+    if not n then
+        self.detail:setText(" <TEXT> " .. UI.escape(getText("IGUI_StoryEngine_Life_Empty")))
+        self.detail:paginate()
+        return
+    end
+    local proj = n.project
+    self.projectButton:setVisible(proj ~= nil and not proj.done and not n.fate)
+    self.projectButton:setEnable((n.donateWait or 0) == 0)
+    self.projectButton.tooltip = getText("IGUI_StoryEngine_Project_Tooltip")
+    if n.fate then
+        self.donateButton:setVisible(false)
+        self.specButton:setVisible(false)
+    end
+    self.donateButton:setEnable((n.donateWait or 0) == 0)
+    self.donateButton.tooltip = getText("IGUI_StoryEngine_Life_DonateTooltip")
+    -- 특기: 구간 1~3, 막힌 이유는 툴팁으로
+    local spec = n.spec or {}
+    self.specButton:setVisible(n.spec ~= nil and not n.fate)
+    local specName = getText("IGUI_StoryEngine_Spec_Name_" .. n.id)
+    local tierText = (spec.tier or 0) > 0 and (" " .. string.rep("*", spec.tier)) or ""
+    self.specButton:setTitle(getText("IGUI_StoryEngine_Spec_Button", specName) .. tierText)
+    self.specButton:setEnable(spec.reason == nil)
+    local tip = getText("IGUI_StoryEngine_Spec_Desc_" .. n.id)
+    if spec.reason then
+        tip = getText("IGUI_StoryEngine_Spec_Error_" .. tostring(spec.reason), StoryEngine.intToString(spec.wait or 0))
+            .. " <LINE> " .. tip
+    end
+    self.specButton.tooltip = tip
+
+    local parts = {}
+    if n.fate then
+        parts[#parts + 1] = " <RGB:0.75,0.6,0.9> " .. UI.escape(getText("IGUI_StoryEngine_Fate_Line_" .. tostring(n.fate),
+            Factions.name(n.id)) .. "  (D" .. StoryEngine.intToString(n.fateDay or 0) .. ")") .. " <LINE> <LINE> "
+    elseif (n.starve or 0) > 0 then
+        parts[#parts + 1] = " <RGB:0.95,0.4,0.35> " .. UI.escape(getText("IGUI_StoryEngine_Fate_Starving",
+            StoryEngine.intToString(n.starve))) .. " <LINE> <LINE> "
+    end
+    if n.project then
+        local pr = n.project
+        local goal = pr.goal or 1000
+        local pts = math.min(goal, pr.points or 0)
+        local filled = math.floor(pts * 10 / goal)
+        local bar = "[" .. string.rep("#", filled) .. string.rep("-", 10 - filled) .. "]"
+        local head = getText("IGUI_StoryEngine_Project_Name_" .. n.id)
+        if pr.done then
+            parts[#parts + 1] = " <RGB:0.5,0.9,0.6> " .. UI.escape(getText("IGUI_StoryEngine_Project_Done", head)) .. " <LINE> "
+        else
+            local needs = pr.accept and getText("IGUI_StoryEngine_Project_Accept_" .. tostring(pr.accept))
+                or getText("IGUI_StoryEngine_Life_Res_" .. tostring(pr.res))
+            parts[#parts + 1] = " <RGB:0.85,0.8,0.55> " .. UI.escape(getText("IGUI_StoryEngine_Project_Line", head, bar,
+                StoryEngine.intToString(pts), StoryEngine.intToString(goal), needs)) .. " <LINE> "
+        end
+        parts[#parts + 1] = " <RGB:0.65,0.65,0.65> " .. UI.escape(getText("IGUI_StoryEngine_Project_Effect_" .. n.id))
+            .. " <LINE> <LINE> "
+    end
+    local names = function(list)
+        local out = {}
+        for _, id in ipairs(list or {}) do
+            local v = (n.bondVals or {})[id]
+            local mark = v and (" (" .. (v > 0 and "+" or "") .. StoryEngine.intToString(v) .. ")") or ""
+            out[#out + 1] = Factions.name(id) .. mark
+        end
+        return table.concat(out, ", ")
+    end
+    if #(n.likes or {}) > 0 then
+        parts[#parts + 1] = " <RGB:0.5,0.85,0.5> " .. UI.escape(getText("IGUI_StoryEngine_Life_Likes", names(n.likes))) .. " <LINE> "
+    end
+    if #(n.dislikes or {}) > 0 then
+        parts[#parts + 1] = " <RGB:0.95,0.5,0.4> " .. UI.escape(getText("IGUI_StoryEngine_Life_Dislikes", names(n.dislikes))) .. " <LINE> "
+    end
+    if #(n.tags or {}) > 0 then
+        local tags = {}
+        for _, t in ipairs(n.tags) do tags[#tags + 1] = getText("IGUI_StoryEngine_Life_Tag_" .. tostring(t)) end
+        parts[#parts + 1] = " <RGB:1,0.85,0.5> " .. UI.escape(getText("IGUI_StoryEngine_Life_Tags", table.concat(tags, ", "))) .. " <LINE> "
+    end
+    parts[#parts + 1] = " <LINE> <H2> " .. UI.escape(getText("IGUI_StoryEngine_Life_Records")) .. " <LINE> "
+    if #(n.records or {}) == 0 then
+        parts[#parts + 1] = " <RGB:0.6,0.6,0.6> " .. UI.escape(getText("IGUI_StoryEngine_Life_NoRecords")) .. " <LINE> "
+    end
+    for _, e in ipairs(n.records or {}) do
+        local line, d = recordText(e)
+        local color = d > 0 and "0.6,0.85,0.6" or (d < 0 and "0.95,0.55,0.45" or "0.8,0.8,0.8")
+        parts[#parts + 1] = " <RGB:" .. color .. "> " .. UI.escape(line) .. " <LINE> "
+    end
+    self.detail:setText(table.concat(parts))
+    self.detail:paginate()
+end
+
 -- ================================================================ window
 
 StoryEngineMainWindow = ISCollapsableWindow:derive("StoryEngineMainWindow")
 StoryEngineMainWindow.instance = nil
-StoryEngineMainWindow.TABS = { "radio", "quests", "journal" }
+StoryEngineMainWindow.TABS = { "radio", "quests", "journal", "life" }
 
 function StoryEngineMainWindow:createChildren()
     ISCollapsableWindow.createChildren(self)
@@ -971,6 +1260,7 @@ function StoryEngineMainWindow:createChildren()
         radio = StoryEngineRadioPanel:new(0, 0, self.width, vh),
         quests = StoryEngineQuestPanel:new(0, 0, self.width, vh),
         journal = StoryEngineJournalPanel:new(0, 0, self.width, vh),
+        life = StoryEngineLifePanel:new(0, 0, self.width, vh),
     }
     for _, key in ipairs(StoryEngineMainWindow.TABS) do
         local p = self.panels[key]
@@ -1030,6 +1320,7 @@ function StoryEngineMainWindow.open(key)
     request("radioHistory", { faction = Cache.faction })
     request("questList")
     request("journalList", { key = Cache.journalKey, memoir = Cache.journalMemoir or nil })
+    request("lifeList")
 end
 
 -- 열려 있을 때만 새로 그린다.

@@ -20,6 +20,16 @@ require "StoryEngine/Hunt"
 require "StoryEngine/ALife"
 require "StoryEngine/Banter"
 require "StoryEngine/Social"
+require "StoryEngine/Life"
+require "StoryEngine/Specialty"
+require "StoryEngine/Fate"
+require "StoryEngine/Projects"
+require "StoryEngine/NpcEvents"
+require "StoryEngine/Bonds"
+require "StoryEngine/Broadcast"
+require "StoryEngine/World"
+require "StoryEngine/Letters"
+require "StoryEngine/Legacy"
 
 local Net = StoryEngine.Net
 local Bridge = StoryEngine.Bridge
@@ -134,6 +144,150 @@ function Commands.supportRequest(player, args)
         channels = StoryEngine.Radio.channelList(), hasRadio = StoryEngine.Factions.canTalk(player),
         support = StoryEngine.ALife.channelInfo(),
     })
+end
+
+-- 거점 탭: NPC 생활 상태·행적·평판 (Life.lua)
+function Commands.lifeList(player, args)
+    reply(player, "lifeList", { npcs = StoryEngine.Life.list() })
+end
+
+-- 물자 지원: args = { faction, items = 아이템 ID 목록 }
+function Commands.lifeDonate(player, args)
+    local ids = {}
+    for _, v in pairs(args.items or {}) do ids[#ids + 1] = v end
+    local fid = tostring(args.faction or "")
+    local ok, info, wait = StoryEngine.Life.donate(player, fid, ids, args.mode == "project" and "project" or nil)
+    reply(player, "lifeDonateResult", {
+        ok = ok, faction = fid, error = (not ok) and tostring(info) or nil, wait = wait,
+        gains = ok and info.gains or nil, trust = ok and info.trust or nil, points = ok and info.points or nil,
+    })
+    reply(player, "lifeList", { npcs = StoryEngine.Life.list() })
+end
+
+-- 특기 지원: args = { faction, target (레이 보급 대상) }
+function Commands.specialtyRequest(player, args)
+    local fid = tostring(args.faction or "")
+    local ok, info, wait = StoryEngine.Specialty.request(player, fid, { target = args.target })
+    reply(player, "specialtyResult", {
+        ok = ok, faction = fid, error = (not ok) and tostring(info) or nil, wait = wait,
+        pending = ok and info.pending or nil,
+    })
+    reply(player, "lifeList", { npcs = StoryEngine.Life.list() })
+end
+
+-- 닥 치료: 클라이언트가 10초 동안 가만히 있었다
+function Commands.specHealDone(player, args)
+    local ok, info = StoryEngine.Specialty.healDone(player)
+    reply(player, "specialtyResult", { ok = ok, faction = "doc", healed = ok and info or nil,
+                                       error = (not ok) and tostring(info) or nil })
+    reply(player, "lifeList", { npcs = StoryEngine.Life.list() })
+end
+
+-- 라디오 방송을 들었다 (BroadcastClient: 그 주파수에 맞춰 켠 라디오가 있다)
+function Commands.broadcastHeard(player, args)
+    StoryEngine.Broadcast.heard(player, tostring(args.id or ""))
+end
+
+-- 디버그: 오늘 저녁 방송을 지금 만든다 (이미 했어도). args.rerun 이면 마지막 방송을 다시 내보낸다
+function Commands.debugBroadcast(player, args)
+    if not canUseDebug(player) then return end
+    local B = StoryEngine.Broadcast
+    local ok, why
+    if args.rerun then
+        local last = StoryEngine.Store.data().broadcast and StoryEngine.Store.data().broadcast.last
+        ok = last and B.air(last, true) or false
+        why = last and "air failed" or "no broadcast yet"
+    else
+        ok, why = B.build(StoryEngine.Sensor.now(), true)
+    end
+    reply(player, "debugStatus", { text = (ok and "broadcast requested | " or ("broadcast: " .. tostring(why) .. " | "))
+        .. B.statusText() })
+end
+
+-- 편지 읽기: args = { id = modData.storyLetter, qid = modData.storyQuest }
+function Commands.letterRead(player, args)
+    local info, why = StoryEngine.Letters.read(player, args.id, args.qid)
+    reply(player, "letterText", info or { error = tostring(why) })
+end
+
+-- 디버그: 그 NPC 의 편지가 든 선물 보급을 바로 만든다
+function Commands.debugLetter(player, args)
+    if not canUseDebug(player) then return end
+    local fid = tostring(args.faction or "")
+    if not StoryEngine.Factions.byId[fid] then return end
+    StoryEngine.Letters.queue(fid, tostring(args.reason or "gift"), args.reason == "project" and "a test project" or nil)
+    local ps = StoryEngine.Store.player(player)
+    local q, why = StoryEngine.Quests.create("supply_drop", player, ps, 1, StoryEngine.Sensor.now(),
+        { source = "director", faction = fid, initiator = "gift", friend = true })
+    reply(player, "debugStatus", { text = "letter " .. fid .. ": " .. (q and ("in " .. q.id) or tostring(why))
+        .. " | " .. StoryEngine.Letters.statusText() })
+end
+
+-- 디버그: 세계 변화 사건을 바로 일으킨다 (이미 했어도). args.event = power|water|winter|snow|day30|day90|day180
+function Commands.debugWorld(player, args)
+    if not canUseDebug(player) then return end
+    local W = StoryEngine.World
+    local id = tostring(args.event or "")
+    if not W.EVENTS[id] then return end
+    local key = id .. "_debug_" .. StoryEngine.intToString(StoryEngine.Sensor.now().t)
+    local ok = W.fire(id, key)
+    reply(player, "debugStatus", { text = "world " .. id .. (ok and " fired" or " failed") .. " | " .. W.statusText() })
+end
+
+-- 저격이 끝났다 (쓰러뜨린 수)
+function Commands.specSnipeDone(player, args)
+    StoryEngine.Specialty.snipeDone(player, tostring(args.faction or ""), args.kills)
+end
+
+-- 디버그: NPC 생활 자원 조절. args = { faction, delta } 또는 { faction, set = 숫자 | "base" }
+function Commands.debugLife(player, args)
+    if not canUseDebug(player) then return end
+    local fid = tostring(args.faction or "")
+    if not StoryEngine.Factions.byId[fid] then return end
+    StoryEngine.Life.debugAdjust(fid, math.floor(tonumber(args.delta) or 0), args.set)
+    if args.clearWait then StoryEngine.Life.npc(fid).donatedT = nil end
+    if args.clearSpec then StoryEngine.Specialty.clearWait(fid) end
+    if args.project then StoryEngine.Projects.debugAdd(fid, math.floor(tonumber(args.project) or 0)) end
+    -- NPC 사이 사건 시험 (간격·확률 무시): share | clash | raid
+    local NE = StoryEngine.NpcEvents
+    local now = StoryEngine.Sensor.now()
+    if args.npcEvent == "share" then
+        StoryEngine.Store.data().npcEvents = StoryEngine.Store.data().npcEvents or {}
+        StoryEngine.Store.data().npcEvents.lastShareT = nil
+        reply(player, "debugStatus", { text = "share: " .. tostring(NE.share(now)) })
+    elseif args.npcEvent == "clash" then
+        local d = StoryEngine.Store.data()
+        d.npcEvents = d.npcEvents or {}
+        d.npcEvents.lastClashT = nil
+        local chance = NE.CLASH_CHANCE
+        NE.CLASH_CHANCE = 100
+        local ok = NE.clash(now)
+        NE.CLASH_CHANCE = chance
+        reply(player, "debugStatus", { text = "clash: " .. tostring(ok) })
+    elseif args.npcEvent == "raid" then
+        local ok, why = StoryEngine.Social.startCrisis(now, "raid")
+        reply(player, "debugStatus", { text = "raid: " .. tostring(ok and "started" or why) })
+    elseif args.npcEvent == "emergency" then
+        local d = StoryEngine.Store.data()
+        d.npcEvents = d.npcEvents or {}
+        d.npcEvents.lastEmergencyT = nil
+        local ok, why = StoryEngine.Director.run("debug", "npc_emergency", StoryEngine.Store.player(player).name)
+        reply(player, "debugStatus", { text = "emergency: " .. tostring(ok and (NE.emergency() or "sent") or why) })
+    end
+    -- 죽음·떠남 시험: fate = "dead" | "gone" | "revive" | "doom"(하루 뒤 이야기 결말처럼)
+    if args.fate == "revive" then
+        StoryEngine.Fate.revive(fid)
+    elseif args.fate == "doom" then
+        local st = StoryEngine.Social.story(fid)
+        st.wins, st.losses = 0, StoryEngine.Fate.STORY_LOSSES
+        StoryEngine.Fate.onStoryFinal(fid, { final = true })
+        local p = (StoryEngine.Store.data().fatePending or {})[fid]
+        if p then p.dueT = StoryEngine.Sensor.now().t end      -- 시험용: 하루 기다리지 않고 다음 10분에
+    elseif args.fate == "dead" or args.fate == "gone" then
+        StoryEngine.Fate.apply(fid, args.fate, "debug")
+    end
+    reply(player, "debugStatus", { text = StoryEngine.Life.statusText() })
+    reply(player, "lifeList", { npcs = StoryEngine.Life.list() })
 end
 
 -- 디버그: 세력 신뢰도 조절. args = { faction, delta } 또는 { faction, set }
@@ -351,7 +505,10 @@ function Commands.debugStatus(player, args)
     if not canUseDebug(player) then return end
     StoryEngine.Sensor.tick()   -- 10분을 기다리지 않고 바로 한 번 샘플링
     reply(player, "debugStatus", { text = StoryEngine.Sensor.statusText(player) .. " | " .. StoryEngine.ALife.statusText()
-        .. " | " .. StoryEngine.Social.debugStatus() })
+        .. " | " .. StoryEngine.Social.debugStatus() .. " | " .. StoryEngine.Life.statusText()
+        .. " | " .. StoryEngine.Fate.statusText() .. " | " .. StoryEngine.Projects.statusText()
+        .. " | " .. StoryEngine.Bonds.statusText() .. " | " .. StoryEngine.Broadcast.statusText()
+        .. " | " .. StoryEngine.World.statusText() .. " | " .. StoryEngine.Letters.statusText() })
 end
 
 local function onClientCommand(module, command, player, args)
