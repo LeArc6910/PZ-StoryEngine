@@ -29,6 +29,13 @@ local SCRIPTS = {
     ["Base.Cigar"] = { dc = "Junk", weight = 0.1 },
     ["Base.CigarBox"] = { dc = "Container", weight = 0.5 },
     ["Base.TobaccoSeed"] = { dc = "Gardening", weight = 0.1 },
+    -- 모드가 쓰는 다른 분류 이름
+    ["MyMod.FieldKit"] = { dc = "Medical", weight = 0.5 },
+    ["MyMod.Wrench"] = { dc = "Tools", weight = 1 },
+    ["MyMod.Pipebomb"] = { dc = "Explosive", weight = 1 },
+    ["MyMod.Novel"] = { dc = "Books", weight = 0.5 },
+    ["MyMod.Tire"] = { dc = "CarParts", weight = 5 },
+    ["MyMod.Stim"] = { dc = "MyModMeds", weight = 0.1 },
 }
 
 -- 알코올 판정용 가짜 아이템: 액체 용기(fluidAlcohol) 또는 음식(alcohol)
@@ -105,6 +112,59 @@ function T.comforts_are_reading_alcohol_and_tobacco_only()
     H.eq(V.donatable(nil, full), "morale")
     H.eq(V.donatable(nil, empty), nil, "empty bottle")
     H.eq(V.summary(empty), nil)
+end
+
+
+function T.mod_category_names_and_overrides()
+    install()
+    local V = StoryEngine.Value
+    local IP = StoryEngine.ItemPool
+    H.eq(V.categoryOf("MyMod.FieldKit"), "medical", "Medical")
+    H.eq(V.categoryOf("MyMod.Wrench"), "tools", "Tools")
+    H.eq(V.of("MyMod.Wrench"), 8)
+    H.eq(V.categoryOf("MyMod.Pipebomb"), "explosive", "Explosive")
+    H.eq(V.moraleValue("MyMod.Novel"), 1, "Books count as reading")
+    H.ok(V.vehicleValue("MyMod.Tire"), "CarParts count for Dewey")
+    H.eq(V.categoryOf("MyMod.Stim"), "misc", "unknown mod category")
+    -- items.txt: category MyModMeds medical
+    IP.categoryOverrides = { mymodmeds = "medical" }
+    V.cache = {}
+    H.eq(V.categoryOf("MyMod.Stim"), "medical", "mapped by items.txt")
+    IP.categoryOverrides = { tools = "none" }
+    V.cache = {}
+    H.eq(V.categoryOf("MyMod.Wrench"), "misc", "'none' turns a category off")
+end
+
+function T.unknown_mod_categories_are_reported()
+    local scripts = {
+        { ft = "MyMod.Gizmo", dc = "Gizmos", module = "MyMod" },
+        { ft = "MyMod.Gizmo2", dc = "Gizmos", module = "MyMod" },
+        { ft = "Base.ModGun", dc = "Gadget", module = "Base" },
+        { ft = "Base.Sheet", dc = "Material", module = "Base" },
+        { ft = "MyMod.Kit", dc = "Medical", module = "MyMod" },
+    }
+    local list = {}
+    for _, d in ipairs(scripts) do
+        list[#list + 1] = {
+            getFullName = function() return d.ft end, getObsolete = function() return false end,
+            isHidden = function() return false end, getDisplayCategory = function() return d.dc end,
+            getModuleName = function() return d.module end, isRanged = function() return false end,
+            getAmmoType = function() return nil end,
+        }
+    end
+    getScriptManager = function()
+        return { getAllItems = function() return H.list(list) end, FindItem = function() return nil end }
+    end
+    local IP = StoryEngine.ItemPool
+    IP.built = false
+    IP.unmapped = {}
+    IP.build()
+    H.eq(IP.unmapped.Gizmos.n, 2)
+    H.eq(IP.unmapped.Gizmos.example, "MyMod.Gizmo")
+    H.ok(IP.unmapped.Gadget, "mods adding items to the Base module are reported too")
+    H.eq(IP.unmapped.Material, nil, "vanilla categories are not reported")
+    H.eq(IP.unmapped.Medical, nil, "known alias")
+    H.ok(H.logHas("mod item categories not used"), "logged once at build")
 end
 
 return T

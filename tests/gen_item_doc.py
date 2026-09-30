@@ -131,6 +131,26 @@ SPECIAL = {"Base.PipeWrench": 20, "Base.WoodAxe": 20, "Base.Sledgehammer": 20, "
 MORALE_SPECIAL = {"Base.Battery", "Base.Candle", "Base.CigaretteCarton", "Base.CigarettePack", "Base.CigaretteSingle",
                   "Base.CigaretteRolled", "Base.TobaccoDried"}
 
+# 분류 이름 -> 종류 (게임 ItemPool.CATEGORY_KINDS 와 같게)
+CATEGORY_KINDS = {
+    "tools": ["tool", "tools", "toolweapon", "toolkit", "hardware"],
+    "medical": ["firstaid", "firstaidweapon", "bandage", "medical", "medicine", "medic", "medkit", "pharmacy",
+                "health", "healthcare"],
+    "explosive": ["explosives", "explosive", "bomb", "bombs", "grenade", "grenades"],
+    "melee": ["weapon", "melee", "meleeweapon", "weaponmelee", "sportsweapon", "gardeningweapon", "materialweapon",
+              "weaponcrafted", "blade", "blades", "blunt"],
+    "ammo": ["ammo", "ammunition"],
+    "literature": ["literature", "book", "books", "magazine", "magazines", "reading"],
+    "vehicle": ["vehiclemaintenance", "vehiclemaintenanceweapon", "vehicle", "vehicleparts", "carparts", "carpart",
+                "autoparts"],
+}
+KIND_OF = {n: k for k, names in CATEGORY_KINDS.items() for n in names}
+
+
+def kind(dc):
+    return KIND_OF.get((dc or "").lower())
+
+
 groups = collections.defaultdict(list)
 tool_value, tool_in_melee = {}, set()
 for ft, info in sorted(items.items()):
@@ -138,7 +158,7 @@ for ft, info in sorted(items.items()):
         continue
     dc = info["cat"] or ""
     short = ft.split(".", 1)[1]
-    if dc in ("Tool", "ToolWeapon"):
+    if kind(dc) == "tools":
         if not any(w in short for w in TOOL_NOT):
             groups["tools"].append(ft)
             w = info["weight"]
@@ -147,22 +167,22 @@ for ft, info in sorted(items.items()):
                 tool_in_melee.add(ft)
     elif ft in in_pool:
         pass
-    elif dc == "Ammo" or ft in ammo_role:
+    elif kind(dc) == "ammo" or ft in ammo_role:
         groups["ammo"].append(ft)
     elif info["ranged"] or (dc in ("Weapon", "FireArm") and info["ammo"]):
         groups["gun_other"].append(ft)
-    elif dc == "Explosives":
+    elif kind(dc) == "explosive":
         groups["explosive"].append(ft)
-    elif dc in ("FirstAid", "FirstAidWeapon", "Bandage"):
+    elif kind(dc) == "medical":
         groups["medical"].append(ft)
-    elif dc == "Weapon":
+    elif kind(dc) == "melee":
         groups["melee_other"].append(ft)
-    if dc == "VehicleMaintenance":
+    if kind(dc) == "vehicle":
         groups["vehicle"].append(ft)
     alcohol = dc == "Food" and ft not in in_pool and (
         info["alcoholic"] or any(fl in alcohol_fluids for fl in info["fluids"]))
     tobacco = dc == "Junk" and any(short.startswith(p) for p in ("Cigarette", "Cigar", "Tobacco"))
-    if ft in MORALE_SPECIAL or dc == "Literature" or tobacco or alcohol:
+    if ft in MORALE_SPECIAL or kind(dc) == "literature" or tobacco or alcohol:
         groups["morale"].append(ft)
 
 out = []
