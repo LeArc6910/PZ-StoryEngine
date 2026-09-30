@@ -11,6 +11,9 @@
 --   bonds  이 노드에 들어설 때 NPC 사이 관계 변화 { { from, to, d, why } } (Bonds.onBeat)
 -- 플래그는 위기 선택으로 붙는다: <위기id>_helped (선택받음) / _snubbed (선택받지 못함) / _ignored,
 -- 선택받은 쪽의 후속 퀘스트 결과로 <위기id>_done / _failed.
+-- 선택지의 allies = 이 선택이 그 NPC 의 바람도 이뤄 준다 (함께 도운 것으로: _helped, 신뢰도 +1, 결과 플래그도 같이)
+--          spares = 이 선택을 그 NPC 가 이해한다 (외면 감점 없음) — 2026-09-30 점검 (교회 습격에서 방위대를 고르면
+--          교회가 외면당한 것으로 처리되던 문제)
 
 if isClient() then return end
 
@@ -287,9 +290,9 @@ Stories.CRISES = {
           { faction = "guard", ask = "bring ammunition so the squad can finish what they started with Vic's crew",
             tier = 3, items = { { "Base.556Box", 1 } } },
           { faction = "rats", ask = "bring bandages and painkillers for his wounded crew",
-            tier = 2, items = { { "Base.Bandage", 4 }, { "Base.Pills", 2 } } },
+            tier = 2, items = { { "Base.Bandage", 4 }, { "Base.Pills", 2 } }, spares = { "doc" } },
           { faction = "doc", ask = "bring dressings so she can patch up the wounded from both sides",
-            tier = 2, items = { { "Base.Bandage", 4 }, { "Base.Disinfectant", 1 } } },
+            tier = 2, items = { { "Base.Bandage", 4 }, { "Base.Disinfectant", 1 } }, spares = { "guard", "rats" } },
       } },
     { id = "truck",
       situation = "A military supply truck overturned on the highway south of Muldraugh. Its cargo is scattered and the dead are gathering around it.",
@@ -317,19 +320,19 @@ Stories.CRISES = {
           { faction = "casey", ask = "bring batteries and parts so they can boost their rig and answer the signal",
             tier = 2, items = { { "Base.Battery", 4 }, { "Base.ElectronicsScrap", 3 } } },
           { faction = "dewey", ask = "strip the tower for wire and screws for his truck before anyone else does",
-            tier = 2, items = { { "Base.ElectricWire", 3 }, { "Base.ScrewsBox", 1 } } },
+            tier = 2, items = { { "Base.ElectricWire", 3 }, { "Base.ScrewsBox", 1 } }, spares = { "hunter" } },
           { faction = "hunter", ask = "bring him rifle ammunition so he can scout the tower himself, because he thinks it is a trap",
-            tier = 3, items = { { "Base.308Box", 1 } } },
+            tier = 3, items = { { "Base.308Box", 1 } }, spares = { "casey" } },
       } },
     { id = "raid",
       situation = "Vic's crew is planning to hit Brother Pike's church storeroom in March Ridge.",
       options = {
           { faction = "pike", ask = "bring nails and a hammer to board up the church storeroom before they come",
-            tier = 2, items = { { "Base.NailsBox", 1 }, { "Base.Hammer", 1 } } },
+            tier = 2, items = { { "Base.NailsBox", 1 }, { "Base.Hammer", 1 } }, spares = { "guard" } },
           { faction = "rats", ask = "look the other way and bring him a crowbar for the storeroom door, for a cut of the take",
             tier = 1, items = { { "Base.Crowbar", 1 } } },
           { faction = "guard", ask = "supply shotgun shells so he can send a patrol to protect the church",
-            tier = 2, items = { { "Base.ShotgunShellsBox", 1 } } },
+            tier = 2, items = { { "Base.ShotgunShellsBox", 1 } }, allies = { "pike" } },
       } },
 }
 
@@ -338,6 +341,24 @@ function Stories.node(fid, id)
         if n.id == id then return n end
     end
     return nil
+end
+
+-- 위기 선택지 정의 (fid 의 선택지)
+function Stories.crisisOption(id, fid)
+    local c = Stories.crisis(id)
+    for _, o in ipairs(c and c.options or {}) do
+        if o.faction == fid then return o end
+    end
+    return nil
+end
+
+-- 이 선택(chosen)에서 fid 는 어떤 처지인가: "chosen" | "ally" | "spared" | "snubbed"
+function Stories.crisisRole(id, chosen, fid)
+    if fid == chosen then return "chosen" end
+    local o = Stories.crisisOption(id, chosen) or {}
+    for _, a in ipairs(o.allies or {}) do if a == fid then return "ally" end end
+    for _, a in ipairs(o.spares or {}) do if a == fid then return "spared" end end
+    return "snubbed"
 end
 
 function Stories.crisis(id)

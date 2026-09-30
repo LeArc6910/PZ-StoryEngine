@@ -183,6 +183,60 @@ end
 
 -- ---------------------------------------------------------------- spawn
 
+-- A-Life 가 스폰을 막는 곳인가: 플레이어 거점(BaseHeat)·세이프하우스 + 여유. spawnEncounter 는 항상 directed 라
+-- 거점 검사를 건너뛸 수 없고, 한 명이라도 거점 안이면 그룹 전체가 취소된다 (scene_atomic_rollback,
+-- inside_player_base — 2026-09-30 인게임 로그). 대원은 스폰 지점 반경 6 안에 흩어지므로 여유를 더 둔다
+ALife.BASE_SPREAD = 8
+ALife.FAR_SPOTS = { 20, 30, 45, 60 }      -- 가까운 곳이 모두 거점 안이면 이 거리에서 찾는다
+
+function ALife.protectedAt(x, y, extra)
+    extra = extra or ALife.BASE_SPREAD
+    local sp = ProjectALife and ProjectALife.SpawnPolicy
+    local margin = ((sp and tonumber(sp.safehouseMargin)) or 8) + extra
+    if sp and type(sp.inPlayerBase) == "function" then
+        local ok, inside = pcall(sp.inPlayerBase, { x = x + 0.5, y = y + 0.5, z = 0 }, margin)
+        if ok and inside then return true end
+    end
+    local ok, hit = pcall(function()
+        local list = SafeHouse and SafeHouse.getSafehouseList and SafeHouse.getSafehouseList()
+        if not list then return false end
+        for i = 0, list:size() - 1 do
+            local s = list:get(i)
+            local x1, y1 = s:getX(), s:getY()
+            if x >= x1 - margin and x <= x1 + s:getW() + margin and y >= y1 - margin and y <= y1 + s:getH() + margin then
+                return true
+            end
+        end
+        return false
+    end)
+    return ok and hit == true
+end
+
+-- 스폰 지점: distRange 안에서 거점 밖을 먼저, 없으면 더 멀리. 반환: x, y, 거리, 거점 때문에 옮겼는가
+function ALife.spawnSpot(px, py, distRange)
+    local function at(angle, d)
+        return math.floor(px + math.cos(angle) * d), math.floor(py + math.sin(angle) * d)
+    end
+    local angle = ZombRandFloat(0, math.pi * 2)
+    local d = ZombRand(distRange[1], distRange[2] + 1)
+    local x, y = at(angle, d)
+    if not ALife.protectedAt(x, y) then return x, y, d, false end
+    for i = 1, 11 do
+        local a = angle + i * math.pi / 6
+        local cx, cy = at(a, d)
+        if not ALife.protectedAt(cx, cy) then return cx, cy, d, false end
+    end
+    for _, far in ipairs(ALife.FAR_SPOTS) do
+        if far > distRange[1] then
+            for i = 0, 11 do
+                local cx, cy = at(angle + i * math.pi / 6, far)
+                if not ALife.protectedAt(cx, cy) then return cx, cy, far, true end
+            end
+        end
+    end
+    return x, y, d, false
+end
+
 -- friendly: 아군(true) / 적(false). dist 는 { 최소, 최대 } 타일.
 -- hooks.start(info) 는 스폰 요청 직전 (결과 콜백이 바로 올 수도 있어 먼저 등록해 둔다), hooks.done(outcome, info) 는 끝나면.
 function ALife.spawnSquad(player, fid, level, count, friendly, distRange, tag, hooks)
@@ -194,9 +248,7 @@ function ALife.spawnSquad(player, fid, level, count, friendly, distRange, tag, h
     st.seq = (st.seq or 0) + 1
     local requestId = "storyengine:" .. tag .. ":" .. StoryEngine.intToString(st.seq) .. ":" .. tostring(nowMs())
     local px, py = player:getX(), player:getY()
-    local angle = ZombRandFloat(0, math.pi * 2)
-    local d = ZombRand(distRange[1], distRange[2] + 1)
-    local x, y = math.floor(px + math.cos(angle) * d), math.floor(py + math.sin(angle) * d)
+    local x, y, d, moved = ALife.spawnSpot(px, py, distRange)
     local key = ALife.playerKey(player)
     local args = {
         requestId = requestId, encounterId = "storyengine_" .. tag,
@@ -230,7 +282,7 @@ function ALife.spawnSquad(player, fid, level, count, friendly, distRange, tag, h
         end
     end)
     log("alife squad", tag, fid, factionId, "level", level, "x" .. #ids, friendly and "friendly" or "hostile",
-        "at", x, y, "dist", d)
+        "at", x, y, "dist", d, moved and "(outside player base)" or "")
     return true, info
 end
 
@@ -610,6 +662,17 @@ function ALife.sendSupport(player, fid, how, reason, levelOverride, retry, count
                 if not retry and not player:isDead() then
                     st.active[info.requestId] = nil
                     ALife.sendSupport(player, fid, how, reason, levelOverride, true, countOverride)
+                    return
+                end
+                -- 다시 불러도 못 나왔다: 쓴 대기 시간을 돌려주고, 이미 "보냈다"고 한 무전을 바로잡는다
+                if how == "auto" then st.autoAt[ps.key] = nil end
+                if how == "request" then st.cooldown[fid] = nil end
+                if how == "specialty" and StoryEngine.Specialty then pcall(StoryEngine.Specialty.clearWait, fid) end
+                log("alife support gave up, cooldown refunded", fid, how)
+                if not player:isDead() then
+                    pcall(Radio.react, fid, "event", "The armed people you sent to back up " .. tostring(ps.name)
+                        .. " could not get through to them this time. Tell them briefly, sorry, they are on their own for now.",
+                        nil, ps, { overhead = true })
                 end
                 return
             end

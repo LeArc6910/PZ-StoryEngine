@@ -45,6 +45,32 @@ function T.heal_countdown_sends_done_or_cancels()
     H.eq(healDones(), 1, "moving cancels the treatment")
 end
 
+function T.heal_ignores_bleeding_but_not_new_wounds()
+    local p = H.addPlayer("tester", "Gerald", "Kar")
+    p.hp = 80
+    p.parts = { H.newBodyPart("ForeArm_L", { cut = true, bleed = 5 }), H.newBodyPart("Hand_R") }
+    -- 출혈로 체력이 서서히 줄어도 끊기지 않는다 (2026-09-30 버그)
+    StoryEngine.Client.handlers.specHealStart({ faction = "doc", tier = 1 })
+    for _ = 1, 5 do p.hp = p.hp - 1; H.fire("OnTick") end
+    H.realMs = H.realMs + 11000
+    for _ = 1, 10 do H.fire("OnTick") end
+    H.eq(healDones(), 1, "bleeding alone does not cancel")
+    -- 새 상처가 생기면 끊긴다
+    StoryEngine.Client.handlers.specHealStart({ faction = "doc", tier = 1 })
+    p.parts[2].scratch = true
+    for _ = 1, 10 do H.fire("OnTick") end
+    H.realMs = H.realMs + 11000
+    for _ = 1, 10 do H.fire("OnTick") end
+    H.eq(healDones(), 1, "a new wound cancels")
+    -- 크게 맞으면 끊긴다
+    StoryEngine.Client.handlers.specHealStart({ faction = "doc", tier = 1 })
+    p.hp = p.hp - 20
+    for _ = 1, 10 do H.fire("OnTick") end
+    H.realMs = H.realMs + 11000
+    for _ = 1, 10 do H.fire("OnTick") end
+    H.eq(healDones(), 1, "a big hit cancels")
+end
+
 function T.comfort_sets_no_fear_window()
     local p = H.addPlayer("tester", "Gerald", "Kar")
     StoryEngine.Client.handlers.specComfort({ faction = "pike", tier = 2, reduce = 0.5, hours = 6 })
@@ -112,6 +138,23 @@ function T.item_tooltip_lines()
     H.ok(string.find(lines[3][1], "IGUI_StoryEngine_Life_Res_safety", 1, true), lines[3][1])
     StoryEngine.Value.cache["Base.Rock"] = { category = "misc", value = 0.2 }
     H.eq(#StoryEngine.ItemTooltip.lines(H.newItem("Base.Rock")), 0)
+end
+
+
+function T.radio_overhead_splits_into_timed_lines()
+    local C = StoryEngine.Client
+    local parts = C.splitOverhead("Hold still. I'm walking you through it. First, press on the wound hard! Then wrap it.", 40)
+    H.eq(parts[1], "Hold still. I'm walking you through it.", "short sentences join up to the limit")
+    H.eq(parts[2], "First, press on the wound hard!")
+    H.eq(parts[#parts], "Then wrap it.")
+    H.eq(#C.splitOverhead("no punctuation at all", 150), 1)
+    H.addPlayer("tester", "Gerald", "Kar")
+    C.overheadQueue = {}
+    C.handlers.radioOverhead({ faction = "doc", text = "Hold still. Breathe." })
+    H.eq(#C.overheadQueue, 1, "short reply stays one line")
+    H.ok(string.find(C.overheadQueue[1].text, "] Hold still. Breathe.", 1, true), C.overheadQueue[1].text)
+    for _ = 1, 3 do H.fire("OnTick") end
+    H.eq(#C.overheadQueue, 0, "shown")
 end
 
 return T

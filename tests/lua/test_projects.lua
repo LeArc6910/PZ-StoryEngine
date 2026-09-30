@@ -125,7 +125,7 @@ function T.effect_doc_half_medicine()
     p.parts = { H.newBodyPart("arm", { scratch = true }), H.newBodyPart("leg", { cut = true }) }
     H.ok(StoryEngine.Specialty.request(p, "doc", {}))
     H.ok(StoryEngine.Specialty.healDone(p))
-    H.eq(res("doc", "medical"), 75 - 7, "cost 15 halved to 7")
+    H.eq(res("doc", "medical"), 75 - 5, "cost 10 halved to 5")
 end
 
 function T.effect_pike_longer_comfort()

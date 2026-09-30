@@ -54,17 +54,20 @@ function T.hunter_snipe_request_cooldown_and_cost()
     Sp.snipeDone(p, "hunter", 99)
     local ps = StoryEngine.Store.player(p)
     H.eq(ps.notes[#ps.notes].kind, "specialty_snipe")
-    H.eq(ps.notes[#ps.notes].count, 30, "kills clamped")
+    H.eq(ps.notes[#ps.notes].count, 20, "kills clamped to what was asked")
 end
 
-function T.guard_without_alife_snipes_30_at_tier3()
+function T.guard_without_alife_snipes_twice_hank_four_times_slower()
     local p = setup()
     setTrust("guard", 85)
     H.newZombie(10005, 10000)
     H.ok(S().request(p, "guard", {}))
     local sent = H.sentOf("specSnipe")[1]
-    H.eq(sent.count, 30)
+    H.eq(sent.count, 60, "tier 3: twice Hank's 30")
+    H.eq(sent.minutes, 240, "twice the shots at 4x the interval = 4 hours")
+    H.near(sent.minutes / sent.count, 4 * (30 / 30), 0.001, "4x Hank's shot interval")
     H.eq(sent.sound, "M14Shoot")
+    H.ok(string.find(H.lastBridge("radio", "event").payload.topic, "the next 4 hours", 1, true))
     H.eq(S().status("guard").wait, 7 * 24, "7 days")
     H.eq(res("guard", "safety"), 60, "tier 3 costs 15")
 end
@@ -87,17 +90,17 @@ function T.doc_heal_flow_and_limits()
     H.eq(Sp.status("doc").wait, 0, "not committed yet")
     local done, n = Sp.healDone(p)
     H.ok(done, "healed")
-    -- 긁힘 1 + 깊은 상처 1 + 물린 손 출혈 1 (물림·감염은 그대로)
-    H.eq(n, 3)
-    H.eq(arm.scratch, false)
+    -- 가장 심각한 상처 하나만: 깊은 상처 (긁힘·물린 손 출혈은 그대로, 2026-09-30)
+    H.eq(n, 1)
     H.eq(leg.deep, false)
     H.eq(leg.bleed, 0)
+    H.eq(arm.scratch, true, "only the worst wound")
     H.eq(chest.bullet, true, "bullets need tier 3")
     H.eq(hand.bit, true, "bite untouched")
     H.eq(hand.infected, true, "zombie infection untouched")
-    H.ok(#H.synced >= 3, "body parts synced")
+    H.ok(#H.synced >= 1, "body part synced")
     H.eq(Sp.status("doc").wait, 7 * 24)
-    H.eq(res("doc", "medical"), 55 - 20, "cost 5 + 5 per injury, max 20")
+    H.eq(res("doc", "medical"), 55 - 10, "fixed cost 10")
     local again, why2 = Sp.healDone(p)
     H.eq(again, false)
     H.eq(why2, "expired", "no pending treatment")
@@ -110,10 +113,12 @@ function T.doc_tier3_bullet_burn_fracture()
     p.parts = { chest }
     H.ok(S().request(p, "doc", {}))
     H.ok(S().healDone(p))
-    H.eq(chest.bullet, false)
-    H.eq(chest.burn, 0)
-    H.eq(chest.fracture, 0)
+    H.eq(chest.bullet, false, "bullet first")
+    H.eq(chest.burn, 20, "burn waits")
+    H.eq(chest.fracture, 30, "fracture waits")
     H.eq(chest.pain, 0)
+    local b = H.lastBridge("radio", "event")
+    H.ok(string.find(b.payload.topic, "(bullet)", 1, true), "doc knows what was treated")
 end
 
 function T.doc_heal_expires()
@@ -351,6 +356,121 @@ function T.alife_suppressor_logs_why_not()
     rawset(_G, "ProjectALife", { Watchdog = { bindings = {} } })
     StoryEngine.ALife.suppress("u9")
     H.ok(H.logHas("alife suppressor skipped u9 no shell binding"))
+end
+
+
+function T.specialty_reply_also_shows_overhead()
+    local p = setup()
+    setTrust("hunter", 65)
+    H.newZombie(10010, 10010)
+    H.ok(S().request(p, "hunter", {}))
+    local req = H.lastBridge("radio", "event")
+    req.callback({ ok = true, json = { reply = "On my way. Keep your head down." } })
+    local o = H.sentOf("radioOverhead")
+    H.eq(#o, 1, "reply goes over the requester's head")
+    H.eq(o[1].faction, "hunter")
+    H.eq(o[1].text, "On my way. Keep your head down.")
+    -- AI 가 실패해도 준비된 문장이 뜬다
+    setTrust("pike", 65)
+    H.ok(S().request(p, "pike", {}))
+    H.lastBridge("radio", "event").callback({ ok = false, error = "timeout" })
+    o = H.sentOf("radioOverhead")
+    H.eq(#o, 2)
+    H.eq(o[2].lt.key, "IGUI_StoryEngine_RadioSay_spec_pike", "prepared line")
+    -- 특기가 아닌 NPC 반응은 머리 위에 안 뜬다
+    StoryEngine.Radio.react("ray", "event", "Say hi.", nil, StoryEngine.Store.player(p))
+    H.lastBridge("radio", "event").callback({ ok = true, json = { reply = "Hi." } })
+    H.eq(#H.sentOf("radioOverhead"), 2)
+end
+
+
+function T.alife_spawn_spot_avoids_player_base()
+    -- 플레이어 거점: (9980..10020, 9980..10020). A-Life 는 거점 + 여유 안이면 그룹 전체를 취소한다
+    ProjectALife = { SpawnPolicy = { safehouseMargin = 8, inPlayerBase = function(pos, margin)
+        return pos.x >= 9980 - margin and pos.x <= 10020 + margin and pos.y >= 9980 - margin and pos.y <= 10020 + margin
+    end } }
+    local A = StoryEngine.ALife
+    H.ok(A.protectedAt(10010, 10010), "inside the base")
+    H.ok(A.protectedAt(10035, 10000), "inside the margin (8 + 8)")
+    H.ok(not A.protectedAt(10040, 10000), "outside")
+    local x, y, d, moved = A.spawnSpot(10000, 10000, { 10, 15 })
+    H.ok(not A.protectedAt(x, y), "picked a spot outside the base")
+    H.ok(moved, "had to go further out")
+    H.ok(d >= 20, "far spot " .. tostring(d))
+    -- 거점이 없으면 원래 거리 그대로
+    ProjectALife = nil
+    x, y, d, moved = A.spawnSpot(10000, 10000, { 10, 15 })
+    H.ok(d >= 10 and d <= 15 and not moved)
+end
+
+
+function T.alife_support_gives_up_and_refunds_cooldown()
+    local p, ps = setup()
+    local watchers = {}
+    ProjectALife = {
+        Runtime = { started = true }, ActorRegistry = {}, Catalog = {},
+        DebugService = {
+            spawnEncounter = function() return true end,
+            watchGroup = function(id, fn) watchers[#watchers + 1] = fn end,
+        },
+    }
+    local A = StoryEngine.ALife
+    A.pickSquad = function() return "alife_gunclub", { "a", "b", "c", "d" } end
+    A.installGuards = function() end
+    setTrust("ray", 75)
+    H.ok(A.sendSupport(p, "ray", "auto", "surrounded"))
+    local st = StoryEngine.Store.data().alife
+    H.ok(st.autoAt[ps.key], "cooldown starts when sent")
+    -- A-Life 가 그룹을 취소 (거점 안): 한 번 더 부른다
+    watchers[1]({ actorUids = {}, reason = "inside_player_base" })
+    H.eq(#watchers, 2, "retried once")
+    H.ok(st.autoAt[ps.key], "still waiting on the retry")
+    -- 또 취소되면 대기 시간을 돌려주고 무전으로 알린다
+    watchers[2]({ actorUids = {}, reason = "inside_player_base" })
+    H.eq(#watchers, 2, "no third try")
+    H.eq(st.autoAt[ps.key], nil, "auto support cooldown refunded")
+    H.ok(H.logHas("alife support gave up, cooldown refunded"))
+    -- "보냈다" 무전이 끝나면 바로잡는 무전이 이어서 나간다 (채널 대기열)
+    H.lastBridge("radio", "event").callback({ ok = true, json = { reply = "Sending my people." } })
+    local b = H.lastBridge("radio", "event")
+    H.ok(b and string.find(b.payload.topic, "could not get through", 1, true), "correction on the radio")
+    ProjectALife = nil
+end
+
+
+function T.pike_comfort_changes_stats_on_the_server()
+    local p = setup()
+    CharacterStat = { STRESS = "STRESS", UNHAPPINESS = "UNHAPPINESS", BOREDOM = "BOREDOM", PANIC = "PANIC" }
+    local values = { STRESS = 0.8, UNHAPPINESS = 60, BOREDOM = 90, PANIC = 50 }
+    function p:getStats()
+        return { get = function(_, k) return values[k] end, set = function(_, k, v) values[k] = v end }
+    end
+    setTrust("pike", 65)                                   -- 구간 2: 50% 감소, 6시간 두려움 없음
+    H.ok(S().request(p, "pike", {}))
+    H.eq(values.BOREDOM, 45, "boredom halved by the server (multiplayer keeps it)")
+    H.eq(values.UNHAPPINESS, 30)
+    H.near(values.STRESS, 0.4, 0.001)
+    values.PANIC = 70
+    H.advance(1)
+    H.fire("EveryOneMinute")
+    H.eq(values.PANIC, 0, "server keeps fear at zero")
+    local c = StoryEngine.Store.data().spec.comfort[StoryEngine.Store.player(p).key]
+    H.eq(c.stiff, false, "tier 2: no muscle strain effect")
+    H.advance(7 * 60)
+    H.fire("EveryOneMinute")
+    values.PANIC = 70
+    H.fire("EveryOneMinute")
+    H.eq(values.PANIC, 70, "window over")
+end
+
+
+function T.guard_checkpoint_adds_20_snipes_without_alife()
+    local p = setup()
+    setTrust("guard", 45)
+    H.newZombie(10005, 10000)
+    StoryEngine.Projects.add("guard", 1000)
+    H.ok(S().request(p, "guard", {}))
+    H.eq(H.sentOf("specSnipe")[1].count, 40, "tier 1: 20 + 20")
 end
 
 return T
