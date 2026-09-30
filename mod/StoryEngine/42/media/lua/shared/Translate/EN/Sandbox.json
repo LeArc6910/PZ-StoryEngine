@@ -23,5 +23,15 @@
     "Sandbox_StoryEngine_Banter": "Characters talk to each other (multiplayer)",
     "Sandbox_StoryEngine_Banter_tooltip": "When characters are within 10 tiles of each other, the AI writes a short exchange every 3 in-game hours, and right away when something happens (fighting together, a bite, a horde closing in, quests, radio news, a death). Shown above their heads and kept in the journal. With a companion nearby, this replaces the solo monologue.",
     "Sandbox_StoryEngine_Social": "NPC social life (calls, stories, open channel, crises)",
-    "Sandbox_StoryEngine_Social_tooltip": "Contacts call you 4-6 times a day even without business, each has a personal story that branches on linked quests, they talk among themselves on an open channel, and sometimes several of them ask for help at once so you have to choose."
+    "Sandbox_StoryEngine_Social_tooltip": "Contacts call you 4-6 times a day even without business, each has a personal story that branches on linked quests, they talk among themselves on an open channel, and sometimes several of them ask for help at once so you have to choose.",
+    "Sandbox_StoryEngine_Specialty": "NPC specialties",
+    "Sandbox_StoryEngine_Specialty_tooltip": "From the bases tab, ask a contact you trust (40+) for their specialty: squad backup, treatment, vehicle repair, scouting, supply runs, comfort, sniper cover or decoy noise. Each has its own cooldown.",
+    "Sandbox_StoryEngine_NpcFate": "Contacts can die or leave",
+    "Sandbox_StoryEngine_NpcFate_tooltip": "A contact dies or leaves if their story reaches its end without a single request fulfilled, or if all their supplies (food, medicine, safety, morale) stay near zero for 3 days. Never from combat or chance. When off, the worst ending becomes badly hurt but alive, and running out only brings warnings.",
+    "Sandbox_StoryEngine_Broadcast": "Radio evening news",
+    "Sandbox_StoryEngine_Broadcast_tooltip": "Every day at 19:00 Casey (or Ray) reads the day's events and tomorrow's weather on in-game radio 105.4 MHz (or the nearest free frequency), with a rerun at 07:00. Listening with a radio tuned in goes into your journal. Needs the AI connection.",
+    "Sandbox_StoryEngine_WorldChanges": "Contacts live through world changes",
+    "Sandbox_StoryEngine_WorldChanges_tooltip": "When the power or water goes out, winter or the first snow arrives, or day 30/90/180 comes, contacts react on the radio and their supplies (power: Casey's morale and June's medicine, water: everyone's food, winter: a little more food every day) and requests (batteries, water, heating) change. It also goes into everyone's journal.",
+    "Sandbox_StoryEngine_Letters": "Letters from contacts",
+    "Sandbox_StoryEngine_Letters_tooltip": "Gift drops from close contacts (trust 70+) and Ray's greenhouse drops sometimes include a handwritten letter, and contacts who finish a project or leave the county send one with the next drop. Right-click \"Read letter\"; reading it goes into your journal."
 }

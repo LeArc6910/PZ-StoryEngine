@@ -296,7 +296,7 @@ end
 -- 이 세력이 지금 이 플레이어와 할 수 있는 거래. AI 에 넘기고, 제안 검증에도 쓴다.
 function Trade.context(fid, ps)
     local rules = Trade.FACTIONS[fid]
-    if not rules then return { allowed = false, reason = "no_trader" } end
+    if not rules or Factions.isGone(fid) then return { allowed = false, reason = "no_trader" } end
     local trust = Radio.channel(fid).trust
     -- 거래는 모두가 함께 보는 퀘스트라 세력당 하나씩. 답을 기다리는 제안이면 누구든 흥정할 수 있다.
     local open = Quests.openTrade(fid)
@@ -308,16 +308,23 @@ function Trade.context(fid, ps)
     if limit.maxTier == 0 then return { allowed = false, reason = "low_trust", trust = trust, need = minTradeTrust() } end
 
     -- goods: 지금 줄 수 있는 것 (검증용). catalog: 취급하는 모든 품목과 등급별 필요 신뢰도 (AI 가 한도를 말하도록)
-    local goods, catalog = {}, {}
+    -- 생활 자원(Life.lua): 그 품목의 자원이 바닥(20 미만)이면 팔지 않고, 부족(40 미만)하면 x1.3, 넉넉(70 이상)하면 x0.85
+    local Life = StoryEngine.Life
+    local goods, catalog, catMult = {}, {}, {}
     for _, cat in ipairs(Value.CATEGORIES) do
         local cap = rules.goods[cat] or 0
         local best = math.min(cap, limit.maxTier + (rules.stretch or 0))
         if rules.gunTrust and isGunCat(cat) and trust < rules.gunTrust then best = 0 end
+        local level = Life and Life.get(fid, Value.RESOURCE_OF[cat] or "safety") or 50
+        local empty = Life ~= nil and cap > 0 and level < Life.SELF_MIN
+        if empty then best = 0 end
+        catMult[cat] = Life and ((level < Life.LOW and 1.3) or (level >= Life.PLENTY and 0.85)) or 1
         if best > 0 then goods[#goods + 1] = { category = cat, maxTier = best } end
         if cap > 0 then
             local needs = {}
             for t = 1, cap do needs[t] = Trade.needTrust(fid, cat, t) or 101 end
-            catalog[#catalog + 1] = { category = cat, maxTier = best, needs = needs }
+            catalog[#catalog + 1] = { category = cat, maxTier = best, needs = needs, empty = empty or nil,
+                                      short = (Life ~= nil and not empty and level < Life.LOW) or nil }
         end
     end
     if #goods == 0 then return { allowed = false, reason = "nothing", trust = trust } end
@@ -327,8 +334,10 @@ function Trade.context(fid, ps)
         recentRequests = recent, suspicious = suspicious,
         freeMaxTier = (trust >= Trade.FREE_TRUST and not suspicious and ZombRand(100) < Trade.FREE_CHANCE)
             and Trade.FREE_MAX_TIER or 0,
-        allowed = true, trust = trust, maxTier = limit.maxTier, mult = limit.mult * (rules.priceMult or 1),
-        stretchMult = rules.stretchMult, goods = goods, catalog = catalog, wants = rules.wants,
+        allowed = true, trust = trust, maxTier = limit.maxTier,
+        mult = limit.mult * (rules.priceMult or 1)
+            * ((fid == "rats" and StoryEngine.Projects and StoryEngine.Projects.done("rats")) and 0.85 or 1),
+        stretchMult = rules.stretchMult, goods = goods, catalog = catalog, wants = rules.wants, catMult = catMult,
     }
 end
 
@@ -408,7 +417,7 @@ function Trade.fromReply(fid, ps, trade)
     end
     local goods = Trade.roll(trade.category, tier, fid)
     if not goods then return nil end
-    local price = math.ceil(Value.sum(goods) * priceMult(ctx, tier))
+    local price = math.ceil(Value.sum(goods) * priceMult(ctx, tier) * ((ctx.catMult or {})[trade.category] or 1))
     return Quests.proposeTrade(ps, fid, {
         tier = tier, category = trade.category, goods = goods, payCategory = payCategory, price = price,
     }, Sensor.now()), "offer"

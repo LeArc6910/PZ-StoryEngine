@@ -118,6 +118,18 @@ function Social.moveTo(fid, id, now)
     if cur then Store.push(st.past, cur.beat, 4) end
     st.node, st.since, st.told, st.questId = id, now.t, false, nil
     log("story", fid, "->", id)
+    if StoryEngine.Life then
+        local ok, err = pcall(StoryEngine.Life.onBeat, fid, nxt)
+        if not ok then log("life beat error:", err) end
+    end
+    if StoryEngine.Bonds then
+        local ok, err = pcall(StoryEngine.Bonds.onBeat, nxt)
+        if not ok then log("bond beat error:", err) end
+    end
+    if nxt.final and StoryEngine.Fate then
+        local ok, err = pcall(StoryEngine.Fate.onStoryFinal, fid, nxt)
+        if not ok then log("fate final error:", err) end
+    end
 end
 
 -- 이 NPC 에게 답을 기다리거나 진행 중인 부탁이 있는가
@@ -132,6 +144,7 @@ local function openQuestFor(fid)
 end
 
 function Social.advance(fid, now)
+    if Factions.isGone(fid) then return end
     local st = Social.story(fid)
     local node = Stories.node(fid, st.node)
     if not node or node.final then return end
@@ -160,12 +173,25 @@ function Social.context(fid)
     local st = Social.story(fid)
     local node = Stories.node(fid, st.node)
     local others = {}
-    for other, note in pairs(Stories.RELATIONS[fid] or {}) do
-        local ost = Social.story(other)
-        local onode = Stories.node(other, ost.node)
-        others[#others + 1] = { id = other, note = note, trust = Radio.channel(other).trust,
-                                beat = onode and onode.beat or nil }
+    local Bonds = StoryEngine.Bonds
+    for _, f in ipairs(Factions.list) do
+        local other = f.id
+        local note = (Stories.RELATIONS[fid] or {})[other]
+        local bond = Bonds and Bonds.get(fid, other) or 0
+        local recent = Bonds and Bonds.recent(fid, other) or nil
+        if other ~= fid and (note or bond ~= 0 or recent) then
+            local ost = Social.story(other)
+            local onode = Stories.node(other, ost.node)
+            others[#others + 1] = { id = other, note = note, trust = Radio.channel(other).trust,
+                                    beat = onode and onode.beat or nil, gone = Factions.fateOf(other),
+                                    bond = bond, shift = recent and recent.text or nil }
+        end
     end
+    -- 관계표에 적힌 사람 먼저 (브릿지는 앞의 6명만 쓴다)
+    table.sort(others, function(a, b)
+        if (a.note ~= nil) ~= (b.note ~= nil) then return a.note ~= nil end
+        return math.abs(a.bond or 0) > math.abs(b.bond or 0)
+    end)
     local news = {}
     for _, n in ipairs(state().news[fid] or {}) do news[#news + 1] = n.text end
     return { beat = node and node.beat or nil, past = st.past, others = others, news = news }
@@ -175,6 +201,8 @@ end
 
 function Social.news(fid, text)
     if fid == "all" then
+        -- 모두가 알게 된 소식은 저녁 라디오 방송 재료도 된다 (Broadcast.lua)
+        if StoryEngine.Broadcast then StoryEngine.Broadcast.note(text) end
         for _, f in ipairs(Factions.list) do Social.news(f.id, text) end
         return
     end
@@ -214,7 +242,9 @@ end
 
 function Social.onStorm()
     state().stormT = Sensor.now().t
+    if StoryEngine.Life then pcall(StoryEngine.Life.onStorm) end
     Social.news("guard", "A heavy storm is rolling in over the county.")
+    if StoryEngine.Broadcast then StoryEngine.Broadcast.note("A heavy storm rolled in over the county.") end
     Social.news("casey", "Your barometer is dropping fast: a heavy storm is coming.")
 end
 
@@ -229,8 +259,11 @@ function Social.onQuest(q, outcome)
         local node = Stories.node(tag.faction, tag.node)
         if not node then return end
         if outcome == "completed" then
+            if StoryEngine.Fate then StoryEngine.Fate.onStoryResult(tag.faction, true) end
+            if StoryEngine.Projects then StoryEngine.Projects.onStoryWin(tag.faction, q.targetName) end
             Social.moveTo(tag.faction, node.win, now)
         elseif outcome == "failed" or outcome == "declined" or outcome == "ignored" then
+            if StoryEngine.Fate then StoryEngine.Fate.onStoryResult(tag.faction, false) end
             Social.moveTo(tag.faction, node.lose, now)
         end
     end
@@ -255,11 +288,17 @@ end
 
 -- ---------------------------------------------------------------- crisis
 
-function Social.startCrisis(now)
+-- forceId: 이 위기를 고른다 (NpcEvents: 교회 습격 앞당김, 충돌). trigger = true 인 위기는 그렇게만 나온다
+function Social.startCrisis(now, forceId)
     local s = state()
     local pool = {}
     for _, c in ipairs(Stories.CRISES) do
-        if not s.crisesUsed[c.id] then pool[#pool + 1] = c end
+        local alive = true
+        for _, o in ipairs(c.options) do
+            if Factions.isGone(o.faction) then alive = false end
+        end
+        local wanted = (forceId and c.id == forceId) or (not forceId and not c.trigger)
+        if not s.crisesUsed[c.id] and alive and wanted then pool[#pool + 1] = c end
     end
     if #pool == 0 then return false, "no_crisis" end
     local player, ps = randomTarget()
@@ -268,6 +307,7 @@ function Social.startCrisis(now)
     local q = StoryEngine.Quests.proposeChoice(player, ps, c, now)
     if not q then return false, "quest_failed" end
     s.crisesUsed[c.id] = true
+    s.lastCrisisT = now.t
     for _, opt in ipairs(c.options) do
         local rivals = {}
         for _, o in ipairs(c.options) do
@@ -291,6 +331,8 @@ function Social.onChoice(q, opt, player)
         local st = Social.story(o.faction)
         if o.faction == opt.faction then
             st.flags[q.crisis .. "_helped"] = true
+            if StoryEngine.Fate then StoryEngine.Fate.onStoryResult(o.faction, true) end
+            if StoryEngine.Projects then StoryEngine.Projects.onCrisisHelped(o.faction, ps.name) end
             if Trust then Trust.apply(o.faction, 2, "crisis_chosen", q.id) end
         else
             st.flags[q.crisis .. "_snubbed"] = true
@@ -301,10 +343,23 @@ function Social.onChoice(q, opt, player)
                 nil, ps)
         end
     end
+    -- NPC 사이 관계: 선택받은 쪽과 외면당한 쪽이 서로 조금 틀어진다 (Bonds)
+    if StoryEngine.Bonds then
+        for _, o in ipairs(q.options) do
+            if o.faction ~= opt.faction then
+                StoryEngine.Bonds.change(o.faction, opt.faction, -1, "the players chose to help " .. nameOf(opt.faction)
+                    .. " over " .. nameOf(o.faction) .. " in a crisis", true)
+            end
+        end
+    end
     -- 고른 세력의 부탁이 퀘스트가 된다 (바로 수락)
     local fq = StoryEngine.Quests.proposeCustom(player, ps, opt.faction,
         { tier = opt.tier, why = opt.ask, items = opt.items }, now, { crisis = q.crisis, silent = true })
     if fq then StoryEngine.Quests.respond(player, fq.id, true) end
+    if StoryEngine.Life then
+        local ok, err = pcall(StoryEngine.Life.onCrisis, q, opt.faction, ps.name)
+        if not ok then log("life crisis error:", err) end
+    end
     for _, f in ipairs(Factions.list) do
         local involved = false
         for _, o in ipairs(q.options) do if o.faction == f.id then involved = true end end
@@ -363,7 +418,8 @@ function Social.pickContact(now)
     for _, f in ipairs(Factions.list) do
         local fid = f.id
         local ch = Radio.channel(fid)
-        if not Radio.busy[fid] and not (ch.lastChatT and now.t - ch.lastChatT < Social.NPC_GAP_MIN) then
+        if not Factions.isGone(fid) and not Radio.busy[fid]
+            and not (ch.lastChatT and now.t - ch.lastChatT < Social.NPC_GAP_MIN) then
             local st = Social.story(fid)
             local node = Stories.node(fid, st.node)
             if node and not st.told and not node.quest then
@@ -442,7 +498,7 @@ local function pickParticipants(count, prefer)
     while #chosen < count do
         local total, pool = 0, {}
         for _, f in ipairs(Factions.list) do
-            if not used[f.id] then
+            if not used[f.id] and not Factions.isGone(f.id) then
                 local w = Stories.TALKATIVE[f.id] or 1
                 pool[#pool + 1] = { id = f.id, w = w }
                 total = total + w
@@ -458,6 +514,15 @@ local function pickParticipants(count, prefer)
         chosen[#chosen + 1], used[pick] = pick, true
     end
     return chosen
+end
+
+-- 다음 예약 장면의 참가자와 주제를 정해 둔다 (NpcEvents: 나눔, 충돌)
+function Social.queueTopic(ids, topic)
+    state().queuedTopic = { ids = ids, topic = string.sub(tostring(topic), 1, 400) }
+end
+
+function Social.crisesUsedTable()
+    return state().crisesUsed
 end
 
 -- 장면의 주제 (플레이어가 말하지 않았을 때)
@@ -514,23 +579,43 @@ function Social.scene(said, cut)
     Social.sceneBusy = true
     local count = 2 + ZombRand(2)
     local ids = pickParticipants(count, nil)
+    -- 정해 둔 화제가 있으면 (나눔·충돌) 그 사람들이 그 이야기를 한다
+    local queued = nil
+    local qt = state().queuedTopic
+    if not said and qt then
+        state().queuedTopic = nil
+        local okIds = true
+        for _, id in ipairs(qt.ids or {}) do
+            if Factions.isGone(id) then okIds = false end
+        end
+        if okIds and #(qt.ids or {}) >= 2 then
+            ids = {}
+            for _, id in ipairs(qt.ids) do ids[#ids + 1] = id end
+            queued = qt.topic
+        end
+    end
     local parts = {}
     for _, fid in ipairs(ids) do
         local ctx = Social.context(fid) or {}
         local rel = {}
+        local Bonds = StoryEngine.Bonds
         for _, other in ipairs(ids) do
-            if other ~= fid and (Stories.RELATIONS[fid] or {})[other] then
-                rel[#rel + 1] = { id = other, note = Stories.RELATIONS[fid][other] }
+            local note = (Stories.RELATIONS[fid] or {})[other]
+            local bond = Bonds and Bonds.get(fid, other) or 0
+            local recent = Bonds and Bonds.recent(fid, other) or nil
+            if other ~= fid and (note or bond ~= 0 or recent) then
+                rel[#rel + 1] = { id = other, note = note, bond = bond, shift = recent and recent.text or nil }
             end
         end
-        parts[#parts + 1] = { id = fid, trust = Radio.channel(fid).trust, beat = ctx.beat, relations = rel }
+        local life = StoryEngine.Life and StoryEngine.Life.npc(fid).res or nil
+        parts[#parts + 1] = { id = fid, trust = Radio.channel(fid).trust, beat = ctx.beat, relations = rel, state = life }
     end
     local players = {}
     for _, p in ipairs(Sensor.players()) do players[#players + 1] = Store.characterName(p) end
     local now = Sensor.now()
     local payload = {
         lang = Radio.langFor(Social.OPEN), participants = parts, log = openLog(), players = players,
-        said = said, topic = (not said) and sceneTopic(ids) or nil, interrupted = cut,
+        said = said, topic = (not said) and (queued or sceneTopic(ids)) or nil, interrupted = cut,
         day = Store.dayIndex(now.dayKey), clock = now.clock,
     }
     log("open scene", said and "reply" or "scheduled", table.concat(ids, ","))
@@ -613,6 +698,13 @@ function Social.hourly()
     end
     local s = state()
     if not s.nextCrisisT then s.nextCrisisT = now.t + Social.CRISIS_FIRST_DAYS * 24 * 60 end
+    -- 파이크 안전이 바닥이면 교회 습격 위기를 앞당긴다 (NpcEvents)
+    local NE = StoryEngine.NpcEvents
+    if NE and #Sensor.players() > 0 and NE.raidDue(now, s) then
+        local ok, why = Social.startCrisis(now, "raid")
+        log("raid crisis brought forward", ok and "started" or tostring(why))
+        if ok then s.nextCrisisT = now.t + rand(Social.CRISIS_GAP_DAYS) * 24 * 60 end
+    end
     if now.t >= s.nextCrisisT and #Sensor.players() > 0 then
         local open = false
         for _, q in pairs(Store.data().quests) do

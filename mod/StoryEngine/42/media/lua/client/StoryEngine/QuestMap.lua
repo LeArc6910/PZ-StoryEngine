@@ -12,11 +12,14 @@ require "StoryEngine/Net"
 
 local QuestMap = {
     quests = {},        -- 서버에서 받은 최근 목록
+    scout = {},         -- 케이시 정찰 표시 { x, y, kind, n } (Specialty.lua)
+    scoutDrawn = {},    -- 지도에 찍었던 정찰 표시 자리 (다음 동기화 때 지운다)
 }
 StoryEngine.QuestMap = QuestMap
 
 QuestMap.SYMBOL = "Exclamation"
 QuestMap.COLOR = { 1.0, 0.55, 0.1 }
+QuestMap.SCOUT_COLOR = { hunt = { 0.9, 0.15, 0.15 }, hostile = { 0.8, 0.25, 0.85 }, horde = { 0.55, 0.05, 0.05 } }
 
 local ACTIVE = { offered = true, approached = true, entered = true, retrieved = true, accepted = true }
 
@@ -40,6 +43,9 @@ function QuestMap.sync()
         if q.x and q.y then known[#known + 1] = { q.x + 0.5, q.y + 0.5 } end
         if q.sx and q.sy then known[#known + 1] = { q.sx + 0.5, q.sy + 0.5 } end
     end
+    -- 정찰 표시는 지도에 저장되므로 찍었던 자리를 플레이어 modData 에도 남겨 다음 접속 때도 지운다
+    local pmd = getPlayer() and getPlayer():getModData() or {}
+    for _, k in ipairs(pmd.seScoutDrawn or QuestMap.scoutDrawn) do known[#known + 1] = { k[1], k[2] } end
     for i = api:getSymbolCount() - 1, 0, -1 do
         local sym = api:getSymbolByIndex(i)
         if sym:isTexture() and sym:getSymbolID() == QuestMap.SYMBOL then
@@ -61,6 +67,27 @@ function QuestMap.sync()
             s:setAnchor(0.5, 0.5)
             s:setScale(ISMap.SCALE)
         end
+    end
+
+    QuestMap.scoutDrawn = {}
+    for _, m in ipairs(QuestMap.scout) do
+        local c = QuestMap.SCOUT_COLOR[m.kind] or QuestMap.SCOUT_COLOR.hunt
+        local x, y = (m.x or 0) + 0.5, (m.y or 0) + 0.5
+        local s = api:addTexture(QuestMap.SYMBOL, x, y)
+        s:setRGBA(c[1], c[2], c[3], 1.0)
+        s:setAnchor(0.5, 0.5)
+        s:setScale(ISMap.SCALE)
+        QuestMap.scoutDrawn[#QuestMap.scoutDrawn + 1] = { x, y }
+    end
+    pmd.seScoutDrawn = QuestMap.scoutDrawn
+end
+
+-- 케이시 정찰 표시 (빈 목록이면 지운다)
+function QuestMap.setScout(marks)
+    QuestMap.scout = marks or {}
+    if ISWorldMap_instance and ISWorldMap_instance:isVisible() then
+        local ok, err = pcall(QuestMap.sync)
+        if not ok then StoryEngine.log("map sync failed:", err) end
     end
 end
 

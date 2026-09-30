@@ -1,6 +1,7 @@
 -- 세력이 먼저 부탁하는 물건 목록 (서버 측 전용).
 -- 무엇을 부탁할지는 게임이 이 표에서 고르고, AI 는 말투만 입힌다.
 -- why 는 AI 에게 넘기는 영어 사정 설명이다. 액체 용기(병, 기름통)는 빈 통을 내밀 수 있어 넣지 않는다.
+-- when = "power" | "water" | "winter" 인 부탁은 그 형편일 때만 나오고, 그때는 3배로 잘 뽑힌다 (World.lua)
 
 if isClient() then return end
 
@@ -16,6 +17,7 @@ Needs.TABLE = {
         { tier = 1, why = "the batteries in his radio are almost dead", items = { { "Base.Battery", 2 } } },
         { tier = 2, why = "he cut his hand badly on a broken window", items = { { "Base.Disinfectant", 1 }, { "Base.Bandage", 3 } } },
         { tier = 2, why = "the farmhouse well pump broke and he is out of clean water", items = { { "Base.WaterRationCan", 3 } } },
+        { tier = 2, when = "water", why = "the taps ran dry and the animals and the family he took in have nothing to drink", items = { { "Base.WaterRationCan", 4 } } },
         { tier = 3, why = "the cut on his hand got infected and he has a fever", items = { { "Base.Antibiotics", 1 }, { "Base.SutureNeedle", 1 } } },
         { tier = 4, why = "a neighbour he took in came to him with a gunshot wound", items = { { "Base.Antibiotics", 2 }, { "Base.SutureNeedle", 2 }, { "Base.Bandage", 5 } } },
         { tier = 4, why = "the dead broke into his barn and all he has is a kitchen knife", items = { { "Base.Shotgun", 1 }, { "Base.ShotgunShellsBox", 1 } } },
@@ -27,6 +29,7 @@ Needs.TABLE = {
         { tier = 1, why = "they are patching torn gear and radios", items = { { "Base.DuctTape", 2 } } },
         { tier = 2, why = "a wounded man in the camp infirmary is in pain", items = { { "Base.Pills", 3 }, { "Base.AlcoholWipes", 2 } } },
         { tier = 2, why = "the east gate is failing and needs reinforcing", items = { { "Base.NailsBox", 1 }, { "Base.Hammer", 1 } } },
+        { tier = 3, when = "power", why = "the camp's radios and perimeter lights went dark when the grid died", items = { { "Base.Battery", 8 } } },
         { tier = 3, why = "a fever is spreading through the camp", items = { { "Base.Antibiotics", 2 } } },
         { tier = 3, why = "a soldier broke his leg on patrol", items = { { "Base.Splint", 2 }, { "Base.SutureNeedle", 1 } } },
         { tier = 4, why = "they have to break into a barricaded pharmacy for medicine", items = { { "Base.Sledgehammer", 1 }, { "Base.Crowbar", 1 } } },
@@ -37,6 +40,7 @@ Needs.TABLE = {
     casey = {
         { tier = 1, why = "the batteries for the ham radio are running low and it is their only link to anyone", items = { { "Base.Battery", 4 } } },
         { tier = 1, why = "they have been living on crackers for a week", items = { { "Base.TinnedBeans", 2 }, { "Base.Chocolate", 1 } } },
+        { tier = 2, when = "power", why = "the grid is down and the ham rig now runs only on batteries", items = { { "Base.Battery", 6 } } },
         { tier = 2, why = "the ham rig keeps cutting out and needs spare parts", items = { { "Base.ElectronicsScrap", 5 } } },
         { tier = 2, why = "they burned their hand badly on the soldering iron", items = { { "Base.Bandage", 2 }, { "Base.Disinfectant", 1 } } },
         { tier = 3, why = "they want to build a repeater antenna so more survivors can hear each other", items = { { "Base.ElectricWire", 5 }, { "Base.ElectronicsScrap", 8 } } },
@@ -59,6 +63,8 @@ Needs.TABLE = {
         { tier = 1, why = "the congregation is out of candles for evening prayers", items = { { "Base.Candle", 4 } } },
         { tier = 1, why = "a family arrived at the church with nothing to eat", items = { { "Base.TinnedBeans", 3 } } },
         { tier = 2, why = "the rain barrels are empty and the children are thirsty", items = { { "Base.WaterRationCan", 4 } } },
+        { tier = 1, when = "winter", why = "winter came and the refugees in the church are shivering through the nights", items = { { "Base.Sheet", 4 } } },
+        { tier = 2, when = "winter", why = "winter came and the church stove needs wood to keep the refugees from freezing", items = { { "Base.Firewood", 6 }, { "Base.Matches", 2 } } },
         { tier = 2, why = "one of the elders took a bad fall on the church steps", items = { { "Base.Pills", 2 }, { "Base.Bandage", 2 } } },
         { tier = 3, why = "a fever is spreading among the refugees", items = { { "Base.Antibiotics", 1 }, { "Base.PillsVitamins", 2 } } },
         { tier = 3, why = "the church doors will not hold if the dead come in numbers", items = { { "Base.NailsBox", 1 }, { "Base.Hammer", 1 } } },
@@ -78,6 +84,7 @@ Needs.TABLE = {
     hunter = {
         { tier = 1, why = "his snares keep breaking and he needs fresh line", items = { { "Base.Twine", 3 } } },
         { tier = 1, why = "he is out of matches for his stove", items = { { "Base.Matches", 3 } } },
+        { tier = 2, when = "winter", why = "the cold snap caught him short of firewood for the cabin", items = { { "Base.Firewood", 6 } } },
         { tier = 2, why = "a rotten tooth has been killing him for a week", items = { { "Base.Pills", 3 } } },
         { tier = 2, why = "his knife snapped while he was dressing a deer", items = { { "Base.HuntingKnife", 1 } } },
         { tier = 3, why = "he is short on rifle rounds for the winter", items = { { "Base.308Box", 1 } } },
@@ -99,15 +106,61 @@ Needs.TABLE = {
     },
 }
 
--- 세력과 등급에 맞는 부탁 하나. 그 등급이 없으면 가장 가까운 낮은 등급.
-function Needs.pick(fid, tier)
-    local list = Needs.TABLE[fid]
-    if not list then return nil end
-    for t = tier, 1, -1 do
-        local pool = {}
-        for _, n in ipairs(list) do
-            if n.tier == t then pool[#pool + 1] = n end
+-- 지금 형편에 맞는 부탁만 (when 이 있으면 그 형편일 때만, 3배 가중치). only 면 그 조건의 부탁만
+local function available(fid, only)
+    local World = StoryEngine.World
+    local out = {}
+    for _, n in ipairs(Needs.TABLE[fid] or {}) do
+        if n.when then
+            if World and World.active(n.when) and (not only or n.when == only) then
+                for _ = 1, 3 do out[#out + 1] = n end
+            end
+        elseif not only then
+            out[#out + 1] = n
         end
+    end
+    return out
+end
+Needs.available = available
+
+-- 세력과 등급에 맞는 부탁 하나. 그 등급이 없으면 가장 가까운 낮은 등급.
+-- prefer: 그 NPC 가 가장 부족한 생활 자원 (Life.needPrefer). 같은 등급에 그 자원을 채우는 부탁이 있으면 그것부터
+-- strict: 그 자원을 채우는 부탁만 (급한 부탁). 그 등급 이하에 없으면 위 등급에서 찾고, 그래도 없으면 nil
+-- only: 그 형편(when)의 부탁만 (World 의 파이크 난방 부탁). 그 등급 이하에 없으면 nil
+function Needs.pick(fid, tier, prefer, strict, only)
+    if not Needs.TABLE[fid] then return nil end
+    local list = available(fid, only)
+    if only then
+        for t = tier, 1, -1 do
+            local pool = {}
+            for _, n in ipairs(list) do if n.tier == t then pool[#pool + 1] = n end end
+            if #pool > 0 then return pool[ZombRand(#pool) + 1] end
+        end
+        return nil
+    end
+    local Life = StoryEngine.Life
+    if strict and prefer and Life then
+        local order = {}
+        for t = tier, 1, -1 do order[#order + 1] = t end
+        for t = tier + 1, 5 do order[#order + 1] = t end
+        for _, t in ipairs(order) do
+            local pool = {}
+            for _, n in ipairs(list) do
+                if n.tier == t and Life.resourceOfItems(n.items) == prefer then pool[#pool + 1] = n end
+            end
+            if #pool > 0 then return pool[ZombRand(#pool) + 1] end
+        end
+        return nil
+    end
+    for t = tier, 1, -1 do
+        local pool, preferred = {}, {}
+        for _, n in ipairs(list) do
+            if n.tier == t then
+                pool[#pool + 1] = n
+                if prefer and Life and Life.resourceOfItems(n.items) == prefer then preferred[#preferred + 1] = n end
+            end
+        end
+        if #preferred > 0 then return preferred[ZombRand(#preferred) + 1] end
         if #pool > 0 then return pool[ZombRand(#pool) + 1] end
     end
     return nil

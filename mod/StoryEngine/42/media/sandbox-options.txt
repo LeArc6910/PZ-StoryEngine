@@ -54,6 +54,36 @@ option StoryEngine.Social
 	page = StoryEngine, translation = StoryEngine_Social,
 }
 
+option StoryEngine.Specialty
+{
+	type = boolean, default = true,
+	page = StoryEngine, translation = StoryEngine_Specialty,
+}
+
+option StoryEngine.NpcFate
+{
+	type = boolean, default = true,
+	page = StoryEngine, translation = StoryEngine_NpcFate,
+}
+
+option StoryEngine.Letters
+{
+	type = boolean, default = true,
+	page = StoryEngine, translation = StoryEngine_Letters,
+}
+
+option StoryEngine.WorldChanges
+{
+	type = boolean, default = true,
+	page = StoryEngine, translation = StoryEngine_WorldChanges,
+}
+
+option StoryEngine.Broadcast
+{
+	type = boolean, default = true,
+	page = StoryEngine, translation = StoryEngine_Broadcast,
+}
+
 option StoryEngine.Banter
 {
 	type = boolean, default = true,

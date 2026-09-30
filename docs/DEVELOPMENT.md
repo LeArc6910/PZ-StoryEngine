@@ -272,6 +272,22 @@ New-Item -ItemType SymbolicLink -Path "$env:USERPROFILE\Zomboid\mods\StoryEngine
 - 로그: `Zomboid/console.txt`. 모드 로그는 `[StoryEngine]` 접두어를 붙여서 필터링한다.
 - Lua 파일을 수정하면 디버그 메뉴에서 해당 파일만 다시 불러올 수 있습니다. ModData 구조를 바꿨다면 새 세이브로 테스트하세요.
 
+### 모드 Lua 테스트 (게임 없이, 2026-09-29)
+
+`lupa`(Lua 5.1, `pip install lupa`)로 서버 Lua를 파이썬에서 돌린다.
+
+```powershell
+python tests/run_lua_tests.py          # 모든 .lua 문법 검사 + tests/lua/test_*.lua
+python tests/run_lua_tests.py life     # 이름에 life 가 들어간 테스트만
+```
+
+- `tests/lua/harness.lua`: 가짜 게임 환경. 시계(`H.clockMin`, `H.advanceDays`), ModData, `Events`(`H.fire`), 난수(`H.rolls`로 값 지정),
+  번역(키를 그대로), 플레이어·인벤토리·아이템(`H.addPlayer`, `H.give`, `H.defineItem`으로 가치표), 브릿지 요청 가로채기(`H.bridge`, `H.lastBridge`),
+  클라이언트 전송 기록(`H.sentOf`). 그 밖의 게임 전역은 무엇이든 받아 주는 Dummy이고, 쓰인 이름은 `H.unknown`에 모인다.
+  Kahlua처럼 `next`가 없다. 테스트마다 새 환경에서 `H.boot()`가 모든 서버 모듈을 불러온다(`Commands`가 전부 require).
+- 테스트 파일은 `{ 이름 = 함수 }` 표를 돌려준다. 검사: `H.eq`, `H.ok`, `H.near`.
+- 게임에서만 확인되는 것: UI, 실제 인벤토리·동기화, A-Life·좀비·차량, 게임 엔진 동작.
+
 ### 브릿지 실행
 
 가장 간단한 방법은 저장소 루트의 배치 파일을 더블클릭하는 것이다. 콘솔 창이 열린 채로 로그를 보여 주고, Ctrl+C 또는 창 닫기로 멈춘다.

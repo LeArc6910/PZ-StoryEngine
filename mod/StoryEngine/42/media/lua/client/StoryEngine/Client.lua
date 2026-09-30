@@ -188,6 +188,11 @@ function Client.handlers.radioMessage(args)
         end
     end
     StoryEngineMainWindow.refreshIfOpen("radio")
+    -- 신뢰도가 바뀌면 거점 탭 숫자도 새로 받는다
+    if msg.from == "system" and msg.trust and StoryEngineMainWindow.instance then
+        local player = getPlayer()
+        if player then Net.toServer(player, "lifeList", {}) end
+    end
 end
 
 -- 캐릭터끼리의 대화: 말한 캐릭터 머리 위에 차례로 (Banter.lua)
@@ -235,6 +240,50 @@ Events.OnTick.Add(function()
     end
     Client.banterQueue = keep
 end)
+
+-- 장기 프로젝트 완성 (Projects.lua)
+function Client.handlers.projectDone(args)
+    local player = getPlayer()
+    if not player then return end
+    HaloTextHelper.addGoodText(player, getText("IGUI_StoryEngine_Project_DoneHalo", StoryEngine.Factions.name(args.faction),
+        getText("IGUI_StoryEngine_Project_Name_" .. tostring(args.faction))))
+    Net.toServer(player, "lifeList", {})
+end
+
+-- NPC 가 죽거나 떠났다 (Fate.lua): 알림, 목록 새로 받기
+function Client.handlers.npcFate(args)
+    local player = getPlayer()
+    if not player then return end
+    HaloTextHelper.addBadText(player, getText("IGUI_StoryEngine_Fate_Line_" .. tostring(args.kind),
+        StoryEngine.Factions.name(args.faction)))
+    Net.toServer(player, "radioChannels", {})
+    Net.toServer(player, "lifeList", {})
+end
+
+-- 거점 탭: NPC 생활 상태 (Life.lua)
+function Client.handlers.lifeList(args)
+    Cache.life = args.npcs or {}
+    StoryEngineMainWindow.refreshIfOpen("life")
+end
+
+function Client.handlers.lifeDonateResult(args)
+    local player = getPlayer()
+    if not player then return end
+    local name = StoryEngine.Factions.name(args.faction)
+    if args.ok then
+        if args.points then
+            HaloTextHelper.addGoodText(player, getText("IGUI_StoryEngine_Project_Added", name,
+                StoryEngine.intToString(args.points)))
+        else
+            HaloTextHelper.addGoodText(player, getText("IGUI_StoryEngine_Life_Donated", name))
+        end
+        return
+    end
+    local key = "IGUI_StoryEngine_Life_Error_" .. tostring(args.error)
+    local text = getTextOrNull(key) and getText(key, StoryEngine.intToString(args.wait or 0))
+        or getText("IGUI_StoryEngine_Error", tostring(args.error))
+    HaloTextHelper.addBadText(player, text)
+end
 
 -- A-Life 지원 요청 결과
 function Client.handlers.supportResult(args)
@@ -386,6 +435,7 @@ local function onFillWorldObjectContextMenu(playerNum, context, worldobjects, te
     context:addOption(getText("ContextMenu_StoryEngine_Radio"), worldobjects, function() StoryEngineMainWindow.open("radio") end)
     context:addOption(getText("ContextMenu_StoryEngine_QuestLog"), worldobjects, function() StoryEngineMainWindow.open("quests") end)
     context:addOption(getText("ContextMenu_StoryEngine_Journal"), worldobjects, function() StoryEngineMainWindow.open("journal") end)
+    context:addOption(getText("ContextMenu_StoryEngine_Life_Open"), worldobjects, function() StoryEngineMainWindow.open("life") end)
     -- 디버그 메뉴: 싱글에서는 항상, 멀티에서는 디버그 모드나 관리자일 때만 (서버에서 권한을 다시 확인한다)
     if isClient() and not (getDebug() or isAdmin()) then return end
     context:addOption(getText("ContextMenu_StoryEngine_Ping"), worldobjects, send("ping"), playerNum)
@@ -422,10 +472,65 @@ local function onFillWorldObjectContextMenu(playerNum, context, worldobjects, te
     for _, v in ipairs({ 0, 20, 40, 50, 60, 70, 80, 90, 100 }) do
         sub:addOption("= " .. tostring(v), worldobjects, trust({ set = v }))
     end
+    -- NPC 생활 자원 조절: 거점 탭에서 고른 상대 (없으면 교신 탭 상대)
+    local lfid = Cache.lifeFaction or fid
+    if not StoryEngine.Factions.byId[lfid] then lfid = "ray" end
+    local lifeOption = context:addOption(getText("ContextMenu_StoryEngine_Life", StoryEngine.Factions.name(lfid)), worldobjects, nil)
+    local lsub = ISContextMenu:getNew(context)
+    context:addSubMenu(lifeOption, lsub)
+    local function life(args)
+        return function()
+            local p = getSpecificPlayer(playerNum)
+            if p then
+                args.faction = lfid
+                Net.toServer(p, "debugLife", args)
+            end
+        end
+    end
+    lsub:addOption("+20", worldobjects, life({ delta = 20 }))
+    lsub:addOption("-20", worldobjects, life({ delta = -20 }))
+    for _, v in ipairs({ 0, 10, 50, 100 }) do
+        lsub:addOption("= " .. tostring(v), worldobjects, life({ set = v }))
+    end
+    lsub:addOption(getText("ContextMenu_StoryEngine_LifeBase"), worldobjects, life({ set = "base" }))
+    lsub:addOption(getText("ContextMenu_StoryEngine_LifeClearWait"), worldobjects, life({ delta = 0, clearWait = true }))
+    lsub:addOption(getText("ContextMenu_StoryEngine_SpecClearWait"), worldobjects, life({ delta = 0, clearSpec = true }))
+    lsub:addOption(getText("ContextMenu_StoryEngine_ProjectAdd"), worldobjects, life({ delta = 0, project = 100 }))
+    lsub:addOption(getText("ContextMenu_StoryEngine_ProjectDone"), worldobjects, life({ delta = 0, project = 1000 }))
+    lsub:addOption(getText("ContextMenu_StoryEngine_NpcShare"), worldobjects, life({ delta = 0, npcEvent = "share" }))
+    lsub:addOption(getText("ContextMenu_StoryEngine_NpcClash"), worldobjects, life({ delta = 0, npcEvent = "clash" }))
+    lsub:addOption(getText("ContextMenu_StoryEngine_NpcRaid"), worldobjects, life({ delta = 0, npcEvent = "raid" }))
+    lsub:addOption(getText("ContextMenu_StoryEngine_NpcEmergency"), worldobjects, life({ delta = 0, npcEvent = "emergency" }))
+    lsub:addOption(getText("ContextMenu_StoryEngine_FateDoom"), worldobjects, life({ delta = 0, fate = "doom" }))
+    lsub:addOption(getText("ContextMenu_StoryEngine_FateDead"), worldobjects, life({ delta = 0, fate = "dead" }))
+    lsub:addOption(getText("ContextMenu_StoryEngine_FateGone"), worldobjects, life({ delta = 0, fate = "gone" }))
+    lsub:addOption(getText("ContextMenu_StoryEngine_FateRevive"), worldobjects, life({ delta = 0, fate = "revive" }))
     context:addOption(getText("ContextMenu_StoryEngine_Monologue"), worldobjects, send("debugMonologue"), playerNum)
     context:addOption(getText("ContextMenu_StoryEngine_Banter"), worldobjects, send("debugBanter"), playerNum)
     context:addOption(getText("ContextMenu_StoryEngine_Contact"), worldobjects, send("debugContact"), playerNum)
     context:addOption(getText("ContextMenu_StoryEngine_Scene"), worldobjects, send("debugScene"), playerNum)
+    context:addOption(getText("ContextMenu_StoryEngine_Broadcast"), worldobjects, send("debugBroadcast"), playerNum)
+    context:addOption(getText("ContextMenu_StoryEngine_Letter", StoryEngine.Factions.name(fid)), worldobjects, function()
+        local p = getSpecificPlayer(playerNum)
+        if p then Net.toServer(p, "debugLetter", { faction = fid }) end
+    end)
+    context:addOption(getText("ContextMenu_StoryEngine_LetterFarewell", StoryEngine.Factions.name(fid)), worldobjects, function()
+        local p = getSpecificPlayer(playerNum)
+        if p then Net.toServer(p, "debugLetter", { faction = fid, reason = "farewell" }) end
+    end)
+    local worldOption = context:addOption(getText("ContextMenu_StoryEngine_World"), worldobjects, nil)
+    local wsub = ISContextMenu:getNew(context)
+    context:addSubMenu(worldOption, wsub)
+    for _, ev in ipairs({ "power", "water", "winter", "snow", "day30", "day90", "day180" }) do
+        wsub:addOption(getText("ContextMenu_StoryEngine_World_" .. ev), worldobjects, function()
+            local p = getSpecificPlayer(playerNum)
+            if p then Net.toServer(p, "debugWorld", { event = ev }) end
+        end)
+    end
+    context:addOption(getText("ContextMenu_StoryEngine_BroadcastRerun"), worldobjects, function(_, pn)
+        local p = getSpecificPlayer(pn)
+        if p then Net.toServer(p, "debugBroadcast", { rerun = true }) end
+    end, playerNum)
     context:addOption(getText("ContextMenu_StoryEngine_Crisis"), worldobjects, send("debugCrisis"), playerNum)
     context:addOption(getText("ContextMenu_StoryEngine_Story", StoryEngine.Factions.name(Cache.faction)), worldobjects, function()
         local p = getSpecificPlayer(playerNum)

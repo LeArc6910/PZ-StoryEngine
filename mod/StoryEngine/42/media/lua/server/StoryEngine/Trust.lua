@@ -68,15 +68,19 @@ end
 
 -- 신뢰도를 바꾸고 채널에 기록을 남긴다 (클라이언트가 "신뢰도 +10 (이유)" 로 보여 준다).
 -- byKey: 이 변화의 원인이 된 플레이어 (감점이면 ch.lastOffender 로 기억해 협박 보복 대상으로 쓴다)
-function Trust.apply(fid, delta, reason, questId, byKey)
+-- src: 관계 파급일 때 도움받은 NPC (클라이언트가 "빅을 도운 것" 처럼 보여 준다)
+function Trust.apply(fid, delta, reason, questId, byKey, src)
     if not Factions.byId[fid] or delta == 0 then return 0 end
     local ch = Radio.channel(fid)
     if delta < 0 and byKey then ch.lastOffender = byKey end
     local before = ch.trust
     ch.trust = math.max(0, math.min(100, ch.trust + delta))
     local applied = ch.trust - before
-    log("trust", fid, before, "->", ch.trust, reason)
-    Radio.push(fid, { from = "system", trust = applied, reason = reason, quest = questId, clock = Sensor.now().clock })
+    log("trust", fid, before, "->", ch.trust, reason, src or "")
+    if applied ~= 0 then
+        Radio.push(fid, { from = "system", trust = applied, reason = reason, quest = questId, src = src,
+                          clock = Sensor.now().clock })
+    end
     return applied
 end
 
