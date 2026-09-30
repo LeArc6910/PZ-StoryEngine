@@ -100,4 +100,18 @@ function T.letter_window_text_and_menu()
     H.eq(W.letterOf({ beans }), nil)
 end
 
+
+function T.item_tooltip_lines()
+    StoryEngine.Value.cache["Base.Hammer"] = { category = "tools", value = 8 }
+    StoryEngine.Cache.channels = { guard = { gone = "dead" } }
+    local lines = StoryEngine.ItemTooltip.lines(H.newItem("Base.Hammer"))
+    H.eq(#lines, 3)
+    H.ok(string.find(lines[1][1], "IGUI_StoryEngine_Tip_Trade|IGUI_StoryEngine_Cat_tools|8", 1, true), lines[1][1])
+    H.ok(string.find(lines[2][1], "IGUI_StoryEngine_Tip_Wanted|", 1, true))
+    H.ok(not string.find(lines[2][1], "Whitaker", 1, true), "gone contacts left out: " .. lines[2][1])
+    H.ok(string.find(lines[3][1], "IGUI_StoryEngine_Life_Res_safety", 1, true), lines[3][1])
+    StoryEngine.Value.cache["Base.Rock"] = { category = "misc", value = 0.2 }
+    H.eq(#StoryEngine.ItemTooltip.lines(H.newItem("Base.Rock")), 0)
+end
+
 return T

@@ -162,7 +162,9 @@ function T.effect_rats_trading_post()
     setTrust("rats", 45)
     local before = StoryEngine.Trade.context("rats", ps).mult
     P().add("rats", 1000)
-    H.near(StoryEngine.Trade.context("rats", ps).mult, before * 0.85, 0.001, "prices x0.85")
+    local ctx = StoryEngine.Trade.context("rats", ps)
+    H.near(ctx.mult, before, 0.001, "base prices unchanged")
+    H.eq(ctx.stretchMult, nil, "no markup above the trust limit")
     H.rolls = { 10 }
     StoryEngine.Life.spill("rats", "Gerald Kar")
     H.eq(StoryEngine.Radio.channel("ray").trust, 30, "nobody minds helping Vic any more")

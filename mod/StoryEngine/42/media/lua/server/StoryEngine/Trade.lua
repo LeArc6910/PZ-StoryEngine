@@ -48,23 +48,17 @@ Trade.LIMITS = {
 --   pike : 값을 덜 받는다 (priceMult)
 --   haggle: 흥정 하한선 보정 (+ 면 덜 깎아 준다)
 Trade.FACTIONS = {
-    ray = { goods = { food = 5, medical = 3, tools = 3, melee = 2, firearm = 1, ammo = 2 },
-            wants = { "food", "medical", "tools", "ammo" } },
-    casey = { goods = { tools = 5, food = 1, medical = 1 },
-              wants = { "food", "medical" } },
-    doc = { goods = { medical = 5, food = 2, tools = 2 },
-            wants = { "food", "tools", "melee" } },
-    pike = { goods = { food = 5, medical = 2, tools = 2, melee = 1 },
-             wants = { "medical", "tools", "food" }, priceMult = 0.8, haggle = -0.05 },
-    dewey = { goods = { tools = 5, melee = 3, food = 1 },
-              wants = { "food", "medical", "ammo" } },
-    hunter = { goods = { firearm = 4, ammo = 4, melee = 4, food = 3 },
-               wants = { "medical", "tools" } },
-    guard = { goods = { food = 3, medical = 3, tools = 3, melee = 3, firearm = 5, ammo = 5 },
-              wants = { "medical", "tools", "food" }, gunTrust = 60, haggle = 0.05 },
-    rats = { goods = { food = 3, medical = 3, tools = 5, melee = 5, firearm = 4, ammo = 4 },
-             wants = { "ammo", "firearm", "medical", "tools" }, stretch = 1, stretchMult = 1.5, haggle = 0.1 },
+    ray = { goods = { food = 5, medical = 3, tools = 3, melee = 2, firearm = 1, ammo = 2 } },
+    casey = { goods = { tools = 5, food = 1, medical = 1 } },
+    doc = { goods = { medical = 5, food = 2, tools = 2 } },
+    pike = { goods = { food = 5, medical = 2, tools = 2, melee = 1 }, priceMult = 0.8, haggle = -0.05 },
+    dewey = { goods = { tools = 5, melee = 3, food = 1 } },
+    hunter = { goods = { firearm = 4, ammo = 4, melee = 4, food = 3 } },
+    guard = { goods = { food = 3, medical = 3, tools = 3, melee = 3, firearm = 5, ammo = 5 }, gunTrust = 60, haggle = 0.05 },
+    rats = { goods = { food = 3, medical = 3, tools = 5, melee = 5, firearm = 4, ammo = 4 }, stretch = 1, stretchMult = 1.5, haggle = 0.1 },
 }
+-- 대가로 받는 품목은 공용 Value.WANTS (클라이언트 툴팁·교신 탭도 같은 표를 쓴다)
+for fid, rules in pairs(Trade.FACTIONS) do rules.wants = Value.WANTS[fid] or {} end
 
 -- 품목·등급별로 건네는 물건 묶음 ({ 아이템, 개수 } 목록 중 하나를 고른다)
 local L = StoryEngine.Loot
@@ -330,14 +324,15 @@ function Trade.context(fid, ps)
     if #goods == 0 then return { allowed = false, reason = "nothing", trust = trust } end
     local recent = Trade.recentRequests(fid)
     local suspicious = recent + 1 >= Trade.SUSPICIOUS_COUNT
+    -- 빅 교역소(장기 프로젝트)가 완성되면 한도보다 높은 등급도 웃돈 없이 판다
+    local tradingPost = fid == "rats" and StoryEngine.Projects and StoryEngine.Projects.done("rats")
     return {
         recentRequests = recent, suspicious = suspicious,
         freeMaxTier = (trust >= Trade.FREE_TRUST and not suspicious and ZombRand(100) < Trade.FREE_CHANCE)
             and Trade.FREE_MAX_TIER or 0,
         allowed = true, trust = trust, maxTier = limit.maxTier,
-        mult = limit.mult * (rules.priceMult or 1)
-            * ((fid == "rats" and StoryEngine.Projects and StoryEngine.Projects.done("rats")) and 0.85 or 1),
-        stretchMult = rules.stretchMult, goods = goods, catalog = catalog, wants = rules.wants, catMult = catMult,
+        mult = limit.mult * (rules.priceMult or 1),
+        stretchMult = (not tradingPost) and rules.stretchMult or nil, goods = goods, catalog = catalog, wants = rules.wants, catMult = catMult,
     }
 end
 
