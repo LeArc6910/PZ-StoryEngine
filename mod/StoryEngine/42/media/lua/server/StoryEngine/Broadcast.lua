@@ -318,7 +318,8 @@ function Broadcast.tick()
         return
     end
     local b = s.last
-    if b and hour >= Broadcast.REPEAT_HOUR and hour < 12 and b.dayKey ~= now.dayKey and b.repeatDay ~= now.dayKey
+    local rerunOn = not StoryEngine.Tuning or StoryEngine.Tuning.get("BroadcastRerun") == true
+    if b and rerunOn and hour >= Broadcast.REPEAT_HOUR and hour < 12 and b.dayKey ~= now.dayKey and b.repeatDay ~= now.dayKey
         and now.t - b.t <= Broadcast.REPEAT_WITHIN_MIN then
         Broadcast.air(b, true)
     end

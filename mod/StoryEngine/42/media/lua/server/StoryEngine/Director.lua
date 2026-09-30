@@ -573,6 +573,7 @@ local function disabledByOption(id)
     if (id == "npc_request" or id == "npc_emergency") and StoryEngine.option("NpcRequests", true) ~= true then return true end
     if (id == "horde_nearby" or id == "helicopter" or id == "extortion")
         and StoryEngine.option("DangerEvents", true) ~= true then return true end
+    if id == "extortion" and StoryEngine.Tuning and StoryEngine.Tuning.get("Extortion") ~= true then return true end
     return false
 end
 

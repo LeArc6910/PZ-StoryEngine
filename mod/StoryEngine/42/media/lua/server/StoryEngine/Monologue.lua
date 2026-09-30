@@ -91,7 +91,8 @@ local function useAI()
 end
 
 local function gapMin()
-    return tonumber(option("MonologueGap", Monologue.DEFAULT_GAP_MIN)) or Monologue.DEFAULT_GAP_MIN
+    local gap = tonumber(option("MonologueGap", Monologue.DEFAULT_GAP_MIN)) or Monologue.DEFAULT_GAP_MIN
+    return gap * (StoryEngine.Tuning and StoryEngine.Tuning.saverFactor() or 1)
 end
 
 -- ---------------------------------------------------------------- state

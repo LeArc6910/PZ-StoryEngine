@@ -135,6 +135,17 @@ local function chance(percent)
     return ZombRand(100) < percent
 end
 
+-- 샌드박스 보상 배율: 음식·물·의약품·전문 묶음의 개수 (총·도구·근접 무기는 그대로)
+local function scaled(n)
+    local m = StoryEngine.Tuning and StoryEngine.Tuning.num("RewardMult") or 1
+    if m == 1 or not n or n <= 0 then return n end
+    local v = n * m
+    local whole = math.floor(v)
+    if v > whole and ZombRand(100) < (v - whole) * 100 then whole = whole + 1 end
+    return math.max(1, whole)
+end
+Loot.scaled = scaled
+
 -- 세력 전문 보상: 그 세력이 남기는 보급품(선물·대가)에 등급별로 한 묶음을 더 넣는다.
 Loot.SPECIALTY = {
     ray = {   -- 농가: 통조림, 씨앗, 원예
@@ -206,17 +217,17 @@ function Loot.roll(tier, fid)
     local out = Loot.rollBase(tier)
     local special = fid and Loot.SPECIALTY[fid] and Loot.SPECIALTY[fid][tier]
     if special then
-        for _, entry in ipairs(special) do add(out, entry[1], entry[2]) end
+        for _, entry in ipairs(special) do add(out, entry[1], scaled(entry[2] or 1)) end
     end
     return out
 end
 
 function Loot.rollBase(tier)
     local out = {}
-    for _ = 1, Loot.FOOD_COUNT[tier] do addMixed(out, pick(Loot.FOOD[tier])) end
-    for _ = 1, Loot.DRINK_COUNT[tier] do add(out, pick(Loot.DRINK[tier])) end
+    for _ = 1, scaled(Loot.FOOD_COUNT[tier]) do addMixed(out, pick(Loot.FOOD[tier])) end
+    for _ = 1, scaled(Loot.DRINK_COUNT[tier]) do add(out, pick(Loot.DRINK[tier])) end
     if tier >= Loot.TIN_OPENER_FROM then add(out, "Base.TinOpener") end
-    for _, entry in ipairs(Loot.MEDICAL[tier]) do add(out, entry[1], entry[2]) end
+    for _, entry in ipairs(Loot.MEDICAL[tier]) do add(out, entry[1], scaled(entry[2] or 1)) end
 
     local c = Loot.CHANCE[tier]
     if tier == 1 then
