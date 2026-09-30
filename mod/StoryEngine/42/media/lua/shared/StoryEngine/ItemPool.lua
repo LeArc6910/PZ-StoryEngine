@@ -17,6 +17,11 @@
 --   exclude <아이템 또는 접두어*>          예) exclude Base.DogfoodOpen   exclude VFX.Frozen*
 --   include <food|melee> <등급> <아이템>   예) include food 3 VFX.CannedBeefRavioli
 --   ammo <1-5|exclude> <낱발 아이템>       예) ammo 2 Base.CrossbowBolt   (그 탄약을 쓰는 총의 등급)
+--   category <분류 이름> <종류>            예) category MyModMeds medical   (모드가 쓰는 DisplayCategory 를 종류로)
+--       종류: tools | medical | explosive | melee | ammo | literature (기호품 읽을거리) | vehicle | none
+-- 분류 이름은 바닐라 이름 말고도 모드가 흔히 쓰는 이름(Tools, Medical, Medicine, Explosive, Melee, Book, CarParts ...)을
+-- 대소문자 없이 받는다 (ItemPool.CATEGORY_KINDS, 2026-09-30). 모드 아이템 중 어디에도 안 맞는 분류 이름은
+-- 로그와 itempool.txt 에 모아 보여 준다 (ItemPool.unmapped).
 
 require "StoryEngine/Core"
 
@@ -48,6 +53,43 @@ ItemPool.AMMO_TIERS = {
     ["556bullets"] = 5, ["545bullets"] = 5, a_58bullets = 5, bullets86 = 5,
     bullets50 = false, bullets145 = false, grenadeammo = false, flamefuel = false,
 }
+-- 분류 이름(DisplayCategory, 소문자) -> 종류
+ItemPool.CATEGORY_KINDS = {
+    tools = { "tool", "tools", "toolweapon", "toolkit", "hardware" },
+    medical = { "firstaid", "firstaidweapon", "bandage", "medical", "medicine", "medic", "medkit", "pharmacy",
+                "health", "healthcare" },
+    explosive = { "explosives", "explosive", "bomb", "bombs", "grenade", "grenades" },
+    melee = { "weapon", "melee", "meleeweapon", "weaponmelee", "sportsweapon", "gardeningweapon", "materialweapon",
+              "weaponcrafted", "blade", "blades", "blunt" },
+    ammo = { "ammo", "ammunition" },
+    literature = { "literature", "book", "books", "magazine", "magazines", "reading" },
+    vehicle = { "vehiclemaintenance", "vehiclemaintenanceweapon", "vehicle", "vehicleparts", "carparts", "carpart",
+                "autoparts" },
+}
+ItemPool.KIND_NAMES = { tools = true, medical = true, explosive = true, melee = true, ammo = true, literature = true,
+                        vehicle = true, none = true, comfort = true }
+-- 모드 아이템이 이 분류면 "모르는 분류"로 알리지 않는다 (거래·지원과 상관없는 바닐라 분류)
+ItemPool.KNOWN_OTHER = {
+    food = true, clothing = true, material = true, accessory = true, furniture = true, protectivegear = true,
+    memento = true, container = true, reciperesource = true, skillbook = true, gardening = true, junk = true, bag = true,
+    zeddmg = true, animalpart = true, wound = true, cooking = true, camping = true, electronics = true,
+    appearance = true, household = true, watercontainer = true, lightsource = true, paint = true, fishing = true,
+    communications = true, cartography = true, weaponpart = true, sports = true, trapping = true, security = true,
+    hidden = true, cookingweapon = true, householdweapon = true, junkweapon = true, instrumentweapon = true,
+    animalpartweapon = true, firearm = true, animal = true, badger = true, bear = true, beaver = true,
+    brokenweapon = true, bug = true, bunny = true, corpse = true, dog = true, duck = true, ears = true,
+    entertainment = true, eye = true, firesource = true, fishingweapon = true, fox = true, frog = true, generic = true,
+    goblin = true, hedgehog = true, instrument = true, malebody = true, mole = true, raccoon = true, spider = true,
+    squirrel = true, tail = true, teddy = true, water = true, weaponimprovised = true,
+}
+ItemPool.categoryOverrides = {}     -- items.txt 'category': 소문자 분류 이름 -> 종류
+ItemPool.unmapped = {}              -- 모드 아이템의 모르는 분류 이름 -> { n, example }
+
+local KIND_OF = {}
+for kind, names in pairs(ItemPool.CATEGORY_KINDS) do
+    for _, n in ipairs(names) do KIND_OF[n] = kind end
+end
+
 ItemPool.GUN_VALUE = { 30, 40, 50, 65, 80 }
 ItemPool.TOOL_SMALL, ItemPool.TOOL_HEAVY = 0.3, 5          -- kg
 ItemPool.TOOL_VALUE = { small = 2, normal = 8, heavy = 20 }
@@ -109,6 +151,7 @@ end
 
 local function readOverrides()
     ItemPool.excludes, ItemPool.prefixes = {}, {}
+    ItemPool.categoryOverrides = {}
     local includes = {}
     local ok, reader = pcall(getFileReader, ItemPool.FILE, false)
     if not ok or not reader then return includes, false end
@@ -130,6 +173,12 @@ local function readOverrides()
             elseif tonumber(words[2]) then
                 ItemPool.AMMO_TIERS[key] = math.max(1, math.min(5, math.floor(tonumber(words[2]))))
             end
+        elseif words[1] == "category" and words[3] then
+            local kind = string.lower(words[3])
+            if kind == "comfort" then kind = "literature" end
+            if ItemPool.KIND_NAMES[kind] then
+                ItemPool.categoryOverrides[string.lower(words[2])] = kind
+            end
         elseif words[1] == "include" and words[4] then
             includes[#includes + 1] = { cat = words[2], tier = tonumber(words[3]) or 3, fullType = words[4] }
         end
@@ -148,6 +197,7 @@ local function writeTemplate()
         w:write("#   exclude <Prefix>*         exclude every item starting with it (e.g. exclude VFX.Frozen*)\n")
         w:write("#   include <food|melee> <tier 1-5> <FullType>   add an item the automatic rules skipped\n")
         w:write("#   ammo <tier 1-5|exclude> <RoundFullType>   gun tier for guns using this round (e.g. ammo 2 Base.CrossbowBolt)\n")
+        w:write("#   category <DisplayCategory> <tools|medical|explosive|melee|ammo|literature|vehicle|none>   treat a mod's item category as this kind\n")
         w:write("# Changes apply after a restart. The debug menu 'StoryEngine: item pool' writes the result to itempool.txt.\n")
         w:close()
     end)
@@ -164,9 +214,19 @@ local function isGun(script, dc)
     return (d == "weapon" or d == "firearm") and script:getAmmoType() ~= nil
 end
 
--- 근접 무기 풀에 넣는 분류 (조리도구·의료도구·낚싯대는 뺀다)
-local MELEE_CATEGORIES = { Weapon = true, ToolWeapon = true, SportsWeapon = true, GardeningWeapon = true,
-                           MaterialWeapon = true, WeaponCrafted = true }
+-- 분류 이름의 종류 (tools | medical | explosive | melee | ammo | literature | vehicle | nil)
+function ItemPool.categoryKind(dc)
+    if not dc or dc == "" then return nil end
+    local key = lower(dc)
+    local o = ItemPool.categoryOverrides[key]
+    if o then return o ~= "none" and o or nil end
+    return KIND_OF[key]
+end
+
+-- 근접 무기 풀에 넣는 분류 (근접 무기 종류 + 무기 겸 도구. 조리도구·의료도구·낚싯대는 뺀다)
+function ItemPool.meleeCandidate(dc)
+    return ItemPool.categoryKind(dc) == "melee" or lower(dc) == "toolweapon"
+end
 
 local function add(cat, tier, fullType)
     ItemPool.pools[cat] = ItemPool.pools[cat] or {}
@@ -233,6 +293,14 @@ function ItemPool.build()
                 return
             end
             local dc = script:getDisplayCategory()
+            -- 바닐라 분류는 모두 KNOWN_OTHER 나 CATEGORY_KINDS 에 있어 여기 걸리는 것은 모드가 만든 분류 이름이다
+            -- (모드가 Base 모듈에 아이템을 넣기도 해서 모듈 이름으로 거르지 않는다)
+            if dc and not ItemPool.categoryKind(dc) and not ItemPool.KNOWN_OTHER[lower(dc)]
+                and not ItemPool.categoryOverrides[lower(dc)] and not isGun(script, dc) then
+                local u = ItemPool.unmapped[dc] or { n = 0, example = fullType }
+                u.n = u.n + 1
+                ItemPool.unmapped[dc] = u
+            end
             if dc == "Food" then
                 local info, why = foodInfo(script, fullType)
                 if why then rejected[why] = (rejected[why] or 0) + 1 end
@@ -290,7 +358,7 @@ function ItemPool.build()
                     g.box = resolve(round .. "Box", module)
                 end
                 guns[#guns + 1] = g
-            elseif MELEE_CATEGORIES[dc] then
+            elseif ItemPool.meleeCandidate(dc) then
                 local item = newInstance(fullType)
                 if item and instanceof(item, "HandWeapon") and item:getMaxDamage() > 0.3 then
                     melee[#melee + 1] = { fullType = fullType, dmg = item:getMaxDamage() }
@@ -342,6 +410,13 @@ function ItemPool.build()
     StoryEngine.log("item pool built: scanned", counts.scanned, "food", counts.food, "firearm", counts.firearm,
         "melee", counts.melee, "excluded", counts.excluded, "| food skipped:", tally(rejected),
         "| guns skipped:", tally(gunRejected), "| unknown ammo (tier " .. ItemPool.UNKNOWN_AMMO_TIER .. "):", tally(unknownAmmo))
+    local unmapped = {}
+    for dc, u in pairs(ItemPool.unmapped) do unmapped[#unmapped + 1] = dc .. "=" .. tostring(u.n) .. " (" .. u.example .. ")" end
+    table.sort(unmapped)
+    if #unmapped > 0 then
+        StoryEngine.log("item pool: mod item categories not used for trade/donation (map them with items.txt 'category'):",
+            table.concat(unmapped, ", "))
+    end
 end
 
 -- ---------------------------------------------------------------- queries
@@ -363,7 +438,7 @@ local AMMO_VALUE = { round = 0.5, box = 15, mag = 5 }
 
 -- 도구 분류와 가치 (도구가 아니면 nil)
 local function toolClass(script, fullType, dc)
-    if dc ~= "Tool" and dc ~= "ToolWeapon" then return nil end
+    if ItemPool.categoryKind(dc) ~= "tools" then return nil end
     local name = string.match(fullType, "%.(.+)$") or fullType
     for _, word in ipairs(ItemPool.TOOL_NOT) do
         if string.find(name, word, 1, true) then return { category = "misc", value = nil } end
@@ -399,7 +474,8 @@ function ItemPool.classify(fullType)
         end
         return { category = "misc", value = nil }
     end
-    if dc == "Ammo" then
+    local kind = ItemPool.categoryKind(dc)
+    if kind == "ammo" then
         local name = lower(fullType)
         if string.find(name, "carton", 1, true) then return { category = "ammo", value = 60 } end
         if string.find(name, "box", 1, true) then return { category = "ammo", value = 15 } end
@@ -407,9 +483,9 @@ function ItemPool.classify(fullType)
         return { category = "ammo", value = 0.5 }
     end
     if isGun(script, dc) then return { category = "firearm", value = ItemPool.GUN_VALUE[3] } end
-    if dc == "Explosives" then return { category = "explosive", value = nil } end
-    if dc == "FirstAid" or dc == "FirstAidWeapon" or dc == "Bandage" then return { category = "medical", value = nil } end
-    if dc == "Weapon" then return { category = "melee", value = nil } end
+    if kind == "explosive" then return { category = "explosive", value = nil } end
+    if kind == "medical" then return { category = "medical", value = nil } end
+    if kind == "melee" then return { category = "melee", value = nil } end
     return { category = "misc", value = nil }
 end
 
@@ -476,6 +552,15 @@ function ItemPool.dump()
     local s = ItemPool.stats
     w:write("scanned " .. tostring(s.scanned) .. " / food " .. tostring(s.food) .. " / firearm " .. tostring(s.firearm)
         .. " / melee " .. tostring(s.melee) .. " / excluded " .. tostring(s.excluded) .. "\n\n")
+    local unmapped = {}
+    for dc, u in pairs(ItemPool.unmapped) do unmapped[#unmapped + 1] = { dc = dc, n = u.n, example = u.example } end
+    table.sort(unmapped, function(a, b) return a.n > b.n end)
+    w:write("[mod categories not used] " .. tostring(#unmapped)
+        .. "  (map one with a line in items.txt: category <name> <tools|medical|explosive|melee|ammo|literature|vehicle|none>)\n")
+    for _, u in ipairs(unmapped) do
+        w:write("  " .. u.dc .. "  x" .. tostring(u.n) .. "  e.g. " .. u.example .. "\n")
+    end
+    w:write("\n")
     for _, cat in ipairs({ "food", "melee" }) do
         for tier = 1, 5 do
             local list = (ItemPool.pools[cat] or {})[tier] or {}

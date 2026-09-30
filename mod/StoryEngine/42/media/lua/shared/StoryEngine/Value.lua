@@ -140,7 +140,7 @@ function Value.moraleValue(fullType)
         local ok, cat = pcall(function() return getScriptManager():getItem(fullType):getDisplayCategory() end)
         cat = ok and cat or nil
         local name = string.match(fullType, "%.(.+)$") or fullType
-        if cat == "Literature" then
+        if StoryEngine.ItemPool.categoryKind(cat) == "literature" then
             value = Value.MORALE_DEFAULT
         elseif cat == "Junk" then
             for _, prefix in ipairs(Value.TOBACCO_PREFIX) do
@@ -233,7 +233,7 @@ function Value.vehicleValue(fullType)
     if not value and Value.VEHICLE_TOOLS[fullType] then value = math.max(2, Value.of(fullType)) end
     if not value then
         local ok, cat = pcall(function() return getScriptManager():getItem(fullType):getDisplayCategory() end)
-        if ok and cat == "VehicleMaintenance" then
+        if ok and StoryEngine.ItemPool.categoryKind(cat) == "vehicle" then
             local name = string.match(fullType, "%.(.+)$") or fullType
             value = Value.VEHICLE_DEFAULT
             for _, w in ipairs(Value.VEHICLE_WORDS) do
