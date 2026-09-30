@@ -6,6 +6,7 @@
 
 require "StoryEngine/Core"
 require "StoryEngine/ItemPool"
+require "StoryEngine/Factions"
 
 local Value = {
     cache = {},    -- fullType -> { category, value }
@@ -25,6 +26,8 @@ Value.SPECIAL = {
     ["Base.Sledgehammer"] = 20, ["Base.Sledgehammer2"] = 20, ["Base.PipeWrench"] = 20, ["Base.WoodAxe"] = 20,
     ["Base.BlowTorch"] = 20, ["Base.Generator"] = 60, ["Base.CarBattery1"] = 15, ["Base.CarBattery2"] = 15,
     ["Base.EngineParts"] = 3, ["Base.HamRadio1"] = 40, ["Base.HamRadio2"] = 40,
+    ["Base.WeldingMask"] = 20, ["Base.OilPress"] = 20, ["Base.SheepElectricShears"] = 20,
+    ["Base.HeavyChain"] = 8, ["Base.HeavyChain_Hook"] = 8, ["Base.CrudeBenchVise"] = 8,
 }
 
 local function lookup(fullType)
@@ -72,24 +75,61 @@ function Value.payableItems(player, category)
     return out
 end
 
+-- NPC 가 거래 대가로 받는 품목 (Trade.lua 가 쓰고, 클라이언트 툴팁·교신 탭이 보여 준다). 순서 = 선호 순
+Value.WANTS = {
+    ray = { "food", "medical", "tools", "ammo" },
+    casey = { "food", "medical" },
+    doc = { "food", "tools", "melee" },
+    pike = { "medical", "tools", "food" },
+    dewey = { "food", "medical", "ammo" },
+    hunter = { "medical", "tools" },
+    guard = { "medical", "tools", "food" },
+    rats = { "ammo", "firearm", "medical", "tools" },
+}
+
+-- 이 품목을 대가로 받는 NPC id 목록 (Factions.list 순서)
+function Value.wantedBy(category)
+    local out = {}
+    for _, f in ipairs(StoryEngine.Factions and StoryEngine.Factions.list or {}) do
+        for _, w in ipairs(Value.WANTS[f.id] or {}) do
+            if w == category then out[#out + 1] = f.id end
+        end
+    end
+    return out
+end
+
 -- ---------------------------------------------------------------- NPC 생활 자원 (Life.lua, 물자 지원 창)
--- 물건이 NPC 의 어느 자원을 채우는지: 음식 -> 식량, 의약품 -> 의약품, 총·탄약·근접 무기·폭발물·도구 -> 안전,
--- 술·담배·책·잡지·배터리·초 -> 사기. 그 외는 받지 않는다.
+-- 물건이 NPC 의 어느 자원을 채우는지: 음식 -> 식량, 의약품 -> 의약품, 총·탄약·근접 무기·폭발물·도구 -> 무기(safety),
+-- 술·담배·읽을거리·배터리·초 -> 기호품(morale). 그 외는 받지 않는다.
 Value.RESOURCES = { "food", "medical", "safety", "morale" }
 Value.RESOURCE_OF = {
     food = "food", medical = "medical",
     firearm = "safety", ammo = "safety", melee = "safety", explosive = "safety", tools = "safety",
 }
--- 사기 물건: 아이템 이름 앞부분 (다른 모드의 비슷한 이름도 잡힌다)
-Value.MORALE_PREFIX = { "Cigarette", "Cigar", "Tobacco", "Beer", "Wine", "Whiskey", "Vodka", "Rum", "Bourbon",
-                        "Scotch", "Brandy", "Tequila", "Champagne", "Magazine", "ComicBook", "Book_", "BookFancy" }
+-- 기호품 (2026-09-30 좁힘): 술 = 알코올이 든 것(음식 isAlcoholic 또는 B42 액체 용기의 알코올, 이름 무관.
+-- 위스키·와인·맥주병은 Food 가 아니라 FluidContainer 라 액체로 본다. 빈 병은 아이템마다 확인해 뺀다), 담배 = 이름이 Cigarette·Cigar·Tobacco 로 시작하는
+-- 잡동사니(Junk) 분류, 읽을거리 = Literature 분류(소설·잡지·만화·신문. 기술서 SkillBook·레시피 잡지·소품 책은 아님),
+-- 그리고 아래 특별 목록(배터리·양초·담배·말린 담뱃잎)
+Value.TOBACCO_PREFIX = { "Cigarette", "Cigar", "Tobacco" }
 Value.MORALE_SPECIAL = {
     ["Base.Battery"] = 1, ["Base.Candle"] = 0.5, ["Base.CigaretteCarton"] = 8, ["Base.CigarettePack"] = 2,
-    ["Base.CigaretteSingle"] = 0.2, ["Base.CigaretteRolled"] = 0.2,
+    ["Base.CigaretteSingle"] = 0.2, ["Base.CigaretteRolled"] = 0.2, ["Base.TobaccoDried"] = 0.5,
 }
 Value.MORALE_DEFAULT = 1
 
 local moraleCache = {}
+Value.ALCOHOL = {}     -- 술이라서 기호품인 fullType (아이템마다 비었는지 다시 본다)
+
+-- 이 아이템에 알코올이 들어 있는가 (음식 isAlcoholic, 또는 액체 용기에 알코올)
+function Value.hasAlcohol(item)
+    local ok, yes = pcall(function()
+        if instanceof(item, "Food") and item:isAlcoholic() then return true end
+        local fc = item.getFluidContainer and item:getFluidContainer() or nil
+        if not fc or fc:getAmount() <= 0 then return false end
+        return fc:getProperties():getAlcohol() > 0
+    end)
+    return ok and yes == true
+end
 
 -- 사기 물건이면 가치, 아니면 nil
 function Value.moraleValue(fullType)
@@ -97,13 +137,21 @@ function Value.moraleValue(fullType)
     if hit ~= nil then return hit or nil end
     local value = Value.MORALE_SPECIAL[fullType]
     if not value then
+        local ok, cat = pcall(function() return getScriptManager():getItem(fullType):getDisplayCategory() end)
+        cat = ok and cat or nil
         local name = string.match(fullType, "%.(.+)$") or fullType
-        for _, prefix in ipairs(Value.MORALE_PREFIX) do
-            if string.sub(name, 1, string.len(prefix)) == prefix then value = Value.MORALE_DEFAULT end
-        end
-        if not value then
-            local ok, cat = pcall(function() return getScriptManager():getItem(fullType):getDisplayCategory() end)
-            if ok and (cat == "Literature" or cat == "SkillBook") then value = Value.MORALE_DEFAULT end
+        if cat == "Literature" then
+            value = Value.MORALE_DEFAULT
+        elseif cat == "Junk" then
+            for _, prefix in ipairs(Value.TOBACCO_PREFIX) do
+                if string.sub(name, 1, string.len(prefix)) == prefix then value = Value.MORALE_DEFAULT end
+            end
+        elseif cat == "Food" then
+            local okI, item = pcall(instanceItem, fullType)
+            if okI and item and Value.hasAlcohol(item) then
+                value = Value.MORALE_DEFAULT
+                Value.ALCOHOL[fullType] = true
+            end
         end
     end
     moraleCache[fullType] = value or false
@@ -126,7 +174,35 @@ function Value.donatable(player, item)
     if player and (player:isEquippedClothing(item) or player:isEquipped(item)) then return nil end
     if instanceof(item, "Food") and item:isRotten() then return nil end
     if instanceof(item, "InventoryContainer") then return nil end
-    return Value.resourceOf(item:getFullType())
+    local ft = item:getFullType()
+    local res, v = Value.resourceOf(ft)
+    -- 다 마신 술병은 받지 않는다
+    if res == "morale" and Value.ALCOHOL[ft] and not Value.hasAlcohol(item) then return nil end
+    return res, v
+end
+
+-- 아이템 툴팁용 요약 (클라이언트 ItemTooltip). 모드와 상관없는 물건이면 nil
+--   { category, value, wanted = { fid... }, resource, resValue, vehicle = 듀이 프로젝트 점수, rotten, quest }
+function Value.summary(item)
+    local ft = item:getFullType()
+    local mod = item:getModData()
+    if mod and mod.storyQuest then return { quest = true } end
+    local cat = Value.categoryOf(ft)
+    local out = {}
+    local any = false
+    if cat ~= "misc" then
+        out.category, out.value = cat, Value.of(ft)
+        out.wanted = Value.wantedBy(cat)
+        any = true
+    end
+    local res, rv = Value.resourceOf(ft)
+    if res == "morale" and Value.ALCOHOL[ft] and not Value.hasAlcohol(item) then res = nil end
+    if res then out.resource, out.resValue = res, rv; any = true end
+    local vv = Value.vehicleValue(ft)
+    if vv then out.vehicle = vv; any = true end
+    if not any then return nil end
+    if instanceof(item, "Food") and item:isRotten() then out.rotten = true end
+    return out
 end
 
 -- ---------------------------------------------------------------- 장기 프로젝트 물건 (Projects.lua, 물자 지원 창 프로젝트 모드)
@@ -187,6 +263,7 @@ function Value.projectItem(player, item, rule)
     if not rule or locked(player, item) then return nil end
     local ft = item:getFullType()
     local res, value = Value.resourceOf(ft)
+    if res == "morale" and Value.ALCOHOL[ft] and not Value.hasAlcohol(item) then res, value = nil, nil end
     if rule.accept == "vehicle" then
         local vv = Value.vehicleValue(ft)
         if vv then return vv, vv end

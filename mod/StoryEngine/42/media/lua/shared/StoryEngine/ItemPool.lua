@@ -10,6 +10,8 @@
 --   ammo    : 총이 가리키는 낱발(AmmoType)·상자(AmmoBox)·탄창(MagazineType)
 --   melee   : 근접 무기 (DisplayCategory Weapon). 등급은 피해 순위 5분위
 -- 나머지(도구·의약품 등)는 DisplayCategory 로만 분류한다 (보상 목록은 바닐라 그대로).
+-- 도구 (2026-09-30 좁힘): Tool·ToolWeapon (망치·렌치·쇠지렛대처럼 무기 겸 도구도 거래·물자 지원에서는 도구, 보상 근접 무기
+--   풀은 그대로). 디버그·틀·굽지 않은 것·부품·씨앗 반죽·담뱃잎은 도구가 아니다. 가치는 무게로 0.3kg 미만 2, 5kg 이상 20, 그 밖 8
 --
 -- 조정 파일 Zomboid/Lua/StoryEngine/items.txt (없으면 서버가 설명을 담아 만든다):
 --   exclude <아이템 또는 접두어*>          예) exclude Base.DogfoodOpen   exclude VFX.Frozen*
@@ -47,6 +49,9 @@ ItemPool.AMMO_TIERS = {
     bullets50 = false, bullets145 = false, grenadeammo = false, flamefuel = false,
 }
 ItemPool.GUN_VALUE = { 30, 40, 50, 65, 80 }
+ItemPool.TOOL_SMALL, ItemPool.TOOL_HEAVY = 0.3, 5          -- kg
+ItemPool.TOOL_VALUE = { small = 2, normal = 8, heavy = 20 }
+ItemPool.TOOL_NOT = { "Debug", "Mold", "Unfired", "Parts", "SeedPaste", "Tobacco" }   -- 이름에 들어가면 도구가 아님
 ItemPool.MELEE_VALUE = { 3, 4, 5, 8, 12 }
 
 -- ---------------------------------------------------------------- helpers
@@ -356,8 +361,26 @@ end
 -- 대가 가치용 분류. { category, value }
 local AMMO_VALUE = { round = 0.5, box = 15, mag = 5 }
 
+-- 도구 분류와 가치 (도구가 아니면 nil)
+local function toolClass(script, fullType, dc)
+    if dc ~= "Tool" and dc ~= "ToolWeapon" then return nil end
+    local name = string.match(fullType, "%.(.+)$") or fullType
+    for _, word in ipairs(ItemPool.TOOL_NOT) do
+        if string.find(name, word, 1, true) then return { category = "misc", value = nil } end
+    end
+    local w = tonumber(script:getActualWeight()) or 1
+    local value = ItemPool.TOOL_VALUE.normal
+    if w < ItemPool.TOOL_SMALL then value = ItemPool.TOOL_VALUE.small end
+    if w >= ItemPool.TOOL_HEAVY then value = ItemPool.TOOL_VALUE.heavy end
+    return { category = "tools", value = value }
+end
+
 function ItemPool.classify(fullType)
     ItemPool.build()
+    -- 도구는 근접 무기 풀에 들어 있어도 도구로 친다
+    local tscript = findScript(fullType)
+    local tool = tscript and toolClass(tscript, fullType, tscript:getDisplayCategory()) or nil
+    if tool then return tool end
     local info = ItemPool.info[fullType]
     if info then
         if info.cat == "food" or info.cat == "drink" then return { category = "food", value = info.value } end
@@ -385,7 +408,6 @@ function ItemPool.classify(fullType)
     end
     if isGun(script, dc) then return { category = "firearm", value = ItemPool.GUN_VALUE[3] } end
     if dc == "Explosives" then return { category = "explosive", value = nil } end
-    if dc == "Tool" or dc == "ToolWeapon" then return { category = "tools", value = nil } end
     if dc == "FirstAid" or dc == "FirstAidWeapon" or dc == "Bandage" then return { category = "medical", value = nil } end
     if dc == "Weapon" then return { category = "melee", value = nil } end
     return { category = "misc", value = nil }

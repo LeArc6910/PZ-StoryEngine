@@ -268,6 +268,10 @@ function StoryEngineRadioPanel:render()
             text = text .. "  |  " .. getText("IGUI_StoryEngine_Radio_FollowUp",
                 StoryEngine.intToString(math.max(1, ch.followUpIn)))
         end
+        -- 이 NPC 가 거래 대가로 받는 품목 (Value.WANTS)
+        local wants = {}
+        for _, w in ipairs(StoryEngine.Value.WANTS[fid] or {}) do wants[#wants + 1] = catName(w) end
+        if #wants > 0 then text = text .. "  |  " .. getText("IGUI_StoryEngine_Radio_Wants", table.concat(wants, ", ")) end
         r, g, b = 0.6, 0.75, 0.6
     end
     local rowY = self.entry:getY() - PAD - BUTTON_H
