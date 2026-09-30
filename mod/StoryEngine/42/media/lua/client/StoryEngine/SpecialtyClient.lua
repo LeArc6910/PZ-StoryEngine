@@ -25,26 +25,51 @@ StoryEngine.SpecClient = SpecClient
 
 SpecClient.HEAL_MS = 10000
 SpecClient.HEAL_MOVE = 0.8          -- 이만큼 움직이면 끊긴다 (타일)
+SpecClient.HEAL_HIT = 15            -- 10초 안에 체력이 이만큼 떨어지면 (크게 맞음) 끊긴다
 
 local function worldHours() return getGameTime():getWorldAgeHours() end
 
 -- ---------------------------------------------------------------- 치료
 
+-- 상처가 있는 부위 수 (긁힘·베임·깊은 상처·물림·총알). 새로 맞으면 늘어난다
+local function woundCount(p)
+    local n = 0
+    local ok = pcall(function()
+        local parts = p:getBodyDamage():getBodyParts()
+        for i = 0, parts:size() - 1 do
+            local bp = parts:get(i)
+            if bp:scratched() or bp:isCut() or bp:deepWounded() or bp:bitten() or bp:haveBullet() then n = n + 1 end
+        end
+    end)
+    return ok and n or 0
+end
+SpecClient.woundCount = woundCount
+
 function Client.handlers.specHealStart(args)
     local p = getPlayer()
     if not p then return end
     SpecClient.heal = { faction = args.faction, start = getTimestampMs(), x = p:getX(), y = p:getY(),
-                        hp = p:getBodyDamage():getOverallBodyHealth() }
+                        hp = p:getBodyDamage():getOverallBodyHealth(), wounds = woundCount(p) }
     HaloTextHelper.addText(p, getText("IGUI_StoryEngine_Spec_HealStart"))
+end
+
+-- 치료가 끊기는 이유 (없으면 nil). 출혈로 체력이 서서히 주는 것은 끊지 않는다 (2026-09-30 수정)
+local function healBreak(p, h)
+    if p:isDead() then return "dead" end
+    local dx, dy = p:getX() - h.x, p:getY() - h.y
+    if dx * dx + dy * dy > SpecClient.HEAL_MOVE * SpecClient.HEAL_MOVE then return "moved" end
+    if woundCount(p) > h.wounds then return "new_wound" end
+    if p:getBodyDamage():getOverallBodyHealth() < h.hp - SpecClient.HEAL_HIT then return "big_hit" end
+    return nil
 end
 
 local function healTick(p)
     local h = SpecClient.heal
     if not h then return end
-    local dx, dy = p:getX() - h.x, p:getY() - h.y
-    if dx * dx + dy * dy > SpecClient.HEAL_MOVE * SpecClient.HEAL_MOVE
-        or p:getBodyDamage():getOverallBodyHealth() < h.hp - 1 or p:isDead() then
+    local why = healBreak(p, h)
+    if why then
         SpecClient.heal = nil
+        StoryEngine.log("specialty heal cancelled:", why)
         HaloTextHelper.addBadText(p, getText("IGUI_StoryEngine_Spec_HealCancelled"))
         return
     end
@@ -133,19 +158,10 @@ end
 
 -- ---------------------------------------------------------------- 위로
 
-local STATS = { "STRESS", "UNHAPPINESS", "BOREDOM" }
-
+-- 스트레스·불행·지루함은 서버가 줄인다 (Specialty.soothe, 멀티에서 클라이언트 값은 서버 값으로 덮인다)
 function Client.handlers.specComfort(args)
     local p = getPlayer()
     if not p then return end
-    local reduce = tonumber(args.reduce) or 0
-    pcall(function()
-        local stats = p:getStats()
-        for _, name in ipairs(STATS) do
-            local stat = CharacterStat[name]
-            stats:set(stat, stats:get(stat) * (1 - reduce))
-        end
-    end)
     local hours = tonumber(args.hours) or 0
     if hours > 0 then p:getModData().seNoFearUntil = worldHours() + hours end
     HaloTextHelper.addGoodText(p, getText("IGUI_StoryEngine_Spec_Comforted"))

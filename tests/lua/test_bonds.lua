@@ -52,12 +52,12 @@ function T.crisis_choice_sours_rivals()
     for _, x in pairs(StoryEngine.Store.data().quests) do if x.kind == "choice" then q = x end end
     H.ok(q, "crisis quest")
     local idx
-    for i, o in ipairs(q.options) do if o.faction == "doc" then idx = i end end
+    for i, o in ipairs(q.options) do if o.faction == "guard" then idx = i end end
     H.ok(StoryEngine.Quests.choose(p, q.id, idx))
-    H.eq(B().get("guard", "doc"), -1)
     H.eq(B().get("doc", "guard"), -2, "doc already disliked the squad a little")
-    H.eq(B().get("rats", "doc"), -1)
-    H.ok(string.find(B().recent("doc", "rats").text, "over Vic", 1, true), "reason names the rival")
+    H.eq(B().get("guard", "doc"), -1)
+    H.eq(B().get("rats", "guard"), -2, "Vic already disliked the squad")
+    H.ok(string.find(B().recent("doc", "guard").text, "over June", 1, true), "reason names the rival")
 end
 
 function T.story_node_and_trading_post()

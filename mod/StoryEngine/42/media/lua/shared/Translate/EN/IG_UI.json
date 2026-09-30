@@ -367,8 +367,8 @@
     "IGUI_StoryEngine_Spec_Name_pike": "comfort and prayer",
     "IGUI_StoryEngine_Spec_Name_hunter": "sniper cover",
     "IGUI_StoryEngine_Spec_Name_rats": "decoy noise",
-    "IGUI_StoryEngine_Spec_Desc_guard": "A Guard squad comes and fights beside you (needs A-Life). Trust 40/60/80: 2/4/6 soldiers (4/6/8 after the checkpoint project) for 2/4/6 hours, with suppressed guns. Without A-Life: sniper cover over half an hour, 10/20/30 zombies. Once every 7 days.",
-    "IGUI_StoryEngine_Spec_Desc_doc": "June talks you through 10 seconds of treatment (moving cancels it). 40: scratches, cuts, bleeding / 60: + deep wounds, glass, wound infections, half fracture time / 80: + bullets, burns, fractures, pain. Bites and zombie infection can never be treated. Once every 7 days.",
+    "IGUI_StoryEngine_Spec_Desc_guard": "A Guard squad comes and fights beside you (needs A-Life). Trust 40/60/80: 2/4/6 soldiers (4/6/8 after the checkpoint project) for 2/4/6 hours, with suppressed guns. Without A-Life: slow sniper cover over 4 hours, 20/40/60 zombies (+20 after the checkpoint). Once every 7 days.",
+    "IGUI_StoryEngine_Spec_Desc_doc": "June talks you through 10 seconds of treatment for your single worst injury (moving or getting hurt again cancels it). 40: scratches, cuts, bleeding / 60: + deep wounds, glass, wound infections, half fracture time / 80: + bullets, burns, fractures, pain. Bites and zombie infection can never be treated. Once every 7 days.",
     "IGUI_StoryEngine_Spec_Desc_dewey": "Picks the nearest vehicle within 10 tiles when you ask and repairs that car 8-10 hours later (even if moved). 40: parts +30 (max 70) / 60: +50 (max 85) / 80: all 100 and a charged battery. The engine is hard to fix and gets half (+15/+25/+50). Missing parts are not replaced. Once every 7 days.",
     "IGUI_StoryEngine_Spec_Desc_casey": "Marks the area within 150 tiles on your map for 3/6/12 hours. 40: packs hunting you / 60: + hostile groups (A-Life) / 80: + zombie crowds. You mutter a warning when a marked threat comes within 40 tiles. Once every 3 days.",
     "IGUI_StoryEngine_Spec_Desc_ray": "Ray drives supplies to another contact (+20/+30/+45 to what they lack, costs Ray 15 food). Vic only at trust 80+. Once every 7 days.",
@@ -448,7 +448,7 @@
     "IGUI_StoryEngine_Project_Effect_doc": "When finished: medicine baseline +20, treatment uses half the medicine",
     "IGUI_StoryEngine_Project_Effect_pike": "When finished: food baseline +20, no fear / muscle strain lasts 1.5x longer",
     "IGUI_StoryEngine_Project_Effect_dewey": "When finished: repairs arrive in 30-60 minutes instead of 8-10 hours",
-    "IGUI_StoryEngine_Project_Effect_guard": "When finished: weapons baseline +20, squads +2 (specialty 2/4/6 -> 4/6/8, backup max 8), half as many threats from Vic's crew",
+    "IGUI_StoryEngine_Project_Effect_guard": "When finished: weapons baseline +20, squads +2 (specialty 2/4/6 -> 4/6/8, backup max 8; without A-Life +20 sniper kills), half as many threats from Vic's crew",
     "IGUI_StoryEngine_Project_Effect_hunter": "When finished: weapons baseline +20, +10 sniper kills",
     "IGUI_StoryEngine_Project_Effect_rats": "When finished: Vic sells one tier above your trust limit without the x1.5 markup, no more threats, nobody minds you helping Vic",
     "IGUI_StoryEngine_Life_Rec_project_gift": "supported their project",
@@ -486,5 +486,7 @@
     "IGUI_StoryEngine_Tip_Donate": "Donation: %1 (value %2)",
     "IGUI_StoryEngine_Tip_Vehicle": "%1's project: vehicle part, %2 points",
     "IGUI_StoryEngine_Tip_Rotten": "Spoiled: can't be traded or donated",
-    "IGUI_StoryEngine_Tip_Quest": "Quest item (can't be traded or donated)"
+    "IGUI_StoryEngine_Tip_Quest": "Quest item (can't be traded or donated)",
+    "IGUI_StoryEngine_TrustReason_crisis_ally": "Helped us by helping someone else in a crisis",
+    "IGUI_StoryEngine_Life_Rec_crisis_ally": "helped us too in a crisis"
 }

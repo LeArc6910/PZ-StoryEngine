@@ -268,8 +268,11 @@ function Social.onQuest(q, outcome)
         end
     end
     if tag and tag.crisis and outcome ~= "accepted" then
-        local st = Social.story(q.origin.faction)
-        st.flags[tag.crisis .. (outcome == "completed" and "_done" or "_failed")] = true
+        local flag = tag.crisis .. (outcome == "completed" and "_done" or "_failed")
+        Social.story(q.origin.faction).flags[flag] = true
+        -- 함께 도운 것이 된 NPC 도 같은 결과 (교회 습격: 방위대 순찰이 성공하면 교회도 지켜짐)
+        local def = Stories.crisisOption(tag.crisis, q.origin.faction)
+        for _, a in ipairs(def and def.allies or {}) do Social.story(a).flags[flag] = true end
     end
     if q.kind == "choice" and (outcome == "ignored" or outcome == "declined") then
         Social.onChoiceIgnored(q)
@@ -329,11 +332,24 @@ function Social.onChoice(q, opt, player)
     local Trust = StoryEngine.Trust
     for _, o in ipairs(q.options) do
         local st = Social.story(o.faction)
-        if o.faction == opt.faction then
+        local role = Stories.crisisRole(q.crisis, opt.faction, o.faction)
+        if role == "chosen" then
             st.flags[q.crisis .. "_helped"] = true
             if StoryEngine.Fate then StoryEngine.Fate.onStoryResult(o.faction, true) end
             if StoryEngine.Projects then StoryEngine.Projects.onCrisisHelped(o.faction, ps.name) end
             if Trust then Trust.apply(o.faction, 2, "crisis_chosen", q.id) end
+        elseif role == "ally" then
+            -- 고른 쪽의 부탁이 이 NPC 의 바람도 이뤄 준다 (교회 습격에서 방위대 순찰 -> 교회 보호)
+            st.flags[q.crisis .. "_helped"] = true
+            if StoryEngine.Fate then StoryEngine.Fate.onStoryResult(o.faction, true) end
+            if Trust then Trust.apply(o.faction, 1, "crisis_ally", q.id) end
+            StoryEngine.Radio.react(o.faction, "event", "The players chose to help " .. nameOf(opt.faction)
+                .. ", and that helps you too. The situation was: " .. (c and c.situation or "a crisis")
+                .. " What " .. nameOf(opt.faction) .. " asked for: " .. tostring(opt.ask)
+                .. ". React in character, relieved or grateful.", nil, ps)
+        elseif role == "spared" then
+            -- 다른 쪽을 골랐지만 이 NPC 도 이해한다: 감점 없음
+            st.flags[q.crisis .. "_spared"] = true
         else
             st.flags[q.crisis .. "_snubbed"] = true
             if Trust then Trust.apply(o.faction, -2, "crisis_snubbed", q.id, ps.key) end
@@ -346,9 +362,13 @@ function Social.onChoice(q, opt, player)
     -- NPC 사이 관계: 선택받은 쪽과 외면당한 쪽이 서로 조금 틀어진다 (Bonds)
     if StoryEngine.Bonds then
         for _, o in ipairs(q.options) do
-            if o.faction ~= opt.faction then
+            local role = Stories.crisisRole(q.crisis, opt.faction, o.faction)
+            if role == "snubbed" then
                 StoryEngine.Bonds.change(o.faction, opt.faction, -1, "the players chose to help " .. nameOf(opt.faction)
                     .. " over " .. nameOf(o.faction) .. " in a crisis", true)
+            elseif role == "ally" then
+                StoryEngine.Bonds.change(o.faction, opt.faction, 1, nameOf(opt.faction) .. " stepped in to help "
+                    .. nameOf(o.faction) .. " in a crisis", false)
             end
         end
     end

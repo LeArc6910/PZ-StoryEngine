@@ -234,6 +234,7 @@ function Radio.request(fid, lang, opts)
             -- 플레이어 발언에 대한 답장은 말한 사람의 기록에, NPC 가 먼저 한 말은 접속한 모두의 기록에
             push(fid, { from = "npc", text = string.sub(json.reply, 1, Radio.MAX_REPLY), clock = t.clock,
                         day = Store.dayIndex(t.dayKey), followUp = followUp or nil }, (not mode) and speaker or nil)
+            if opts and opts.overhead then Radio.overhead(opts.overhead, fid, string.sub(json.reply, 1, Radio.MAX_REPLY)) end
             -- 곁의 동료와 방금 들은 말을 두고 대화
             if not mode and speaker and StoryEngine.Banter then
                 local okB, errB = pcall(StoryEngine.Banter.onRadio, speaker, fid, json.reply)
@@ -291,8 +292,10 @@ function Radio.request(fid, lang, opts)
             local fb = opts.fallback
             if type(fb) == "table" then
                 push(fid, { from = "npc", text = fb.text, lt = fb.lt, clock = t.clock, day = Store.dayIndex(t.dayKey) })
+                if opts.overhead then Radio.overhead(opts.overhead, fid, fb.text, fb.lt) end
             elseif fb then
                 push(fid, { from = "npc", text = fb, clock = t.clock, day = Store.dayIndex(t.dayKey) })
+                if opts.overhead then Radio.overhead(opts.overhead, fid, fb) end
             end
         else
             log("radio reply failed:", fid, tostring(res.error))
@@ -327,9 +330,23 @@ end
 -- NPC 가 먼저 말하게 한다. mode: "event" (일어난 일에 반응) | "request" (부탁)
 -- topic 은 AI 에게 넘기는 상황 설명(영어), fallback 은 AI 가 실패했을 때 대신 보낼 문장
 -- ({ text = AI 기록용 영어, lt = 클라이언트가 번역할 문장 }), ps 는 대상 플레이어.
-function Radio.react(fid, mode, topic, fallback, ps)
+-- extra.overhead: 그 말을 대상 플레이어 머리 위에도 띄운다 (특기 지원 답장, 2026-09-30)
+function Radio.react(fid, mode, topic, fallback, ps, extra)
     if not Factions.byId[fid] then return end
-    Radio.request(fid, Radio.langFor(fid, ps), { mode = mode, topic = topic, fallback = fallback })
+    Radio.request(fid, Radio.langFor(fid, ps), { mode = mode, topic = topic, fallback = fallback,
+        overhead = (extra and extra.overhead and ps) and ps.key or nil })
+end
+
+-- NPC 가 한 말을 그 플레이어 머리 위에도 (접속해 있을 때만)
+function Radio.overhead(key, fid, text, lt)
+    if not key then return end
+    for _, p in ipairs(Sensor.players()) do
+        if Store.player(p).key == key then
+            local ok, err = pcall(Net.toClient, p, "radioOverhead", { faction = fid, text = text, lt = lt })
+            if not ok then log("radio overhead failed:", err) end
+            return
+        end
+    end
 end
 
 -- 예약 시각이 된 연락을 보낸다 (게임 내 10분마다)

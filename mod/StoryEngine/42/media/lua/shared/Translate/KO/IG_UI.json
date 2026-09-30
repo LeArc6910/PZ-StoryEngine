@@ -367,8 +367,8 @@
     "IGUI_StoryEngine_Spec_Name_pike": "위로와 기도",
     "IGUI_StoryEngine_Spec_Name_hunter": "저격 엄호",
     "IGUI_StoryEngine_Spec_Name_rats": "미끼 소음",
-    "IGUI_StoryEngine_Spec_Desc_guard": "방위대 분대가 와서 싸워 준다 (A-Life 필요). 신뢰도 40/60/80: 2/4/6명(검문소 프로젝트 완성 시 4/6/8명), 2/4/6시간. 대원 총에는 소음기. A-Life가 없으면 30분 동안 저격 10/20/30마리. 7일에 한 번.",
-    "IGUI_StoryEngine_Spec_Desc_doc": "닥의 무전 지시로 10초 동안 치료한다 (움직이면 취소). 40: 긁힘·베임·출혈 / 60: + 깊은 상처·유리 조각·상처 감염·골절 회복 절반 / 80: + 총알·화상·골절·통증. 물림과 좀비 감염은 고칠 수 없다. 7일에 한 번.",
+    "IGUI_StoryEngine_Spec_Desc_guard": "방위대 분대가 와서 싸워 준다 (A-Life 필요). 신뢰도 40/60/80: 2/4/6명(검문소 프로젝트 완성 시 4/6/8명), 2/4/6시간. 대원 총에는 소음기. A-Life가 없으면 4시간 동안 천천히 저격 20/40/60마리(검문소 완성 시 +20). 7일에 한 번.",
+    "IGUI_StoryEngine_Spec_Desc_doc": "닥의 무전 지시로 10초 동안 가장 심각한 상처 하나를 치료한다 (움직이거나 새로 다치면 취소). 40: 긁힘·베임·출혈 / 60: + 깊은 상처·유리 조각·상처 감염·골절 회복 절반 / 80: + 총알·화상·골절·통증. 물림과 좀비 감염은 고칠 수 없다. 7일에 한 번.",
     "IGUI_StoryEngine_Spec_Desc_dewey": "요청할 때 10타일 안에서 가장 가까운 차량을 골라 두고, 8~10시간 뒤 그 차를 고쳐 준다(옮겨도 그 차). 40: 부품 +30(최대 70) / 60: +50(최대 85) / 80: 전부 100과 배터리 충전. 엔진은 고치기 힘들어 절반만(+15/+25/+50). 없는 부품은 달아 주지 않는다. 7일에 한 번.",
     "IGUI_StoryEngine_Spec_Desc_casey": "3/6/12시간 동안 주변 150타일을 지도에 표시한다. 40: 나를 쫓는 무리 / 60: + 적대 무리(A-Life) / 80: + 좀비 밀집 지역. 표시된 대상이 40타일 안으로 오면 혼잣말로 경고한다. 3일에 한 번.",
     "IGUI_StoryEngine_Spec_Desc_ray": "레이가 다른 사람에게 보급을 실어다 준다 (부족한 자원부터 +20/+30/+45, 레이 식량 -15). 빅에게는 신뢰도 80 이상일 때만. 7일에 한 번.",
@@ -448,7 +448,7 @@
     "IGUI_StoryEngine_Project_Effect_doc": "완성 효과: 의약품 기준값 +20, 치료에 드는 의약품 절반",
     "IGUI_StoryEngine_Project_Effect_pike": "완성 효과: 식량 기준값 +20, 위로의 두려움·근육통 없음 시간 1.5배",
     "IGUI_StoryEngine_Project_Effect_dewey": "완성 효과: 수리 도착 8~10시간 -> 30~60분",
-    "IGUI_StoryEngine_Project_Effect_guard": "완성 효과: 무기 기준값 +20, 분대 +2명(특기 2/4/6 -> 4/6/8, 자동 지원 최대 8), 빅 패거리 협박 절반",
+    "IGUI_StoryEngine_Project_Effect_guard": "완성 효과: 무기 기준값 +20, 분대 +2명(특기 2/4/6 -> 4/6/8, 자동 지원 최대 8, A-Life가 없으면 저격 +20마리), 빅 패거리 협박 절반",
     "IGUI_StoryEngine_Project_Effect_hunter": "완성 효과: 무기 기준값 +20, 저격 +10마리",
     "IGUI_StoryEngine_Project_Effect_rats": "완성 효과: 신뢰도 한도보다 1등급 높은 물건도 웃돈(1.5배) 없이 거래, 협박 중단, 빅을 도와도 다른 사람이 언짢아하지 않음",
     "IGUI_StoryEngine_Life_Rec_project_gift": "프로젝트에 물자를 보탬",
@@ -486,5 +486,7 @@
     "IGUI_StoryEngine_Tip_Donate": "물자 지원: %1 (가치 %2)",
     "IGUI_StoryEngine_Tip_Vehicle": "%1 프로젝트: 차량 부품 %2점",
     "IGUI_StoryEngine_Tip_Rotten": "상해서 거래·지원에 쓸 수 없음",
-    "IGUI_StoryEngine_Tip_Quest": "퀘스트 물건 (거래·지원 불가)"
+    "IGUI_StoryEngine_Tip_Quest": "퀘스트 물건 (거래·지원 불가)",
+    "IGUI_StoryEngine_TrustReason_crisis_ally": "위기에서 다른 쪽을 도와 우리도 도움",
+    "IGUI_StoryEngine_Life_Rec_crisis_ally": "위기에서 함께 도와줌"
 }

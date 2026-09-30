@@ -251,7 +251,8 @@ local function weekSpill(n, now)
 end
 
 -- 플레이어들이 fid 를 크게 도왔다. always = 소문 확률 없이 항상 알려짐 (위기 선택)
-function Life.spill(fid, who, always)
+-- skip: 이미 따로 반응한 NPC (위기 선택지의 당사자들) 는 파급에서 뺀다
+function Life.spill(fid, who, always, skip)
     local now = Sensor.now()
     local Trust = StoryEngine.Trust
     local Social = StoryEngine.Social
@@ -263,7 +264,8 @@ function Life.spill(fid, who, always)
     end
     for _, f in ipairs(Factions.list) do
         local other = f.id
-        local bond = other ~= fid and not Factions.isGone(other) and StoryEngine.Bonds.get(other, fid) or 0
+        local bond = other ~= fid and not Factions.isGone(other) and not (skip and skip[other])
+            and StoryEngine.Bonds.get(other, fid) or 0
         if bond ~= 0 then
             local n = Life.npc(other)
             local delta = bond > 0 and 1 or -1
@@ -321,7 +323,17 @@ function Life.onQuest(q, outcome, trustDelta)
         Life.change(fid, res, math.min(40, 10 * tier), "quest")
         if res == "medical" then Life.count(fid, "medical_help") end
         Life.record(fid, "quest_completed", who, trustDelta)
-        if tier >= Life.SPILL_BIG_TIER and q.kind ~= "extort" then Life.spill(fid, who) end
+        if tier >= Life.SPILL_BIG_TIER and q.kind ~= "extort" then
+            -- 위기 후속 부탁이면 그 위기의 당사자는 이미 선택 때 반응했다 (두 번 깎지 않는다)
+            local tag = q.origin and q.origin.story
+            local c = tag and tag.crisis and StoryEngine.Stories and StoryEngine.Stories.crisis(tag.crisis)
+            local involved = nil
+            if c then
+                involved = {}
+                for _, o in ipairs(c.options) do involved[o.faction] = true end
+            end
+            Life.spill(fid, who, false, involved)
+        end
         if q.kind ~= "extort" and StoryEngine.Projects then StoryEngine.Projects.onBigQuest(q, who) end
     elseif outcome == "failed" or outcome == "declined" or outcome == "ignored" then
         if q.kind ~= "extort" then
@@ -336,19 +348,29 @@ end
 
 -- 위기에서 한 세력을 골랐다 (Social.onChoice)
 function Life.onCrisis(q, chosen, who)
+    local Stories = StoryEngine.Stories
     for _, o in ipairs(q.options or {}) do
         local res = Life.resourceOfItems(o.items) or "morale"
-        if o.faction == chosen then
+        local role = Stories and Stories.crisisRole(q.crisis, chosen, o.faction)
+            or (o.faction == chosen and "chosen" or "snubbed")
+        if role == "chosen" then
             Life.change(o.faction, res, 20, "crisis_helped")
             Life.change(o.faction, "morale", 10, "crisis_helped")
             Life.record(o.faction, "crisis_helped", who, 2)
+        elseif role == "ally" then
+            Life.change(o.faction, "morale", 10, "crisis_ally")
+            Life.record(o.faction, "crisis_ally", who, 1)
+        elseif role == "spared" then
+            -- 이해한다: 변화 없음
         else
             Life.change(o.faction, res, -20, "crisis_snubbed")
             Life.change(o.faction, "morale", -10, "crisis_snubbed")
             Life.record(o.faction, "crisis_snubbed", who, -2)
         end
     end
-    Life.spill(chosen, who, true)
+    local involved = {}
+    for _, o in ipairs(q.options or {}) do involved[o.faction] = true end
+    Life.spill(chosen, who, true, involved)
 end
 
 function Life.onCrisisIgnored(q)

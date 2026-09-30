@@ -44,11 +44,17 @@ Specialty.COOLDOWN_DAYS = { guard = 7, doc = 7, dewey = 7, casey = 3, ray = 7, p
 Specialty.COST = { 10, 10, 15 }                        -- 구간별 핵심 자원 소모
 Specialty.SQUAD_LEVEL = { 1, 3, 5 }                    -- 방위대 분대 시간: ALife.HOURS 의 칸 -> 2/4/6시간
 Specialty.SQUAD_SIZE = { 2, 4, 6 }                     -- 방위대 분대 인원 (2026-09-30: 4/6/8 -> 2/4/6, 검문소 완성이면 +2)
-Specialty.SNIPE = { hunter = { 10, 20, 30 }, guard = { 10, 20, 30 } }   -- 2026-09-29: 행크 10/15/20 -> 10/20/30
+-- 2026-09-29: 행크 10/15/20 -> 10/20/30. 2026-09-30: A-Life 없는 방위대는 행크의 2배를 4배 느리게 (4시간)
+Specialty.SNIPE = { hunter = { 10, 20, 30 }, guard = { 20, 40, 60 } }
 Specialty.SNIPE_SOUND = { hunter = "MSR788Shoot", guard = "M14Shoot" }
-Specialty.SNIPE_MIN = 30                               -- 이 게임 시간에 나눠 쏜다 (2026-09-29: 60 -> 30, 발사 간격 절반)
+-- 이 게임 시간(분)에 나눠 쏜다 (2026-09-29 행크 60 -> 30). 방위대는 2배 수를 발사 간격 4배로 = 240분
+Specialty.SNIPE_MIN = { hunter = 30, guard = 240 }
+Specialty.SNIPE_PROJECT = { hunter = 10, guard = 20 }   -- 겨울 오두막 / 검문소 완성 (방위대는 A-Life 가 없을 때만)
+Specialty.SNIPE_MAX_KILLS = 100                        -- 요청 수를 모를 때 (재접속 등)
+Specialty.snipeCap = {}                                -- ps.key -> 이번 저격 요청 수 (메모리만)
 Specialty.SNIPE_RADIUS = 30
 Specialty.HEAL_WAIT_MS = 2 * 60 * 1000                 -- 치료 동작을 끝내야 하는 실시간
+Specialty.HEAL_COST = 10                               -- 닥 치료 의약품 (가장 심각한 상처 하나, 진료소 완성 시 절반)
 Specialty.REPAIR = { { add = 30, max = 70 }, { add = 50, max = 85 }, { add = 100, max = 100 } }
 Specialty.ENGINE_SHARE = 0.5                           -- 엔진은 수리량의 절반 (게임에서도 고치기 힘든 부품, 2026-09-30)
 Specialty.REPAIR_DELAY = { 480, 600 }                  -- 듀이 도착 (2026-09-30: 1~2시간 -> 8~10시간)
@@ -177,7 +183,8 @@ function Specialty.commit(fid, ps, tier, info)
     end
     if info.topic then
         Radio.react(fid, "event", info.topic .. " Keep it short and in character.",
-            { text = info.fallbackText or "On it.", lt = { key = "IGUI_StoryEngine_RadioSay_spec_" .. fid } }, ps)
+            { text = info.fallbackText or "On it.", lt = { key = "IGUI_StoryEngine_RadioSay_spec_" .. fid } }, ps,
+            { overhead = true })
     end
     log("specialty", fid, "tier", tier, "for", ps and ps.name or "?")
 end
@@ -197,77 +204,88 @@ end
 
 local function snipe(player, ps, fid, tier)
     local count = Specialty.SNIPE[fid][tier]
-    if fid == "hunter" and projectDone("hunter") then count = count + 10 end      -- 겨울 오두막
+    if projectDone(fid) then count = count + (Specialty.SNIPE_PROJECT[fid] or 0) end   -- 겨울 오두막 / 검문소
     if #zombiesNear(player:getX(), player:getY(), Specialty.SNIPE_RADIUS) == 0 then return false, "no_targets" end
-    Net.toClient(player, "specSnipe", { faction = fid, count = count, minutes = Specialty.SNIPE_MIN,
+    local minutes = Specialty.SNIPE_MIN[fid] or 30
+    Specialty.snipeCap[ps.key] = count            -- 끝났을 때 보고한 처치 수를 이만큼으로 자른다
+    Net.toClient(player, "specSnipe", { faction = fid, count = count, minutes = minutes,
                                         radius = Specialty.SNIPE_RADIUS, sound = Specialty.SNIPE_SOUND[fid] })
     local who = fid == "guard" and "Your squad's marksman is" or "You are"
+    local span = minutes >= 120 and ("the next " .. StoryEngine.intToString(math.floor(minutes / 60)) .. " hours, slow and careful")
+        or "the next half hour"
     return true, { count = count, note = "specialty_snipe_start",
-                   topic = who .. " covering " .. tostring(ps.name) .. " with a rifle from far off for the next half hour, "
+                   topic = who .. " covering " .. tostring(ps.name) .. " with a rifle from far off for " .. span .. ", "
                        .. "taking down the dead around them (up to " .. StoryEngine.intToString(count) .. ")." }
 end
 
 -- 요청한 클라이언트가 저격을 마쳤다 (쓰러뜨린 수, 요청 수를 넘지 않게)
 function Specialty.snipeDone(player, fid, kills)
     local ps = Store.player(player)
-    kills = math.max(0, math.min(30, math.floor(tonumber(kills) or 0)))
+    local cap = Specialty.snipeCap[ps.key] or Specialty.SNIPE_MAX_KILLS
+    Specialty.snipeCap[ps.key] = nil
+    kills = math.max(0, math.min(cap, math.floor(tonumber(kills) or 0)))
     Store.addNote(ps, { kind = "specialty_snipe", faction = fid, count = kills, clock = Sensor.now().clock })
     log("specialty snipe done", fid, ps.name, kills)
 end
 
 -- ---------------------------------------------------------------- 닥: 치료
 
--- tier 로 고칠 수 있는 상처 수. apply 면 실제로 고친다. 물림과 좀비 감염은 절대 건드리지 않는다
-function Specialty.treat(player, tier, apply)
-    local n = 0
+-- 고칠 수 있는 상처 목록 (구간별). 가장 심각한 것 하나만 고친다 (2026-09-30 사용자 결정: 전부 고치면 밸런스가 무너짐)
+-- 심각도: 총알 9 > 골절 8 > 화상 7 > 깊은 상처 6 > 상처 감염 5 > (구간 2) 골절 절반 4.5 > 유리 4 > 베임 3 > 출혈 2 > 긁힘 1
+-- 물림과 좀비 감염은 절대 건드리지 않는다
+local function woundsOf(player, tier)
+    local out = {}
     local parts = player:getBodyDamage():getBodyParts()
     for i = 0, parts:size() - 1 do
         local bp = parts:get(i)
-        local touched = false
-        local function fix(cond, action)
-            if cond then
-                n = n + 1
-                if apply then
-                    local ok, err = pcall(action)
-                    if not ok then log("treat error:", err) end
-                    touched = true
-                end
-            end
+        local function add(sev, kind, cond, action)
+            if cond then out[#out + 1] = { sev = sev, kind = kind, bp = bp, action = action } end
         end
-        fix(bp:scratched(), function() bp:setScratched(false, true); bp:setScratchTime(0) end)
-        fix(bp:isCut(), function() bp:setCut(false); bp:setCutTime(0) end)
-        fix(bp:getBleedingTime() > 0 and not bp:deepWounded(), function() bp:setBleedingTime(0) end)
+        add(1, "scratch", bp:scratched(), function() bp:setScratched(false, true); bp:setScratchTime(0); bp:setBleedingTime(0) end)
+        add(3, "cut", bp:isCut(), function() bp:setCut(false); bp:setCutTime(0); bp:setBleedingTime(0) end)
+        add(2, "bleeding", bp:getBleedingTime() > 0 and not bp:deepWounded() and not bp:isCut() and not bp:scratched(),
+            function() bp:setBleedingTime(0) end)
         if tier >= 2 then
-            fix(bp:deepWounded(), function()
+            add(6, "deep wound", bp:deepWounded(), function()
                 bp:setDeepWoundTime(0)
                 bp:setDeepWounded(false)
                 bp:setBleedingTime(0)
             end)
-            fix(bp:haveGlass(), function() bp:setHaveGlass(false) end)
-            fix(bp:isInfectedWound(), function() bp:setWoundInfectionLevel(-1) end)
-            fix(tier == 2 and bp:getFractureTime() > 0, function() bp:setFractureTime(bp:getFractureTime() / 2) end)
+            add(4, "glass shard", bp:haveGlass(), function() bp:setHaveGlass(false) end)
+            add(5, "infected wound", bp:isInfectedWound(), function() bp:setWoundInfectionLevel(-1) end)
+            add(4.5, "fracture (half)", tier == 2 and bp:getFractureTime() > 0,
+                function() bp:setFractureTime(bp:getFractureTime() / 2) end)
         end
         if tier >= 3 then
-            fix(bp:haveBullet(), function() bp:setHaveBullet(false, 0) end)
-            fix(bp:getBurnTime() > 0, function()
+            add(9, "bullet", bp:haveBullet(), function() bp:setHaveBullet(false, 0) end)
+            add(7, "burn", bp:getBurnTime() > 0, function()
                 bp:setBurnTime(0)
                 bp:setNeedBurnWash(false)
             end)
-            fix(bp:getFractureTime() > 0, function() bp:setFractureTime(0) end)
-        end
-        if apply then
-            pcall(function()
-                bp:setAdditionalPain(tier >= 3 and 0 or bp:getAdditionalPain() * 0.5)
-            end)
-            if touched then pcall(syncBodyPart, bp, 0xFFFFFFFFFFF) end
+            add(8, "fracture", bp:getFractureTime() > 0, function() bp:setFractureTime(0) end)
         end
     end
-    return n
+    table.sort(out, function(a, b) return a.sev > b.sev end)
+    return out
+end
+
+-- 치료. apply 가 아니면 고칠 수 있는 상처 수만 센다. apply 면 가장 심각한 하나를 고치고 1, 그 종류(영어)
+function Specialty.treat(player, tier, apply)
+    local list = woundsOf(player, tier)
+    if not apply then return #list end
+    local w = list[1]
+    if not w then return 0 end
+    local ok, err = pcall(w.action)
+    if not ok then log("treat error:", err) end
+    pcall(function() w.bp:setAdditionalPain(tier >= 3 and 0 or w.bp:getAdditionalPain() * 0.5) end)
+    pcall(syncBodyPart, w.bp, 0xFFFFFFFFFFF)
+    return 1, w.kind
 end
 
 local function heal(player, ps, fid, tier)
     if Specialty.treat(player, tier, false) == 0 then return false, "no_wounds" end
     Specialty.healPending[ps.key] = { fid = fid, tier = tier, ms = StoryEngine.nowMs() }
+    log("specialty heal start", fid, "tier", tier, "for", ps.name)
     Net.toClient(player, "specHealStart", { faction = fid, tier = tier })
     return true, { pending = true }
 end
@@ -280,14 +298,14 @@ function Specialty.healDone(player)
     if not p or StoryEngine.nowMs() - p.ms > Specialty.HEAL_WAIT_MS then return false, "expired" end
     local st = Specialty.status(p.fid)
     if st.reason then return false, st.reason end
-    local n = Specialty.treat(player, p.tier, true)
+    local n, kind = Specialty.treat(player, p.tier, true)
     if n == 0 then return false, "no_wounds" end
-    local cost = math.min(20, 5 + 5 * n)
+    local cost = Specialty.HEAL_COST
     if projectDone("doc") then cost = math.floor(cost / 2) end                    -- 진료소 확장: 의약품 절반
     Specialty.commit(p.fid, ps, p.tier, {
         count = n, cost = cost,
-        topic = "You just talked " .. tostring(ps.name) .. " through treating their wounds over the radio ("
-            .. StoryEngine.intToString(n) .. " injuries). Tell them how to look after it now, like a nurse would.",
+        topic = "You just talked " .. tostring(ps.name) .. " through treating their worst injury over the radio ("
+            .. tostring(kind) .. "). Only that one is taken care of. Tell them how to look after it now, like a nurse would.",
     })
     return true, n
 end
@@ -406,7 +424,8 @@ local function runJobs(now)
                 if ps then Store.addNote(ps, { kind = "specialty_dewey_done", faction = "dewey", clock = now.clock }) end
                 Radio.react("dewey", "event", "You just finished fixing up " .. tostring(ps and ps.name or "their")
                     .. " vehicle (" .. StoryEngine.intToString(fixed) .. " parts). Tell them it is ready. Keep it short.",
-                    { text = "Your ride's fixed.", lt = { key = "IGUI_StoryEngine_RadioSay_spec_dewey_done" } }, ps)
+                    { text = "Your ride's fixed.", lt = { key = "IGUI_StoryEngine_RadioSay_spec_dewey_done" } }, ps,
+                    { overhead = true })
             elseif now.t - job.dueT < Specialty.REPAIR_KEEP_MIN then
                 keep[#keep + 1] = job
             else
@@ -532,13 +551,27 @@ local function supply(player, ps, fid, tier, args)
     local name = StoryEngine.Stories.NAMES[target] or target
     Radio.react(target, "event", "Ray Mercer just drove a load of supplies over to your people because "
         .. tostring(ps.name) .. " asked him to. Thank them both, in character.",
-        { text = "Ray dropped off supplies. Thank you.", lt = { key = "IGUI_StoryEngine_RadioSay_raysupply" } }, ps)
+        { text = "Ray dropped off supplies. Thank you.", lt = { key = "IGUI_StoryEngine_RadioSay_raysupply" } }, ps,
+        { overhead = true })
     return true, { cost = Specialty.RAY_COST, costRes = "food", item = name, gained = gained,
                    topic = "You drove a load of supplies over to " .. name .. " because " .. tostring(ps.name)
                        .. " asked you to. Tell them it is done." }
 end
 
 -- ---------------------------------------------------------------- 파이크: 위로
+
+-- 스트레스·불행·지루함을 비율만큼 줄인다 (서버에서)
+Specialty.SOOTHE_STATS = { "STRESS", "UNHAPPINESS", "BOREDOM" }
+function Specialty.soothe(p, reduce)
+    local ok, err = pcall(function()
+        local stats = p:getStats()
+        for _, name in ipairs(Specialty.SOOTHE_STATS) do
+            local stat = CharacterStat[name]
+            stats:set(stat, stats:get(stat) * (1 - reduce))
+        end
+    end)
+    if not ok then log("comfort stats error:", err) end
+end
 
 local function comfort(player, ps, fid, tier)
     local now = Sensor.now()
@@ -552,8 +585,13 @@ local function comfort(player, ps, fid, tier)
         end
     end
     for _, p in ipairs(targets) do
+        -- 무들 수치는 서버가 정한다: 클라이언트에서만 바꾸면 멀티에서 서버 값으로 곧 돌아온다
+        -- (2026-09-30 인게임: 매우 지루함이 사라졌다 바로 다시 생김). 바닐라 SFarmingSystem 도 서버에서 바꾼다
+        Specialty.soothe(p, Specialty.COMFORT[tier])
         Net.toClient(p, "specComfort", { faction = fid, tier = tier, reduce = Specialty.COMFORT[tier], hours = hours })
-        if tier >= 3 then state().comfort[Store.playerKey(p)] = { untilT = now.t + hours * 60 } end
+        if hours > 0 then
+            state().comfort[Store.playerKey(p)] = { untilT = now.t + hours * 60, stiff = tier >= 3 }
+        end
     end
     return true, { count = #targets, topic = "You prayed with " .. tostring(ps.name) .. " over the radio and talked them "
         .. "through their fear" .. (#targets > 1 and ", with their companions listening" or "") .. "." }
@@ -568,6 +606,10 @@ local function comfortTick(now)
         else
             local p = playerByKey(key)
             if p then
+                -- 두려움 없음: 서버가 매분 공포를 0으로 (클라이언트도 매 틱)
+                pcall(function() p:getStats():set(CharacterStat.PANIC, 0) end)
+            end
+            if p and c.stiff ~= false then   -- 근육통 없음은 구간 3 (예전 세이브의 기록은 stiff 가 없고 모두 구간 3)
                 pcall(function()
                     local parts = p:getBodyDamage():getBodyParts()
                     for i = 0, parts:size() - 1 do

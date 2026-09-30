@@ -335,6 +335,76 @@ function Client.handlers.monologue(args)
     if not ok and args.own then speaker:Say(text) end
 end
 
+-- 특기 지원 등의 무전 답장을 내 머리 위에도 띄운다 (2026-09-30 사용자 요청: 교신 창을 열지 않아도 보이게).
+-- 긴 답장은 문장 단위로 나눠 몇 초 간격으로, 첫 줄에 NPC 이름.
+Client.OVERHEAD_COLOR = { 0.62, 0.92, 0.68 }
+Client.OVERHEAD_GAP_MS = 3500
+Client.OVERHEAD_CHUNK = 150          -- 바이트 (한글 약 50자)
+Client.overheadQueue = {}
+
+-- 문장 끝(. ! ? … 줄바꿈) 뒤에서 자르고, 짧은 문장은 이어 붙인다
+function Client.splitOverhead(text, limit)
+    local sentences = {}
+    local pos, len = 1, string.len(text)
+    while pos <= len do
+        local _, e = string.find(text, "[%.!%?\n]+", pos)
+        if not e then
+            sentences[#sentences + 1] = string.sub(text, pos)
+            break
+        end
+        sentences[#sentences + 1] = string.sub(text, pos, e)
+        pos = e + 1
+    end
+    local out, cur = {}, ""
+    for _, s in ipairs(sentences) do
+        s = string.gsub(string.gsub(s, "^%s+", ""), "%s+$", "")
+        if s ~= "" then
+            if cur == "" then
+                cur = s
+            elseif string.len(cur) + 1 + string.len(s) <= limit then
+                cur = cur .. " " .. s
+            else
+                out[#out + 1] = cur
+                cur = s
+            end
+        end
+    end
+    if cur ~= "" then out[#out + 1] = cur end
+    return out
+end
+
+function Client.handlers.radioOverhead(args)
+    local text = StoryEngine.UI.textOf(args)
+    if text == "" then return end
+    local name = StoryEngine.Factions.name(tostring(args.faction))
+    local now = getTimestampMs()
+    for i, part in ipairs(Client.splitOverhead(text, Client.OVERHEAD_CHUNK)) do
+        Client.overheadQueue[#Client.overheadQueue + 1] = {
+            at = now + (i - 1) * Client.OVERHEAD_GAP_MS,
+            text = (i == 1) and ("[" .. name .. "] " .. part) or part,
+        }
+    end
+end
+
+Events.OnTick.Add(function()
+    if #Client.overheadQueue == 0 then return end
+    local now = getTimestampMs()
+    local p = getPlayer()
+    local keep = {}
+    for _, q in ipairs(Client.overheadQueue) do
+        if now >= q.at then
+            if p and not p:isDead() then
+                local c = Client.OVERHEAD_COLOR
+                local ok = pcall(function() p:addLineChatElement(q.text, c[1], c[2], c[3]) end)
+                if not ok then pcall(function() p:Say(q.text) end) end
+            end
+        else
+            keep[#keep + 1] = q
+        end
+    end
+    Client.overheadQueue = keep
+end)
+
 -- 멀티 진단: 클라이언트가 보는 값과 이벤트 수
 Client.diag = { OnZombieDead = 0, OnHitZombie = 0, OnPlayerDeath = 0 }
 for name, _ in pairs(Client.diag) do
