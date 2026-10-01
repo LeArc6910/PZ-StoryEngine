@@ -81,6 +81,7 @@ ItemPool.KNOWN_OTHER = {
     entertainment = true, eye = true, firesource = true, fishingweapon = true, fox = true, frog = true, generic = true,
     goblin = true, hedgehog = true, instrument = true, malebody = true, mole = true, raccoon = true, spider = true,
     squirrel = true, tail = true, teddy = true, water = true, weaponimprovised = true,
+    ["teddy bear"] = true,        -- 42.21 에 생긴 바닐라 분류 (이름에 빈칸)
 }
 ItemPool.categoryOverrides = {}     -- items.txt 'category': 소문자 분류 이름 -> 종류
 ItemPool.unmapped = {}              -- 모드 아이템의 모르는 분류 이름 -> { n, example }

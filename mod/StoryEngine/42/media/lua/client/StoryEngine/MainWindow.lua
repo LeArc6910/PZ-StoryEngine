@@ -340,7 +340,8 @@ local function messageLine(fid, m)
         local color = delta >= 0 and "0.5,0.85,0.5" or "0.95,0.45,0.4"
         return " <RGB:" .. color .. "> " .. UI.escape(clock .. getText("IGUI_StoryEngine_Trust_Line", sign, reason)) .. " <LINE> "
     elseif m.from == "static" then
-        local key = m.error == "gone" and "IGUI_StoryEngine_Radio_StaticGone" or "IGUI_StoryEngine_Radio_Static"
+        local key = (m.error == "gone" and "IGUI_StoryEngine_Radio_StaticGone")
+            or (m.error == "blackout" and "IGUI_StoryEngine_Radio_StaticBlackout") or "IGUI_StoryEngine_Radio_Static"
         return " <RGB:0.5,0.5,0.5> " .. UI.escape(clock .. getText(key)) .. " <LINE> "
     end
     return " <RGB:0.55,0.75,1> " .. UI.escape(clock .. tostring(m.name or "?") .. ": ")
@@ -460,6 +461,13 @@ local function holdsQuestItem(q)
         end
         return true
     end
+    if q.kind == "collect" then
+        for _, n in ipairs(q.need or {}) do
+            local left = (n[2] or 1) - ((q.got or {})[n[1]] or 0)
+            if left > 0 and UI.countHeld(p, n[1]) > 0 then return true end
+        end
+        return false
+    end
     if q.kind ~= "fetch" then return false end
     for _, fullType in ipairs(q.items or {}) do
         local list = p:getInventory():getAllTypeRecurse(fullType)
@@ -493,7 +501,24 @@ function StoryEngineQuestPanel:onSubmit()
     end
 end
 
+-- 복구 작전 이름과 막 이름
+local function opName(op) return getText("IGUI_StoryEngine_Op_" .. tostring(op.kind)) end
+local function opActName(op) return getText("IGUI_StoryEngine_OpAct_" .. tostring(op.kind) .. "_" .. tostring(op.act)) end
+
+local function sagaName(sg) return getText("IGUI_StoryEngine_Saga_" .. tostring(sg.kind)) end
+local function sagaStageName(sg) return getText("IGUI_StoryEngine_Saga_" .. tostring(sg.kind) .. "_" .. tostring(sg.stageId)) end
+
 local function questTitle(q)
+    if q.op then
+        local title = opActName(q.op)
+        if q.town and q.kind ~= "collect" then title = title .. " - " .. UI.townName(q.town) end
+        return title
+    end
+    if q.saga then
+        local title = getText("IGUI_StoryEngine_SagaRole_" .. tostring(q.saga.role))
+        if q.town and q.kind ~= "collect" then title = title .. " - " .. UI.townName(q.town) end
+        return title
+    end
     if q.kind == "choice" then
         return getText("IGUI_StoryEngine_QTitle_choice", getText("IGUI_StoryEngine_Crisis_" .. tostring(q.crisis) .. "_title"))
     end
@@ -541,6 +566,13 @@ local function questSub(q)
         sub = getText("IGUI_StoryEngine_Quest_StoryTag") .. " " .. sub
     end
     if q.urgent then sub = getText("IGUI_StoryEngine_Quest_UrgentTag") .. " " .. sub end
+    if q.op then
+        sub = getText("IGUI_StoryEngine_Op_Tag") .. " " .. getText("IGUI_StoryEngine_Op_Header", opName(q.op),
+            StoryEngine.intToString(q.op.act or 1), StoryEngine.intToString(q.op.acts or 5))
+    end
+    if q.saga then
+        sub = getText("IGUI_StoryEngine_Saga_Tag") .. " " .. sagaName(q.saga) .. " - " .. sagaStageName(q.saga)
+    end
     -- 다른 사람이 받은 퀘스트는 누가 받았는지 붙인다 (퀘스트는 서버 전체가 함께 본다)
     if q.owner and not q.mine then sub = sub .. "  -  " .. tostring(q.owner) end
     return sub
@@ -724,7 +756,102 @@ local function choiceDetail(q)
     return table.concat(parts)
 end
 
+-- 복구 작전·큰 사건 퀘스트 (회수·보급·모금·소탕·방어·방문)
+local function opDetail(q)
+    local parts = {}
+    local line = function(text) parts[#parts + 1] = " <LINE> " .. UI.escape(text) end
+    local active = ACTIVE[q.state] == true
+    local header
+    if q.op then
+        header = getText("IGUI_StoryEngine_Op_Header", opName(q.op), StoryEngine.intToString(q.op.act or 1),
+            StoryEngine.intToString(q.op.acts or 5))
+    else
+        header = getText("IGUI_StoryEngine_Saga_Header", sagaName(q.saga), StoryEngine.intToString(q.saga.stage or 1),
+            StoryEngine.intToString(q.saga.stages or 3), sagaStageName(q.saga))
+    end
+    parts[#parts + 1] = " <H2> " .. UI.escape(questTitle(q))
+    if q.state == "completed" then
+        parts[#parts + 1] = " <LINE> <RGB:0.45,0.9,0.45> " .. UI.escape(getText("IGUI_StoryEngine_Quest_Result_completed"))
+    elseif q.state == "failed" then
+        parts[#parts + 1] = " <LINE> <RGB:0.95,0.4,0.35> " .. UI.escape(getText("IGUI_StoryEngine_Quest_Result_failed"))
+    elseif q.state == "declined" then
+        parts[#parts + 1] = " <LINE> <RGB:0.6,0.6,0.6> " .. UI.escape(getText("IGUI_StoryEngine_Op_Cancelled"))
+    end
+    parts[#parts + 1] = " <LINE> <RGB:0.95,0.75,0.4> " .. UI.escape(header)
+    if q.saga then
+        parts[#parts + 1] = " <LINE> <TEXT> " .. UI.escape(getText("IGUI_StoryEngine_SagaRole_" .. tostring(q.saga.role) .. "_desc"))
+    end
+    if q.op and (q.op.retry or 0) > 0 then
+        parts[#parts + 1] = " <LINE> <RGB:0.95,0.6,0.35> " .. UI.escape(getText("IGUI_StoryEngine_Op_Retry",
+            StoryEngine.intToString(q.op.retry)))
+    end
+    parts[#parts + 1] = " <TEXT> "
+    if active then
+        local goal = "IGUI_StoryEngine_Op_Goal_" .. q.kind
+        if q.kind == "supply_drop" then goal = "IGUI_StoryEngine_Quest_Goal_supply_drop" end
+        line(getText(goal, StoryEngine.intToString(q.radius or 0)))
+    end
+    parts[#parts + 1] = " <LINE> "
+    if q.kind ~= "collect" then
+        local where = getText("IGUI_StoryEngine_Quest_Location", UI.townName(q.town))
+        if q.site then where = where .. "  (" .. getText("IGUI_StoryEngine_Op_Site_" .. tostring(q.site)) .. ")" end
+        line(where)
+        local p = player()
+        if p and active and q.x then
+            local x, y = StoryEngine.QuestMap.markerPos(q)
+            local dir, dist = UI.distanceText(p, x, y)
+            line(getText("IGUI_StoryEngine_Quest_Direction", dir, dist))
+        end
+    end
+    if q.kind == "fetch" then
+        if active and q.state ~= "retrieved" then
+            if q.spawned and q.container then
+                line(getText("IGUI_StoryEngine_Quest_Storage", UI.containerName(q.container)))
+                line(getText("IGUI_StoryEngine_Quest_Storage_Highlight"))
+            elseif q.spawned then
+                line(getText("IGUI_StoryEngine_Quest_Storage_Floor"))
+            else
+                line(getText("IGUI_StoryEngine_Quest_Storage_Unknown"))
+            end
+        end
+        line(getText("IGUI_StoryEngine_Quest_Target", UI.itemList(q.items)))
+    elseif q.kind == "supply_drop" then
+        if active and q.spawned and q.container then
+            line(getText("IGUI_StoryEngine_Quest_Storage", UI.containerName(q.container)))
+            line(getText("IGUI_StoryEngine_Quest_Storage_Highlight"))
+        elseif active and q.spawned then
+            line(getText("IGUI_StoryEngine_Quest_Storage_Floor"))
+        elseif active then
+            line(getText("IGUI_StoryEngine_Quest_Storage_Unknown"))
+        end
+        line(getText("IGUI_StoryEngine_Quest_Items", UI.itemList(q.items)))
+    elseif q.kind == "collect" then
+        local p = player()
+        for _, n in ipairs(q.need or {}) do
+            local name = getItemNameFromFullType(n[1]) or n[1]
+            line(getText("IGUI_StoryEngine_Op_Need", name, StoryEngine.intToString((q.got or {})[n[1]] or 0),
+                StoryEngine.intToString(n[2] or 1), StoryEngine.intToString(UI.countHeld(p, n[1]))))
+        end
+        local givers = {}
+        for name, count in pairs(q.givers or {}) do givers[#givers + 1] = tostring(name) .. " " .. StoryEngine.intToString(count) end
+        table.sort(givers)
+        if #givers > 0 then line(getText("IGUI_StoryEngine_Op_Givers", table.concat(givers, ", "))) end
+    elseif q.kind == "horde" then
+        line(getText("IGUI_StoryEngine_Horde_Progress", StoryEngine.intToString(q.killed or 0),
+            StoryEngine.intToString(q.killsNeeded or 0), StoryEngine.intToString(q.size or 0)))
+    elseif q.kind == "defend" then
+        line(getText("IGUI_StoryEngine_Op_Progress", string.format("%.1f", (q.progress or 0) / 60),
+            StoryEngine.intToString(math.floor((q.needMin or 0) / 60))))
+        line(getText("IGUI_StoryEngine_Op_Waves", StoryEngine.intToString(q.waves or 0)))
+    end
+    if active then
+        line(getText("IGUI_StoryEngine_Quest_Deadline", StoryEngine.intToString(q.hoursLeft or 0)))
+    end
+    return table.concat(parts)
+end
+
 questDetailBase = function(q)
+    if q.op or q.saga then return opDetail(q) end
     if q.kind == "choice" then return choiceDetail(q) end
     if q.kind == "horde" then return hordeDetail(q) end
     if q.kind == "trade" then return tradeDetail(q) end
@@ -817,7 +944,7 @@ function StoryEngineQuestPanel:refresh()
     local active = selected ~= nil and ACTIVE[selected.state] == true
     local proposed = selected ~= nil and selected.state == "proposed"
     local located = selected ~= nil and selected.kind ~= "deliver" and selected.kind ~= "trade" and selected.kind ~= "extort"
-        and selected.kind ~= "choice"
+        and selected.kind ~= "choice" and selected.kind ~= "collect"
     self.mapButton:setVisible(located)
     self.mapButton:setEnable(active)
     local choosing = proposed and selected.kind == "choice"
@@ -845,11 +972,12 @@ function StoryEngineQuestPanel:refresh()
         end
     end
     local canSubmit = selected ~= nil and active
-        and (selected.kind == "fetch" or selected.kind == "deliver" or selected.kind == "trade" or selected.kind == "extort")
+        and (selected.kind == "fetch" or selected.kind == "deliver" or selected.kind == "trade" or selected.kind == "extort"
+            or selected.kind == "collect")
     self.submitButton:setVisible(canSubmit)
     if canSubmit then
-        self.submitButton:setTitle(getText(selected.kind == "trade" and "IGUI_StoryEngine_Trade_PayButton"
-            or "IGUI_StoryEngine_Quest_Submit"))
+        self.submitButton:setTitle(getText((selected.kind == "trade" and "IGUI_StoryEngine_Trade_PayButton")
+            or (selected.kind == "collect" and "IGUI_StoryEngine_Op_Send") or "IGUI_StoryEngine_Quest_Submit"))
     end
     if canSubmit then
         -- 부탁 퀘스트는 지도 버튼이 없으니 제출 버튼을 왼쪽으로

@@ -6,6 +6,11 @@
 --   deliver     : NPC 가 먼저 부탁한 물건(Needs.lua)을 무전으로 전달. 위치가 없다.
 --                 proposed(답변 대기) -> accepted | declined(거절/무응답) -> completed | failed
 --   trade       : 플레이어가 먼저 요청한 거래 (Trade.lua). 위치가 없다. 수락 후 대가를 내면 물건이 보급 퀘스트로 온다.
+--   collect     : 복구 작전의 모금 (Ops.lua). 위치 없음, 바로 accepted. 여러 사람이 무전으로 나눠 보낸다 (q.got)
+--   defend      : 복구 작전의 방어. 현장 반경 안에 누군가 있으면 시간이 쌓이고 (q.progress 분), 다 차면 완료
+--   visit       : 복구 작전의 마지막 방문. 현장 반경 안에 들어가면 완료
+--   작전 퀘스트(origin.op)는 신뢰도·NPC 반응·생활 상태·보상을 건너뛰고 Ops.onQuest 가 막 진행을 맡는다
+--   큰 사건 퀘스트(origin.saga, Saga.lua)도 같다 (Saga.onQuest)
 --   horde       : NPC 가 부탁한 좀비 무리 소탕 (C단계). proposed -> accepted 가 되면 건물 주변에 무리를 배치하고,
 --                 구역 안에서 죽은 좀비 수를 센다 (좀비 개별 태그는 청크가 내려가면 사라질 수 있어 쓰지 않는다).
 --                 배치한 수의 80% 를 처치하면 완료, 보상 보급은 그 자리 근처. 기한을 넘기면 실패.
@@ -117,9 +122,24 @@ local function itemName(fullType)
 end
 
 -- 건물 위치가 있는 퀘스트인가 (부탁·거래는 무전으로만 주고받아 위치가 없다)
-local NO_LOCATION = { deliver = true, trade = true, extort = true }
+local NO_LOCATION = { deliver = true, trade = true, extort = true, collect = true }
 function Quests.hasLocation(q)
     return not NO_LOCATION[q.kind]
+end
+
+-- 복구 작전(Ops.lua) 퀘스트인가
+function Quests.isOp(q)
+    return q ~= nil and q.origin ~= nil and q.origin.op ~= nil
+end
+
+-- 큰 사건(Saga.lua) 퀘스트인가
+function Quests.isSaga(q)
+    return q ~= nil and q.origin ~= nil and q.origin.saga ~= nil
+end
+
+-- 작전·큰 사건이 맡는 퀘스트 (신뢰도·반응·보상을 건너뛴다)
+function Quests.isManaged(q)
+    return Quests.isOp(q) or Quests.isSaga(q)
 end
 
 -- 아이템 목록 요약 ("권총, 9mm 탄약 상자 x2")
@@ -563,13 +583,22 @@ local function setState(q, state, now, entry, outcome)
     local targetPs = Store.data().players[q.target]
     if targetPs and (not entry or entry.ps ~= targetPs) then note(targetPs, kind, q, now, by) end
     local trustDelta = 0
-    if TRUST_STATES[state] then
+    local isOp = Quests.isManaged(q)
+    if Quests.isOp(q) and (state == "completed" or state == "failed") and StoryEngine.Ops then
+        local ok, err = pcall(StoryEngine.Ops.onQuest, q, state)
+        if not ok then log("ops quest error:", err) end
+    end
+    if Quests.isSaga(q) and (state == "completed" or state == "failed") and StoryEngine.Saga then
+        local ok, err = pcall(StoryEngine.Saga.onQuest, q, state)
+        if not ok then log("saga quest error:", err) end
+    end
+    if TRUST_STATES[state] and not isOp then
         local ok, err = pcall(StoryEngine.Trust.forQuest, q, outcome or state)
         if not ok then log("trust error:", err) else trustDelta = tonumber(err) or 0 end
         ok, err = pcall(Quests.react, q, outcome or state)
         if not ok then log("react error:", err) end
     end
-    if StoryEngine.Life and TRUST_STATES[state] then
+    if StoryEngine.Life and TRUST_STATES[state] and not isOp then
         local ok, err = pcall(StoryEngine.Life.onQuest, q, outcome or state, trustDelta)
         if not ok then log("life quest error:", err) end
     end
@@ -585,7 +614,7 @@ local function setState(q, state, now, entry, outcome)
         local ok, err = pcall(StoryEngine.Banter.onQuest, q, state)
         if not ok then log("banter quest error:", err) end
     end
-    if StoryEngine.Social and TRUST_STATES[state] then
+    if StoryEngine.Social and TRUST_STATES[state] and not isOp then
         local ok, err = pcall(StoryEngine.Social.onQuest, q, outcome or state)
         if not ok then log("social quest error:", err) end
     end
@@ -736,6 +765,123 @@ function Quests.create(kind, player, ps, tier, now, origin, itemsOverride)
     if not ok then log("announce failed:", err) end
     notifyTarget(q)
     return q
+end
+
+-- 복구 작전 퀘스트를 정해진 장소(site = { x, y, name })에 만든다 (Ops.lua). 플레이어 위치와 상관없다.
+-- kind: fetch(건물 보관함에 opts.item) | supply_drop(opts.items, 다 가져가면 완료) | horde(opts.size, 바로 accepted)
+--       | defend(opts.needMin, opts.radius) | visit(opts.radius)
+-- opts = { deadlineT, item, size, needMin, radius, building = 건물을 꼭 찾을지, search = 건물 찾는 반경 }
+function Quests.createSite(kind, ps, site, now, origin, opts)
+    opts = opts or {}
+    local found = nearestBuilding(site.x, site.y, site.x, site.y, opts.search or 60, {}, function(def)
+        return not opts.nonResidential or def:isResidential() ~= true
+    end)
+    if not found and opts.nonResidential then
+        found = nearestBuilding(site.x, site.y, site.x, site.y, opts.search or 60, {}, nil)
+    end
+    if not found and opts.building then return nil, "no_building" end
+    local d = Store.data()
+    d.questSeq = d.questSeq + 1
+    local q = {
+        id = "Q" .. StoryEngine.intToString(d.questSeq),
+        kind = kind, tier = opts.tier or 3, origin = origin,
+        radius = opts.radius or Quests.RADIUS, distance = 0,
+        target = ps and ps.key or nil, targetName = ps and ps.name or nil,
+        state = (kind == "fetch" or kind == "supply_drop") and "offered" or "accepted", createdT = now.t,
+        deadlineT = opts.deadlineT or (now.t + 3 * 24 * 60), spawned = false,
+    }
+    origin.day = Store.dayIndex(now.dayKey)
+    origin.date = now.date
+    origin.clock = now.clock
+    if found and (kind == "fetch" or kind == "horde" or kind == "supply_drop") then
+        local def, room = found.def, found.room
+        q.building = found.key
+        q.x, q.y, q.z = math.floor((room:getX() + room:getX2()) / 2), math.floor((room:getY() + room:getY2()) / 2), room:getZ()
+        q.cx, q.cy = math.floor((def:getX() + def:getX2()) / 2), math.floor((def:getY() + def:getY2()) / 2)
+        q.bx1, q.by1, q.bx2, q.by2 = def:getX(), def:getY(), def:getX2(), def:getY2()
+        q.place = Places.describe(q.cx, q.cy)
+        q.place.rooms = roomNames(def)
+        q.place.residential = def:isResidential() == true
+    else
+        -- 탑·설비처럼 건물이 아닌 곳: 그 자리 둘레를 구역으로
+        q.x, q.y, q.z, q.cx, q.cy = site.x, site.y, 0, site.x, site.y
+        q.bx1, q.by1, q.bx2, q.by2 = site.x - 4, site.y - 4, site.x + 4, site.y + 4
+        q.place = Places.describe(site.x, site.y)
+    end
+    q.place.inside = kind == "fetch" or kind == "supply_drop"
+    q.place.site = site.name
+    if kind == "fetch" then
+        q.items = { opts.item }
+    elseif kind == "supply_drop" then
+        q.items = opts.items or {}
+    elseif kind == "horde" then
+        q.size = math.max(1, math.floor(opts.size or Quests.HORDE_SIZE[3]))
+        q.killsNeeded, q.killed = math.ceil(q.size * Quests.HORDE_CLEAR), 0
+        q.radius = Quests.RADIUS
+    elseif kind == "defend" then
+        q.needMin, q.progress = opts.needMin or 360, 0
+        q.radius = opts.radius or 20
+        q.spawned = true
+        q.sx, q.sy = q.cx, q.cy
+    elseif kind == "visit" then
+        q.radius = opts.radius or 10
+        q.spawned = true
+        q.sx, q.sy = q.cx, q.cy
+    end
+    d.quests[q.id] = q
+    if not q.spawned then
+        Quests.waiting = Quests.waiting + 1
+        trySpawn(q)
+    end
+    log("op quest", q.id, kind, "at", q.cx, q.cy, tostring(q.place.town), site.name or "")
+    notifyTarget(q)
+    return q
+end
+
+-- 복구 작전 모금 (위치 없음). need = { { 아이템, 개수 } }
+function Quests.createCollect(ps, need, now, origin, deadlineT)
+    local d = Store.data()
+    d.questSeq = d.questSeq + 1
+    local items = {}
+    for i, n in ipairs(need) do items[i] = { n[1], n[2] } end
+    origin.day = Store.dayIndex(now.dayKey)
+    origin.date = now.date
+    origin.clock = now.clock
+    local q = {
+        id = "Q" .. StoryEngine.intToString(d.questSeq),
+        kind = "collect", tier = 3, need = items, got = {}, origin = origin,
+        target = ps and ps.key or nil, targetName = ps and ps.name or nil,
+        state = "accepted", createdT = now.t, deadlineT = deadlineT,
+    }
+    d.quests[q.id] = q
+    log("op quest", q.id, "collect", Quests.needText(q))
+    notifyTarget(q)
+    return q
+end
+
+-- 작전의 남은 퀘스트를 조용히 거둔다 (막 다시 시작·작전 끝). 놓은 물건은 정리한다
+function Quests.cancelOp(opId, now, field)
+    field = field or "op"
+    for _, q in pairs(all()) do
+        if q.origin and q.origin[field] == opId and Quests.isActive(q) then
+            q.state = "declined"
+            q.cancelled = true
+            q.endedT = now.t
+            q.history = q.history or {}
+            Store.push(q.history, { state = "cancelled", t = now.t }, 20)
+            if q.spawned and (q.kind == "fetch" or q.kind == "supply_drop") then q.cleanup = true end
+            log("quest", q.id, q.kind, "cancelled (" .. field .. ")")
+            notifyTarget(q)
+        end
+    end
+end
+
+-- 모금에 아직 필요한 수
+function Quests.collectLeft(q, fullType)
+    for _, n in ipairs(q.need or {}) do
+        if n[1] == fullType then return math.max(0, n[2] - ((q.got or {})[fullType] or 0)) end
+    end
+    return 0
 end
 
 -- NPC 의 부탁 제안. entry: { player, ps }. 성공하면 퀘스트
@@ -1180,7 +1326,7 @@ function Quests.completeHorde(q)
         if not bestD or d < bestD then best, bestD = p, d end
     end
     local ps = best and Store.player(best) or Store.data().players[q.target]
-    if best then
+    if best and not Quests.isManaged(q) then
         Quests.create("supply_drop", best, ps, 1, now,
             { source = "reward", faction = q.origin and q.origin.faction, rewardFor = q.id, rewardKind = q.kind }, StoryEngine.Loot.roll(q.tier, q.origin and q.origin.faction))
     end
@@ -1227,7 +1373,8 @@ local function takeNeed(player, need)
         for i = 0, list:size() - 1 do
             local it = list:get(i)
             local mod = it:getModData()
-            if not (mod and mod.storyQuest) then
+            local tagged = mod and mod.storyQuest and all()[mod.storyQuest]
+            if not (tagged and Quests.isActive(tagged)) then
                 if player:isEquipped(it) then equipped[#equipped + 1] = it else free[#free + 1] = it end
             end
         end
@@ -1246,8 +1393,60 @@ local function takeNeed(player, need)
 end
 
 -- 무전으로 제출 (회수 물건 / 부탁 물건). 성공하면 true, 보상 퀘스트 / 실패하면 false, 오류 코드
+-- 모금: 가진 것 중 필요한 만큼 꺼낸다 (장착하지 않은 것부터). 보낸 개수
+local function takeSome(player, q)
+    local inv = player:getInventory()
+    local gave = 0
+    for _, n in ipairs(q.need or {}) do
+        local left = Quests.collectLeft(q, n[1])
+        if left > 0 then
+            local list = inv:getAllTypeRecurse(n[1])
+            local free, equipped = {}, {}
+            for i = 0, list:size() - 1 do
+                local it = list:get(i)
+                local mod = it:getModData()
+                if not (mod and mod.storyQuest) then
+                    if player:isEquipped(it) then equipped[#equipped + 1] = it else free[#free + 1] = it end
+                end
+            end
+            local chosen = {}
+            for _, it in ipairs(free) do if #chosen < left then chosen[#chosen + 1] = it end end
+            for _, it in ipairs(equipped) do if #chosen < left then chosen[#chosen + 1] = it end end
+            for _, it in ipairs(chosen) do StoryEngine.Items.remove(it, player) end
+            q.got[n[1]] = (q.got[n[1]] or 0) + #chosen
+            gave = gave + #chosen
+        end
+    end
+    return gave
+end
+
+function Quests.contribute(player, q)
+    if q.state ~= "accepted" then return false, "not_active" end
+    if not Factions.canTalk(player) then return false, "no_radio" end
+    q.got = q.got or {}
+    local gave = takeSome(player, q)
+    if gave == 0 then return false, "missing_items" end
+    local ps = Store.player(player)
+    Quests.addHelper(q, ps)
+    q.givers = q.givers or {}
+    q.givers[ps.name] = (q.givers[ps.name] or 0) + gave
+    log("op collect", q.id, ps.name, gave)
+    local done = true
+    for _, n in ipairs(q.need) do
+        if Quests.collectLeft(q, n[1]) > 0 then done = false end
+    end
+    if done then
+        setState(q, "completed", Sensor.now(), { ps = ps })
+    else
+        if StoryEngine.Ops then pcall(StoryEngine.Ops.onContribution, q, ps, gave) end
+        notifyTarget(q)
+    end
+    return true
+end
+
 function Quests.submit(player, qid)
     local q = all()[qid]
+    if q and q.kind == "collect" then return Quests.contribute(player, q) end
     if not q or (q.kind ~= "fetch" and q.kind ~= "deliver" and q.kind ~= "extort") then return false, "no_quest" end
     if q.kind == "deliver" or q.kind == "extort" then
         if q.state ~= "accepted" then return false, "not_active" end
@@ -1272,12 +1471,37 @@ function Quests.submit(player, qid)
     local now = Sensor.now()
     local ps = Store.player(player)
     setState(q, "completed", now, { ps = ps })
+    if Quests.isManaged(q) then return true end
     local reward = Quests.create("supply_drop", player, ps, q.tier, now,
         { source = "reward", faction = q.origin and q.origin.faction, rewardFor = q.id, rewardKind = q.kind })
     return true, reward
 end
 
 -- ---------------------------------------------------------------- tracking
+
+Quests.DEFEND_STEP_MAX = 15       -- 샘플 사이가 이보다 길면(접속 끊김 등) 이만큼만 쌓는다
+
+-- 방어·방문: 현장 반경 안에 있는 사람 (10분 샘플)
+function Quests.trackSite(q, entries, now)
+    local here = {}
+    for _, e in ipairs(entries) do
+        if dist(e.s.x, e.s.y, q.cx, q.cy) <= q.radius then
+            here[#here + 1] = e
+            Quests.addHelper(q, e.ps)
+        end
+    end
+    q.present = #here
+    if q.kind == "visit" then
+        if #here > 0 then setState(q, "completed", now, here[1]) end
+        return
+    end
+    local step = math.min(Quests.DEFEND_STEP_MAX, math.max(0, now.t - (q.lastSiteT or now.t)))
+    q.lastSiteT = now.t
+    if #here > 0 then
+        q.progress = (q.progress or 0) + step
+        if q.progress >= q.needMin then setState(q, "completed", now, here[1]) end
+    end
+end
 
 function Quests.track(entries, now)
     local okHarm, errHarm = pcall(Quests.recordHarm, entries)
@@ -1308,7 +1532,8 @@ function Quests.track(entries, now)
                     setState(q, "entered", now, e)
                 end
             end
-            local left = q.kind ~= "horde" and atSpot(q, false) or nil
+            if q.kind == "defend" or q.kind == "visit" then Quests.trackSite(q, entries, now) end
+            local left = (q.kind ~= "horde" and q.kind ~= "defend" and q.kind ~= "visit") and atSpot(q, false) or nil
             if left == 0 and q.spawned and q.state ~= "retrieved" then
                 local best, bestD = nil, 40
                 for _, e in ipairs(entries) do
@@ -1365,6 +1590,21 @@ function Quests.listFor(psKey, now)
             end
             if q.kind == "horde" then
                 item.size, item.killed, item.killsNeeded = q.size, q.killed or 0, q.killsNeeded
+            end
+            if q.kind == "collect" then item.got, item.givers = q.got, q.givers end
+            if q.kind == "defend" then
+                item.progress, item.needMin, item.waves, item.present = q.progress or 0, q.needMin, q.waves or 0, q.present
+            end
+            if q.kind == "defend" or q.kind == "visit" then item.radius = q.radius end
+            item.cancelled = q.cancelled
+            if Quests.isOp(q) then
+                item.op = { kind = q.origin.opKind, act = q.origin.act, acts = q.origin.acts, retry = q.origin.retry }
+                item.site = q.place and q.place.site
+            end
+            if Quests.isSaga(q) then
+                item.saga = { kind = q.origin.sagaKind, stage = q.origin.stage, stages = q.origin.stages,
+                              stageId = q.origin.stageId, role = q.origin.role }
+                item.site = q.place and q.place.site
             end
             if q.kind == "choice" then
                 item.crisis, item.chosen, item.options = q.crisis, q.chosen, {}

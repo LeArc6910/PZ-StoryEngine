@@ -72,6 +72,18 @@ option StoryEngine.Letters
 	page = StoryEngine, translation = StoryEngine_Letters,
 }
 
+option StoryEngine.Operations
+{
+	type = boolean, default = true,
+	page = StoryEngine, translation = StoryEngine_Operations,
+}
+
+option StoryEngine.Sagas
+{
+	type = boolean, default = true,
+	page = StoryEngine, translation = StoryEngine_Sagas,
+}
+
 option StoryEngine.WorldChanges
 {
 	type = boolean, default = true,
@@ -102,7 +114,6 @@ option StoryEngine.ModItemsRatio
 	page = StoryEngine, translation = StoryEngine_ModItemsRatio,
 }
 
--- ---- tuning (Tuning.lua) ----
 
 option StoryEngine.Difficulty
 {

@@ -31,6 +31,9 @@ require "StoryEngine/World"
 require "StoryEngine/Letters"
 require "StoryEngine/Legacy"
 require "StoryEngine/Tuning"
+require "StoryEngine/Grid"
+require "StoryEngine/Ops"
+require "StoryEngine/Saga"
 StoryEngine.Tuning.safeApply()
 
 local Net = StoryEngine.Net
@@ -97,6 +100,7 @@ function Commands.hello(player, args)
     local ps = StoryEngine.Store.player(player)
     rememberLang(player, args.lang)
     reply(player, "status", { state = Bridge.state })
+    StoryEngine.Grid.sendTo(player)
 end
 
 -- 일지 목록. args.key 가 있으면 그 사람의 일지 (서버의 모든 플레이어 일지를 읽을 수 있다)
@@ -232,8 +236,44 @@ function Commands.debugWorld(player, args)
     local id = tostring(args.event or "")
     if not W.EVENTS[id] then return end
     local key = id .. "_debug_" .. StoryEngine.intToString(StoryEngine.Sensor.now().t)
+    if id == "power" or id == "water" then
+        -- 실제로도 끊는다 (2026-10-01). 아직 그 사건이 없었으면 진짜 키로 기록해 한 시간 뒤 자동 사건이 겹치지 않게
+        StoryEngine.Grid.cut(id, "debug")
+        if not W.isDone(id) then key = id end
+    end
     local ok = W.fire(id, key)
-    reply(player, "debugStatus", { text = "world " .. id .. (ok and " fired" or " failed") .. " | " .. W.statusText() })
+    reply(player, "debugStatus", { text = "world " .. id .. (ok and " fired" or " failed") .. " | " .. W.statusText()
+        .. " | " .. StoryEngine.Grid.statusText() })
+end
+
+-- 디버그: 전기·수도 복구 시험. args.kind = power | water | reset
+function Commands.debugGrid(player, args)
+    if not canUseDebug(player) then return end
+    local G = StoryEngine.Grid
+    local kind = tostring(args.kind or "")
+    if kind == "reset" then
+        G.reset(nil, "debug")
+    elseif kind == "power" or kind == "water" then
+        G.restore(kind, G.RESTORE_DAYS, "debug")
+    else
+        return
+    end
+    reply(player, "debugStatus", { text = G.statusText() .. " | " .. StoryEngine.World.statusText() })
+end
+
+-- 디버그: 복구 작전. args.action = start | next | fail | stop, args.kind = water | power
+function Commands.debugOp(player, args)
+    if not canUseDebug(player) then return end
+    local ok, why = StoryEngine.Ops.debug(tostring(args.action or ""), tostring(args.kind or ""))
+    reply(player, "debugStatus", { text = (ok and "" or ("op: " .. tostring(why) .. " | ")) .. StoryEngine.Ops.statusText()
+        .. " | " .. StoryEngine.Grid.statusText() })
+end
+
+-- 디버그: 큰 사건. args.action = start | next | stop, args.kind = crash | migration | epidemic | blackout
+function Commands.debugSaga(player, args)
+    if not canUseDebug(player) then return end
+    local ok, why = StoryEngine.Saga.debug(tostring(args.action or ""), tostring(args.kind or ""))
+    reply(player, "debugStatus", { text = (ok and "" or ("saga: " .. tostring(why) .. " | ")) .. StoryEngine.Saga.statusText() })
 end
 
 -- 저격이 끝났다 (쓰러뜨린 수)
@@ -510,7 +550,8 @@ function Commands.debugStatus(player, args)
         .. " | " .. StoryEngine.Social.debugStatus() .. " | " .. StoryEngine.Life.statusText()
         .. " | " .. StoryEngine.Fate.statusText() .. " | " .. StoryEngine.Projects.statusText()
         .. " | " .. StoryEngine.Bonds.statusText() .. " | " .. StoryEngine.Broadcast.statusText()
-        .. " | " .. StoryEngine.World.statusText() .. " | " .. StoryEngine.Letters.statusText() })
+        .. " | " .. StoryEngine.World.statusText() .. " | " .. StoryEngine.Letters.statusText()
+        .. " | " .. StoryEngine.Ops.statusText() .. " | " .. StoryEngine.Saga.statusText() })
 end
 
 local function onClientCommand(module, command, player, args)

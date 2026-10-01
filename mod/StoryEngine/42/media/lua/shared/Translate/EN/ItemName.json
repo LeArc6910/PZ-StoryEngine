@@ -2,5 +2,7 @@
     "StoryEngine.SealedDocuments": "Sealed Documents",
     "StoryEngine.SealedParcel": "Sealed Parcel",
     "StoryEngine.PhotoAlbum": "Someone's Photo Album",
-    "StoryEngine.Letter": "Handwritten Letter"
+    "StoryEngine.Letter": "Handwritten Letter",
+    "StoryEngine.WaterManual": "Waterworks Operating Manual",
+    "StoryEngine.GridSchematic": "County Grid Schematic"
 }

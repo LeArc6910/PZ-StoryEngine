@@ -51,5 +51,21 @@
     "ContextMenu_StoryEngine_World_day180": "Day 180",
     "ContextMenu_StoryEngine_ReadLetter": "Read letter",
     "ContextMenu_StoryEngine_Letter": "StoryEngine: gift drop with a letter from %1 now",
-    "ContextMenu_StoryEngine_LetterFarewell": "StoryEngine: farewell letter from %1 now"
+    "ContextMenu_StoryEngine_LetterFarewell": "StoryEngine: farewell letter from %1 now",
+    "ContextMenu_StoryEngine_Grid_power": "Restore power (60 days)",
+    "ContextMenu_StoryEngine_Grid_water": "Restore water (60 days)",
+    "ContextMenu_StoryEngine_Grid_reset": "Power and water back to normal",
+    "ContextMenu_StoryEngine_Op": "Repair operation (debug)",
+    "ContextMenu_StoryEngine_Op_start_water": "Start water operation",
+    "ContextMenu_StoryEngine_Op_start_power": "Start power operation",
+    "ContextMenu_StoryEngine_Op_next": "Finish this step (next)",
+    "ContextMenu_StoryEngine_Op_fail": "Fail this step",
+    "ContextMenu_StoryEngine_Op_stop": "Stop the operation",
+    "ContextMenu_StoryEngine_Saga": "Big event (debug)",
+    "ContextMenu_StoryEngine_Saga_start_crash": "Start helicopter crash",
+    "ContextMenu_StoryEngine_Saga_start_migration": "Start great migration",
+    "ContextMenu_StoryEngine_Saga_start_epidemic": "Start fever epidemic",
+    "ContextMenu_StoryEngine_Saga_start_blackout": "Start radio blackout",
+    "ContextMenu_StoryEngine_Saga_next": "Next stage",
+    "ContextMenu_StoryEngine_Saga_stop": "End it now"
 }

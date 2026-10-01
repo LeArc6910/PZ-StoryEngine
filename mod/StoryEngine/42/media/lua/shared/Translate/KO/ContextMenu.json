@@ -51,5 +51,21 @@
     "ContextMenu_StoryEngine_World_day180": "180일째",
     "ContextMenu_StoryEngine_ReadLetter": "편지 읽기",
     "ContextMenu_StoryEngine_Letter": "StoryEngine: %1의 편지가 든 선물 보급 (바로)",
-    "ContextMenu_StoryEngine_LetterFarewell": "StoryEngine: %1의 마지막 편지 (바로)"
+    "ContextMenu_StoryEngine_LetterFarewell": "StoryEngine: %1의 마지막 편지 (바로)",
+    "ContextMenu_StoryEngine_Grid_power": "전기 복구 (60일)",
+    "ContextMenu_StoryEngine_Grid_water": "수도 복구 (60일)",
+    "ContextMenu_StoryEngine_Grid_reset": "전기·수도 원래대로",
+    "ContextMenu_StoryEngine_Op": "복구 작전 (디버그)",
+    "ContextMenu_StoryEngine_Op_start_water": "수도 작전 시작",
+    "ContextMenu_StoryEngine_Op_start_power": "전력 작전 시작",
+    "ContextMenu_StoryEngine_Op_next": "이번 막 끝내기 (다음 막으로)",
+    "ContextMenu_StoryEngine_Op_fail": "이번 막 실패",
+    "ContextMenu_StoryEngine_Op_stop": "작전 중단",
+    "ContextMenu_StoryEngine_Saga": "큰 사건 (디버그)",
+    "ContextMenu_StoryEngine_Saga_start_crash": "군 헬기 추락 시작",
+    "ContextMenu_StoryEngine_Saga_start_migration": "대이동 시작",
+    "ContextMenu_StoryEngine_Saga_start_epidemic": "열병 유행 시작",
+    "ContextMenu_StoryEngine_Saga_start_blackout": "통신 두절 시작",
+    "ContextMenu_StoryEngine_Saga_next": "다음 단계로",
+    "ContextMenu_StoryEngine_Saga_stop": "지금 결말 내기"
 }
