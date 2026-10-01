@@ -293,6 +293,8 @@ end
 
 -- forceId: 이 위기를 고른다 (NpcEvents: 교회 습격 앞당김, 충돌). trigger = true 인 위기는 그렇게만 나온다
 function Social.startCrisis(now, forceId)
+    if not forceId and StoryEngine.Ops and StoryEngine.Ops.active() then return false, "operation" end
+    if not forceId and StoryEngine.Saga and StoryEngine.Saga.active() then return false, "saga" end
     local s = state()
     local pool = {}
     for _, c in ipairs(Stories.CRISES) do
@@ -591,6 +593,7 @@ end
 -- 공용 주파수 장면. said = { name, text } 이면 플레이어의 말에 반응한다.
 -- cut = 플레이어가 끼어들어 끊긴 대화의 주제 (AI 에게 알려 준다)
 function Social.scene(said, cut)
+    if StoryEngine.Saga and StoryEngine.Saga.radioDown("open") then return false end   -- 통신 두절 (Saga.lua)
     if Social.sceneBusy then
         if said then Social.sceneAgain = { said = said, cut = cut } end
         return false

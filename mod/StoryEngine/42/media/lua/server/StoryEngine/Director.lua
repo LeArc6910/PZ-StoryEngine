@@ -172,6 +172,9 @@ end
 -- 이미 하나 나갔으면 nil (예: 2 면 3일에 청했을 때 5일부터 다시). 세력마다 마지막 요청 뒤 ASK_GAP_DAYS 일이 지나면
 -- 하루 한 번 확률을 굴린다.
 function Director.openAskers(ctx)
+    -- 복구 작전 중에는 NPC 가 먼저 청하는 일(부탁·찾기·구조 신호·협박)을 쉰다 (Ops.lua)
+    if StoryEngine.Ops and StoryEngine.Ops.active() then return nil end
+    if StoryEngine.Saga and StoryEngine.Saga.active() then return nil end
     local st = state()
     if st.lastAskDay and Store.dayIndex(ctx.now.dayKey) - Store.dayIndex(st.lastAskDay) < Director.ASK_SERVER_GAP_DAYS then
         return nil

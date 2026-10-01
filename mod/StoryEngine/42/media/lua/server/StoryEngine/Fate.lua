@@ -166,6 +166,7 @@ end
 
 local function fateText(fid, kind, reason)
     if reason == "story" and Fate.DOOM[fid] then return Fate.DOOM[fid].text end
+    if reason == "fever" then return nameOf(fid) .. " died of the fever that swept the county." end
     return nameOf(fid) .. "'s people ran out of everything and left their place to find somewhere else. They are off the air."
 end
 

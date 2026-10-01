@@ -147,6 +147,8 @@ function Specialty.status(fid)
     local reason = nil
     if Factions.isGone(fid) then
         reason = "gone"
+    elseif StoryEngine.Saga and StoryEngine.Saga.specialtyBlocked(fid) then
+        reason = "ill"                                  -- 큰 사건 "열병 유행"에서 닥이 쓰러졌다
     elseif not Specialty.enabled() then
         reason = "off"
     elseif tier == 0 then
@@ -700,6 +702,50 @@ function Specialty.request(player, fid, args)
     end
     if not info.pending then Specialty.commit(fid, ps, st.tier, info) end
     return true, info
+end
+
+-- 복구 작전 중 NPC 가 스스로 돕는다 (Ops.lua, 2026-10-01). 대기 시간에 걸리지 않고 남기지도 않으며 자원도 쓰지 않는다.
+-- 구간은 신뢰도대로, 낮아도 1 (물·전기는 모두에게 필요하다). 무전은 머리 위에도. 반환: true, info | false, 이유
+function Specialty.assist(fid, player, args)
+    if not Factions.byId[fid] or Factions.isGone(fid) or not Specialty.enabled() then return false, "unavailable" end
+    if StoryEngine.Saga and StoryEngine.Saga.specialtyBlocked(fid) then return false, "ill" end
+    local handler = Specialty.HANDLERS[fid]
+    if not handler or not player or player:isDead() then return false, "no_specialty" end
+    local ps = Store.player(player)
+    local tier = math.max(1, Specialty.tier(Radio.channel(fid).trust))
+    local ok, info = handler(player, ps, fid, tier, args or {})
+    if not ok then
+        log("ops assist refused", fid, tostring(info))
+        return false, info
+    end
+    if not info.pending then
+        local now = Sensor.now()
+        Store.addNote(ps, { kind = info.note or ("specialty_" .. fid), faction = fid, clock = now.clock,
+                            count = info.count, item = info.item })
+        if info.topic then
+            Radio.react(fid, "event", info.topic .. " You are doing this to help with the repair operation the whole "
+                .. "county depends on. Keep it short and in character.",
+                { text = info.fallbackText or "On it.", lt = { key = "IGUI_StoryEngine_RadioSay_spec_" .. fid } }, ps,
+                { overhead = true })
+        end
+    end
+    log("ops assist", fid, "tier", tier, "for", ps.name)
+    return true, info
+end
+
+-- 작전 동안 케이시 정찰을 유지한다 (untilT 까지, 이미 있으면 늘리기만)
+function Specialty.opScout(player, untilT)
+    if Factions.isGone("casey") or not Specialty.enabled() then return false end
+    local key = Store.playerKey(player)
+    local s = state()
+    local sc = s.scout[key]
+    if sc then
+        sc.untilT = math.max(sc.untilT, untilT)
+    else
+        s.scout[key] = { untilT = untilT, tier = math.max(1, Specialty.tier(Radio.channel("casey").trust)),
+                         warned = {}, lastScanT = -1000 }
+    end
+    return true
 end
 
 Events.EveryOneMinute.Add(function()

@@ -120,6 +120,9 @@ local function apoDay()
     if ok and type(v) == "number" then since = v end
     return getGameTime():getWorldAgeHours() / 24 + (since - 1) * 30
 end
+World.apoDay = apoDay
+
+function World.isDone(key) return state().done[key] ~= nil end
 
 local function utilityOff(name)
     local day = sandboxDay(name)

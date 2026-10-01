@@ -284,6 +284,17 @@ Stories.TALKATIVE = { casey = 3, ray = 3, pike = 2, doc = 2, dewey = 2, rats = 1
 -- 여러 세력이 동시에 부탁하는 위기. 플레이어는 하나만 고른다.
 -- trigger = true: 무작위로는 나오지 않고 사건이 일어날 때만 (NpcEvents: clash)
 Stories.CRISES = {
+    -- 큰 사건 "군 헬기 추락"(Saga.lua)의 고비에서만. 추락 현장 상자에 서류·탄약·의약품이 함께 들어 있다
+    { id = "heli_crash", trigger = true,
+      situation = "A military helicopter came down in the county. Its cargo (sealed papers, ammunition and medical supplies) is in a crate at the wreck, and the dead are drawn to it.",
+      options = {
+          { faction = "guard", ask = "bring the sealed military papers from the wreck to the camp before anyone else reads them",
+            tier = 3, items = { { "StoryEngine.SealedDocuments", 1 } } },
+          { faction = "rats", ask = "bring him the ammunition from the wreck first; he promises to share",
+            tier = 3, items = { { "Base.556Box", 2 } } },
+          { faction = "doc", ask = "bring the medical supplies from the wreck, in case the crew or anyone hurt nearby survived",
+            tier = 3, items = { { "Base.Antibiotics", 1 }, { "Base.Bandage", 4 } }, spares = { "guard" } },
+      } },
     { id = "clash", trigger = true,
       situation = "Sergeant Whitaker's squad and Vic's crew traded fire near Coalfield. Both sides have wounded and both want the players on their side.",
       options = {

@@ -43,4 +43,24 @@ module StoryEngine
         Icon = PhotoAlbum,
         WorldStaticModel = PhotoAlbum,
     }
+
+    item WaterManual
+    {
+        DisplayCategory = Memento,
+        ItemType = base:normal,
+        Weight = 0.4,
+        Icon = Paperwork1,
+        StaticModel = Paperwork1,
+        WorldStaticModel = Paperwork1,
+    }
+
+    item GridSchematic
+    {
+        DisplayCategory = Memento,
+        ItemType = base:normal,
+        Weight = 0.3,
+        Icon = Paperwork1,
+        StaticModel = Paperwork1,
+        WorldStaticModel = Paperwork1,
+    }
 }

@@ -8,6 +8,7 @@ require "StoryEngine/MainWindow"
 require "StoryEngine/QuestMap"
 require "StoryEngine/UIUtil"
 require "StoryEngine/Factions"
+require "StoryEngine/GridSync"
 
 local Net = StoryEngine.Net
 local log = StoryEngine.log
@@ -450,6 +451,43 @@ function Client.handlers.debugSync(args)
     HaloTextHelper.addText(player, "StoryEngine diag: " .. StoryEngine.intToString(diffs) .. " diff (console.txt)")
 end
 
+-- 복구 작전 소식 (막 시작·다시·성공·실패)
+function Client.handlers.opNotice(args)
+    local player = getPlayer()
+    if not player then return end
+    local name = getText("IGUI_StoryEngine_Op_" .. tostring(args.kind))
+    local actName = getText("IGUI_StoryEngine_OpAct_" .. tostring(args.kind) .. "_" .. tostring(args.act))
+    local event = tostring(args.event)
+    local text = getText("IGUI_StoryEngine_Op_Notice_" .. event, name, StoryEngine.intToString(args.act or 1),
+        StoryEngine.intToString(args.acts or 5), actName)
+    if event == "failed" then HaloTextHelper.addBadText(player, text) else HaloTextHelper.addGoodText(player, text) end
+    Net.toServer(player, "questList", {})
+end
+
+-- 큰 사건 소식 (단계가 바뀜·끝남)
+function Client.handlers.sagaNotice(args)
+    local player = getPlayer()
+    if not player then return end
+    local name = getText("IGUI_StoryEngine_Saga_" .. tostring(args.kind))
+    local text
+    if args.event == "done" then
+        text = getText("IGUI_StoryEngine_Saga_Notice_done", name)
+    else
+        text = getText("IGUI_StoryEngine_Saga_Notice_stage", name, StoryEngine.intToString(args.stage or 1),
+            StoryEngine.intToString(args.stages or 3), getText("IGUI_StoryEngine_Saga_" .. tostring(args.kind) .. "_"
+            .. tostring(args.stageId)))
+    end
+    HaloTextHelper.addText(player, text)
+    Net.toServer(player, "questList", {})
+end
+
+-- 서버의 전기·수도 끊김 날짜 (복구 중이면 늘어난 값)
+function Client.handlers.gridSync(args)
+    if StoryEngine.GridSync.apply(args) then
+        log("grid sync power", tostring(args.power), "water", tostring(args.water))
+    end
+end
+
 function Client.handlers.debugDenied(args)
     local player = getPlayer()
     if player then HaloTextHelper.addBadText(player, getText("IGUI_StoryEngine_DebugDenied")) end
@@ -596,6 +634,33 @@ local function onFillWorldObjectContextMenu(playerNum, context, worldobjects, te
             local p = getSpecificPlayer(playerNum)
             if p then Net.toServer(p, "debugWorld", { event = ev }) end
         end)
+    end
+    for _, kind in ipairs({ "power", "water", "reset" }) do
+        wsub:addOption(getText("ContextMenu_StoryEngine_Grid_" .. kind), worldobjects, function()
+            local p = getSpecificPlayer(playerNum)
+            if p then Net.toServer(p, "debugGrid", { kind = kind }) end
+        end)
+    end
+    local sagaOption = context:addOption(getText("ContextMenu_StoryEngine_Saga"), worldobjects, nil)
+    local ssub = ISContextMenu:getNew(context)
+    context:addSubMenu(sagaOption, ssub)
+    for _, entry in ipairs({ { "start", "crash" }, { "start", "migration" }, { "start", "epidemic" }, { "start", "blackout" },
+                             { "next" }, { "stop" } }) do
+        ssub:addOption(getText("ContextMenu_StoryEngine_Saga_" .. entry[1] .. (entry[2] and ("_" .. entry[2]) or "")),
+            worldobjects, function()
+                local p = getSpecificPlayer(playerNum)
+                if p then Net.toServer(p, "debugSaga", { action = entry[1], kind = entry[2] }) end
+            end)
+    end
+    local opOption = context:addOption(getText("ContextMenu_StoryEngine_Op"), worldobjects, nil)
+    local osub = ISContextMenu:getNew(context)
+    context:addSubMenu(opOption, osub)
+    for _, entry in ipairs({ { "start", "water" }, { "start", "power" }, { "next" }, { "fail" }, { "stop" } }) do
+        osub:addOption(getText("ContextMenu_StoryEngine_Op_" .. entry[1] .. (entry[2] and ("_" .. entry[2]) or "")),
+            worldobjects, function()
+                local p = getSpecificPlayer(playerNum)
+                if p then Net.toServer(p, "debugOp", { action = entry[1], kind = entry[2] }) end
+            end)
     end
     context:addOption(getText("ContextMenu_StoryEngine_BroadcastRerun"), worldobjects, function(_, pn)
         local p = getSpecificPlayer(pn)

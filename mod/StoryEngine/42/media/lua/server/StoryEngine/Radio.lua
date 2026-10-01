@@ -144,8 +144,9 @@ end
 -- AI 가 먼저 거는 연락(mode 가 있는 것)은 실패해도 잡음을 남기지 않는다.
 -- event / request 는 채널이 바쁘면 대기열에 넣었다가 지금 답장이 끝나면 보낸다.
 function Radio.request(fid, lang, opts)
-    -- 죽었거나 떠난 NPC 는 말하지 않는다 (Fate.lua)
+    -- 죽었거나 떠난 NPC 는 말하지 않는다 (Fate.lua). 통신 두절(Saga.lua) 동안 막힌 NPC 도
     if Factions.isGone(fid) then return false end
+    if StoryEngine.Saga and StoryEngine.Saga.radioDown(fid) then return false end
     lang = lang or Radio.langFor(fid)
     local mode = opts and opts.mode or nil
     -- 플레이어 발언에 대한 답장에서만 거래를 다룬다 (B단계, Trade.lua)
@@ -402,6 +403,10 @@ function Radio.say(player, fid, text)
     Radio.channel(fid).lastPlayerT = now.t
     if Factions.isGone(fid) then
         push(fid, { from = "static", error = "gone", clock = now.clock, day = day })
+        return true
+    end
+    if StoryEngine.Saga and StoryEngine.Saga.radioDown(fid) then
+        push(fid, { from = "static", error = "blackout", clock = now.clock, day = day })
         return true
     end
     if fid == Radio.OPEN then

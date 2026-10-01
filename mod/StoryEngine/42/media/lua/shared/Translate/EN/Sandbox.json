@@ -120,5 +120,9 @@
     "Sandbox_StoryEngine_BroadcastHour": "Evening news hour",
     "Sandbox_StoryEngine_BroadcastHour_tooltip": "In-game hour when the radio evening news (105.4 MHz) airs (13-23).",
     "Sandbox_StoryEngine_BroadcastRerun": "Morning rerun",
-    "Sandbox_StoryEngine_BroadcastRerun_tooltip": "When on, the previous evening's news airs again between 07:00 and 11:59 the next day. Hearing it twice still goes into the journal once."
+    "Sandbox_StoryEngine_BroadcastRerun_tooltip": "When on, the previous evening's news airs again between 07:00 and 11:59 the next day. Hearing it twice still goes into the journal once.",
+    "Sandbox_StoryEngine_Operations": "Power and water repair operations",
+    "Sandbox_StoryEngine_Operations_tooltip": "Starting two weeks after the vanilla power or water shutoff, a daily roll (10 percent at first, 5 more each day) starts a 5-step repair operation across several towns (about 12-14 days).\nRecover papers, gather supplies, clear the dead around facilities, hold a facility, then a final visit. Sites are the real water towers, pylons and substations on the vanilla map.\nDuring an operation the contacts help without their specialty cooldowns. Success brings power or water back for 60 days. After a failure, or when it fails again after 60 days, the roll starts again two weeks later.",
+    "Sandbox_StoryEngine_Sagas": "Multi-day big events",
+    "Sandbox_StoryEngine_Sagas_tooltip": "From server day 25, one event every 14-21 days that grows over several days.\n- Helicopter crash: choose whether the Guard, Vic or June gets the cargo, then face the dead and looters drawn to it.\n- Great migration: a huge horde crosses the county past Ray's farm and the church. Gather barricade supplies.\n- Fever epidemic: contacts fall sick one by one and nurse June collapses. How much medicine is gathered decides who recovers or dies.\n- Radio blackout: the relay mast fails and only Casey can be heard. Clear the mast and gather parts.\nThe same event does not repeat within 60 days and never runs alongside a repair operation. Requests, threats and crises pause during an event."
 }
