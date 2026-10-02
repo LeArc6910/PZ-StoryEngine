@@ -17,7 +17,7 @@ Tuning.DEFAULTS = {
     TrustStart = 0, TrustGainMult = 1, TrustLossMult = 1, SuspiciousRequests = 3, Spillover = true,
     RequestGapDays = 4, RequestServerGapDays = 2, QuestTimeMult = 1, RewardMult = 1,
     StageMidDay = 31, StageLateDay = 91, PriceMult = 1, GiftChance = 35,
-    HuntSizeMult = 1, Extortion = true, StayHorde = true, StayHordeDays = 4, HeliGapDays = 5, RaidSizeMult = 1,
+    ZombieMult = 1, HuntSizeMult = 1, Extortion = true, StayHorde = true, StayHordeDays = 4, HeliGapDays = 5, RaidSizeMult = 1,
     LifeDrift = 5, LifeLossMult = 1, StarveDays = 3, NpcFateCause = 1,
     ProjectGoal = 1000, ProjectDonateCap = 100, DonateGapDays = 3,
     SpecialtyCooldownMult = 1, SpecialtyTrustOffset = 0, AutoSupportTrust = 70, AutoSupportDays = 7,
@@ -102,7 +102,7 @@ function Tuning.apply()
         BASE.huntSize = BASE.huntSize or copy(S.Hunt.SIZE_BY_STAGE)
         local m = Tuning.num("HuntSizeMult")
         local sizes = {}
-        for i, v in ipairs(BASE.huntSize) do sizes[i] = math.max(1, math.floor(v * m + 0.5)) end
+        for i, v in ipairs(BASE.huntSize) do sizes[i] = Tuning.zombies(v * m) end
         S.Hunt.SIZE_BY_STAGE = sizes
         S.Hunt.STAY_DAYS = math.max(1, Tuning.num("StayHordeDays"))
     end
@@ -147,6 +147,14 @@ function Tuning.apply()
     if S.Broadcast then S.Broadcast.HOUR = math.max(0, math.min(23, math.floor(Tuning.num("BroadcastHour")))) end
 end
 
+-- 모드가 만드는 좀비 무리 하나의 수: 모든 무리(소탕 퀘스트, 구조 신호 건물, 추적 무리, 작전·사건)에 ZombieMult 를 곱한다.
+-- 프리셋에는 없어 난이도와 상관없이 적용된다. 한 번에 너무 많이 만들지 않도록 ZOMBIE_CAP 에서 자른다.
+Tuning.ZOMBIE_CAP = 300
+function Tuning.zombies(n)
+    local m = tonumber(Tuning.get("ZombieMult")) or 1
+    return math.max(1, math.min(Tuning.ZOMBIE_CAP, math.floor((tonumber(n) or 0) * m + 0.5)))
+end
+
 -- AI 절약 모드: 혼잣말 최소 간격도 두 배 (Monologue)
 function Tuning.saverFactor()
     return Tuning.get("AISaver") == true and 2 or 1
@@ -155,7 +163,7 @@ end
 -- 지금 값 한 줄 (디버그 상태 줄)
 function Tuning.statusText()
     local names = { "Difficulty", "TrustGainMult", "TrustLossMult", "QuestTimeMult", "RewardMult", "PriceMult",
-                    "HuntSizeMult", "LifeLossMult", "ProjectGoal", "SpecialtyCooldownMult", "AISaver" }
+                    "ZombieMult", "HuntSizeMult", "LifeLossMult", "ProjectGoal", "SpecialtyCooldownMult", "AISaver" }
     local parts = {}
     for _, n in ipairs(names) do parts[#parts + 1] = n .. "=" .. tostring(Tuning.get(n)) end
     return "tuning " .. table.concat(parts, " ")

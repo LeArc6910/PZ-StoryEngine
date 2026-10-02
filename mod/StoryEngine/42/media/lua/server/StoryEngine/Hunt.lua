@@ -79,6 +79,8 @@ end
 
 -- 새 추적 무리. (x, y) 에서 출발해 player 를 쫓는다
 function Hunt.start(player, count, x, y, reason)
+    local cap = StoryEngine.Tuning and StoryEngine.Tuning.ZOMBIE_CAP or 300
+    count = math.max(1, math.min(cap, math.floor(count + 0.5)))
     local d = Store.data()
     local all = hunts()
     d.huntSeq = d.huntSeq + 1
