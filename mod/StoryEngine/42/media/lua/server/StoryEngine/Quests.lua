@@ -129,7 +129,7 @@ local function itemName(fullType)
 end
 
 -- 건물 위치가 있는 퀘스트인가 (부탁·거래는 무전으로만 주고받아 위치가 없다)
-local NO_LOCATION = { deliver = true, trade = true, extort = true, collect = true }
+local NO_LOCATION = { deliver = true, trade = true, extort = true, collect = true, market = true }
 function Quests.hasLocation(q)
     return not NO_LOCATION[q.kind]
 end
@@ -1140,6 +1140,18 @@ function Quests.reviseTrade(q, price, payCategory, now)
     notifyTarget(q)
 end
 
+-- 흥정 중에 물건을 바꾼다 (Trade.negotiate 가 신뢰도 한도·생활 자원을 검증한 뒤 부른다).
+-- 새 물건의 값이 새 기준값이 되어, 그 뒤 흥정 하한선도 새 값을 기준으로 한다. 답할 시간은 다시 센다.
+function Quests.swapTrade(q, category, tier, goods, price, payCategory, now)
+    q.oldGoods, q.oldPrice, q.oldPayCategory = q.goods, q.price, q.payCategory
+    q.category, q.tier, q.goods = category, tier, goods
+    q.price, q.basePrice, q.payCategory = price, price, payCategory
+    q.haggles = (q.haggles or 0) + 1
+    q.respondBy = now.t + Quests.RESPOND_MIN
+    log("trade swapped", q.id, listText(q.oldGoods), "->", listText(goods), "for", payCategory, price, "round", q.haggles)
+    notifyTarget(q)
+end
+
 -- NPC 가 흥정 중에 제안을 거둔다. 플레이어가 거절한 것이 아니므로 신뢰도·반응 없이 끝낸다.
 function Quests.withdrawTrade(q, now)
     q.state = "declined"
@@ -1149,6 +1161,63 @@ function Quests.withdrawTrade(q, now)
     Store.push(q.history, { state = "declined", t = now.t }, 20)
     log("trade withdrawn", q.id)
     notifyTarget(q)
+end
+
+-- 공용 주파수 거래: 여러 NPC 의 제안을 모은 퀘스트 (Trade.marketOffers 가 검증한 조건). 플레이어가 하나를 고른다.
+-- 고르지 않아도 신뢰도·반응은 없다 (플레이어가 청한 것을 보여 줄 뿐). 새 제안이 오면 예전 것은 조용히 닫는다.
+local function closeMarket(q, now, chosen, by)
+    q.state = chosen and "completed" or "declined"
+    q.chosen = chosen
+    q.endedT = now.t
+    q.history = q.history or {}
+    Store.push(q.history, { state = q.state, t = now.t, by = by }, 20)
+    log("market", q.id, chosen and ("chosen " .. chosen) or "closed", by or "")
+    notifyTarget(q)
+end
+
+function Quests.proposeMarket(ps, deals, now)
+    for _, old in pairs(all()) do
+        if old.kind == "market" and old.state == "proposed" then closeMarket(old, now) end
+    end
+    local d = Store.data()
+    d.questSeq = d.questSeq + 1
+    local top = 1
+    for _, o in ipairs(deals) do top = math.max(top, o.tier or 1) end
+    local q = {
+        id = "Q" .. StoryEngine.intToString(d.questSeq),
+        kind = "market", tier = top, options = deals, selling = deals[1] and deals[1].selling and deals[1].payCategory or nil,
+        origin = { source = "open", initiator = "player",
+                   day = Store.dayIndex(now.dayKey), date = now.date, clock = now.clock },
+        target = ps.key, targetName = ps.name,
+        state = "proposed", createdT = now.t, respondBy = now.t + Quests.RESPOND_MIN,
+    }
+    d.quests[q.id] = q
+    log("market proposed", q.id, #deals, "offers for", ps.name)
+    notifyTarget(q)
+    return q
+end
+
+-- 제안 하나를 고른다. 그 NPC 와의 거래가 바로 수락된 상태로 생긴다 (대가 고르기·배송은 보통 거래와 같다).
+function Quests.pickMarket(player, qid, index)
+    local q = all()[qid]
+    if not q or q.kind ~= "market" then return false, "no_quest" end
+    if q.state ~= "proposed" then return false, "not_proposed" end
+    local opt = q.options and q.options[math.floor(tonumber(index) or 0)]
+    if not opt then return false, "bad_option" end
+    local ps = Store.player(player)
+    if Quests.openFor(ps.key, "trade") then return false, "open_deal" end
+    if Factions.isGone(opt.faction) or Quests.openTrade(opt.faction) then return false, "seller_busy" end
+    local now = Sensor.now()
+    local trade = Quests.proposeTrade(ps, opt.faction, {
+        tier = opt.tier, category = opt.category, goods = opt.goods, payCategory = opt.payCategory, price = opt.price,
+    }, now)
+    trade.origin.source = "open"
+    closeMarket(q, now, opt.faction, ps.name)
+    q.tradeId = trade.id
+    -- 그 NPC 채널에도 조건을 남긴다 (1:1 거래 제안과 같은 줄)
+    StoryEngine.Radio.push(opt.faction, { from = "system", clock = now.clock, quest = trade.id,
+        offer = { goods = trade.goods, payCategory = trade.payCategory, price = trade.price } })
+    return Quests.respond(player, trade.id, true)
 end
 
 -- NPC 의 소탕 부탁. 위치를 먼저 정해 두고, 수락하면 무리를 배치한다.
@@ -1526,7 +1595,9 @@ function Quests.track(entries, now)
     end
 
     for _, q in pairs(all()) do
-        if q.state == "proposed" then
+        if q.state == "proposed" and q.kind == "market" then
+            if now.t > (q.respondBy or 0) then closeMarket(q, now) end
+        elseif q.state == "proposed" then
             if now.t > (q.respondBy or 0) then setState(q, "declined", now, nil, "ignored") end
         elseif Quests.isActive(q) and not Quests.hasLocation(q) then
             if now.t > q.deadlineT then setState(q, "failed", now, nil) end
@@ -1618,6 +1689,13 @@ function Quests.listFor(psKey, now)
                 item.crisis, item.chosen, item.options = q.crisis, q.chosen, {}
                 for i, o in ipairs(q.options or {}) do
                     item.options[i] = { faction = o.faction, tier = o.tier, need = o.items }
+                end
+            end
+            if q.kind == "market" then
+                item.chosen, item.offers, item.selling = q.chosen, {}, q.selling
+                for i, o in ipairs(q.options or {}) do
+                    item.offers[i] = { faction = o.faction, goods = o.goods, payCategory = o.payCategory,
+                                       price = o.price, tier = o.tier, bonus = o.bonus }
                 end
             end
             if q.origin and q.origin.story then item.story = q.origin.story.crisis and "crisis" or "story" end

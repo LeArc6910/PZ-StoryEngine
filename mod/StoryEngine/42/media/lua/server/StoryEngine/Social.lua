@@ -636,10 +636,22 @@ function Social.scene(said, cut)
     local players = {}
     for _, p in ipairs(Sensor.players()) do players[#players + 1] = Store.characterName(p) end
     local now = Sensor.now()
+    -- 플레이어가 말했으면 지금 거래할 수 있는 NPC 들(시장)을 함께 넘긴다. 물건을 청한 말이면 몇 명이 제안한다 (Trade.lua)
+    local speakerPs = said and said.key and Store.data().players[said.key] or nil
+    local speakerPlayer = nil
+    for _, p in ipairs(speakerPs and Sensor.players() or {}) do
+        if Store.playerKey(p) == said.key then speakerPlayer = p end
+    end
+    local market = nil
+    if speakerPs and StoryEngine.Trade then
+        local okM, m = pcall(StoryEngine.Trade.marketContext, speakerPs, speakerPlayer)
+        if okM and m then market = m else log("market context error:", m) end
+    end
     local payload = {
         lang = Radio.langFor(Social.OPEN), participants = parts, log = openLog(), players = players,
-        said = said, topic = (not said) and (queued or sceneTopic(ids)) or nil, interrupted = cut,
-        day = Store.dayIndex(now.dayKey), clock = now.clock,
+        said = said and { name = said.name, text = said.text } or nil,
+        topic = (not said) and (queued or sceneTopic(ids)) or nil, interrupted = cut,
+        day = Store.dayIndex(now.dayKey), clock = now.clock, market = market,
     }
     log("open scene", said and "reply" or "scheduled", table.concat(ids, ","))
     Bridge.request("radio_scene", payload, function(res)
@@ -653,6 +665,7 @@ function Social.scene(said, cut)
         end
         local valid = {}
         for _, fid in ipairs(ids) do valid[fid] = true end
+        for _, sl in ipairs(market and market.sellers or {}) do valid[sl.id] = true end
         local lines = res.ok and res.json and res.json.lines
         local queue = {}
         if type(lines) == "table" then
@@ -676,6 +689,24 @@ function Social.scene(said, cut)
                 or payload.topic,
         }
         releaseLine(s, Sensor.now())
+        -- 거래 제안: 게임 규칙으로 다시 만들고, 고를 수 있는 퀘스트와 채널 안내 줄을 남긴다
+        local offers = res.json.offers
+        if speakerPs and market and market.sellers and type(offers) == "table" and #offers > 0 then
+            local selling = res.json.selling ~= "none" and res.json.selling or nil
+            local okO, deals = pcall(StoryEngine.Trade.marketOffers, speakerPs, offers, selling, speakerPlayer)
+            if not okO then
+                log("market offers error:", deals)
+            elseif #deals > 0 then
+                local t = Sensor.now()
+                local q = StoryEngine.Quests.proposeMarket(speakerPs, deals, t)
+                local list = {}
+                for i, o in ipairs(deals) do
+                    list[i] = { faction = o.faction, goods = o.goods, payCategory = o.payCategory, price = o.price }
+                end
+                Radio.push(Social.OPEN, { from = "system", clock = t.clock, quest = q.id, market = list,
+                                          sell = q.selling or nil })
+            end
+        end
     end, { timeoutMs = 60000 })
     return true
 end
@@ -689,7 +720,7 @@ function Social.onOpenSay(ps, text)
         log("open scene interrupted,", #s.pending.lines, "lines dropped")
         s.pending = nil
     end
-    Social.scene({ name = ps.name, text = text }, cut)
+    Social.scene({ name = ps.name, text = text, key = ps.key }, cut)
 end
 
 -- ---------------------------------------------------------------- ticks

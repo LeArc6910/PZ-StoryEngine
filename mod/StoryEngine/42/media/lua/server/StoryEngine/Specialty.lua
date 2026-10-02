@@ -54,7 +54,8 @@ Specialty.SNIPE_MAX_KILLS = 100                        -- 요청 수를 모를 �
 Specialty.snipeCap = {}                                -- ps.key -> 이번 저격 요청 수 (메모리만)
 Specialty.SNIPE_RADIUS = 30
 Specialty.HEAL_WAIT_MS = 2 * 60 * 1000                 -- 치료 동작을 끝내야 하는 실시간
-Specialty.HEAL_COST = 10                               -- 닥 치료 의약품 (가장 심각한 상처 하나, 진료소 완성 시 절반)
+Specialty.HEAL_COST = 10                               -- 닥 치료 의약품 (가장 심각한 상처 하나)
+Specialty.HEAL_PARTS_CLINIC = 2                        -- 진료소 완성 시 치료하는 부위 수 (2026-10-02, 예전: 의약품 절반)
 Specialty.REPAIR = { { add = 30, max = 70 }, { add = 50, max = 85 }, { add = 100, max = 100 } }
 Specialty.ENGINE_SHARE = 0.5                           -- 엔진은 수리량의 절반 (게임에서도 고치기 힘든 부품, 2026-09-30)
 Specialty.REPAIR_DELAY = { 480, 600 }                  -- 듀이 도착 (2026-09-30: 1~2시간 -> 8~10시간)
@@ -271,17 +272,27 @@ local function woundsOf(player, tier)
     return out
 end
 
--- 치료. apply 가 아니면 고칠 수 있는 상처 수만 센다. apply 면 가장 심각한 하나를 고치고 1, 그 종류(영어)
-function Specialty.treat(player, tier, apply)
+-- 치료. apply 가 아니면 고칠 수 있는 상처 수만 센다. apply 면 서로 다른 부위 parts 곳(기본 1)에서 각각 가장 심각한
+-- 상처 하나씩을 고치고, 고친 수와 종류(영어, 쉼표로 이음)를 돌려준다
+function Specialty.treat(player, tier, apply, parts)
     local list = woundsOf(player, tier)
     if not apply then return #list end
-    local w = list[1]
-    if not w then return 0 end
-    local ok, err = pcall(w.action)
-    if not ok then log("treat error:", err) end
-    pcall(function() w.bp:setAdditionalPain(tier >= 3 and 0 or w.bp:getAdditionalPain() * 0.5) end)
-    pcall(syncBodyPart, w.bp, 0xFFFFFFFFFFF)
-    return 1, w.kind
+    parts = math.max(1, math.floor(parts or 1))
+    local done, kinds, used = 0, {}, {}
+    for _, w in ipairs(list) do
+        if done >= parts then break end
+        if not used[w.bp] then
+            used[w.bp] = true
+            local ok, err = pcall(w.action)
+            if not ok then log("treat error:", err) end
+            pcall(function() w.bp:setAdditionalPain(tier >= 3 and 0 or w.bp:getAdditionalPain() * 0.5) end)
+            pcall(syncBodyPart, w.bp, 0xFFFFFFFFFFF)
+            done = done + 1
+            kinds[#kinds + 1] = w.kind
+        end
+    end
+    if done == 0 then return 0 end
+    return done, table.concat(kinds, ", ")
 end
 
 local function heal(player, ps, fid, tier)
@@ -300,14 +311,17 @@ function Specialty.healDone(player)
     if not p or StoryEngine.nowMs() - p.ms > Specialty.HEAL_WAIT_MS then return false, "expired" end
     local st = Specialty.status(p.fid)
     if st.reason then return false, st.reason end
-    local n, kind = Specialty.treat(player, p.tier, true)
+    -- 진료소 확장: 서로 다른 두 부위를 치료한다
+    local parts = projectDone("doc") and Specialty.HEAL_PARTS_CLINIC or 1
+    local n, kind = Specialty.treat(player, p.tier, true, parts)
     if n == 0 then return false, "no_wounds" end
-    local cost = Specialty.HEAL_COST
-    if projectDone("doc") then cost = math.floor(cost / 2) end                    -- 진료소 확장: 의약품 절반
+    local what = n > 1 and ("their worst injuries on " .. StoryEngine.intToString(n) .. " different parts of the body")
+        or "their worst injury"
     Specialty.commit(p.fid, ps, p.tier, {
-        count = n, cost = cost,
-        topic = "You just talked " .. tostring(ps.name) .. " through treating their worst injury over the radio ("
-            .. tostring(kind) .. "). Only that one is taken care of. Tell them how to look after it now, like a nurse would.",
+        count = n, cost = Specialty.HEAL_COST,
+        topic = "You just talked " .. tostring(ps.name) .. " through treating " .. what .. " over the radio ("
+            .. tostring(kind) .. "). Only " .. (n > 1 and "those are" or "that one is")
+            .. " taken care of. Tell them how to look after it now, like a nurse would.",
     })
     return true, n
 end

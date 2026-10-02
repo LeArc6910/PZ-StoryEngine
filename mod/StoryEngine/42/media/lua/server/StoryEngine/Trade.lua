@@ -274,7 +274,8 @@ function Trade.haggleFloor(fid, trust, base)
 end
 
 -- 답을 기다리는 거래 제안에 대해 흥정할 때 AI 에 넘기는 조건
-local function haggleContext(fid, q, trust)
+-- 흥정 중에도 물건을 바꿔 줄 수 있으므로(Trade.negotiate 의 교체), 지금 줄 수 있는 품목·등급(goods)을 함께 넘긴다.
+local function haggleContext(fid, q, trust, offer)
     local rules = Trade.FACTIONS[fid]
     local base = q.basePrice or q.price
     local haggles = q.haggles or 0
@@ -284,6 +285,8 @@ local function haggleContext(fid, q, trust)
         floor = Trade.haggleFloor(fid, trust, base),
         haggles = haggles, haggleLeft = math.max(0, Trade.MAX_HAGGLES - haggles),
         wants = rules.wants,
+        goods = offer and offer.allowed and offer.goods or nil,
+        catalog = offer and offer.catalog or nil,
     }
 end
 
@@ -294,10 +297,17 @@ function Trade.context(fid, ps)
     local trust = Radio.channel(fid).trust
     -- 거래는 모두가 함께 보는 퀘스트라 세력당 하나씩. 답을 기다리는 제안이면 누구든 흥정할 수 있다.
     local open = Quests.openTrade(fid)
-    if open and open.state == "proposed" then return haggleContext(fid, open, trust) end
+    if open and open.state == "proposed" then return haggleContext(fid, open, trust, Trade.offerContext(fid, trust)) end
     if open or (ps and Quests.openFor(ps.key, "trade")) then
         return { allowed = false, reason = "open_deal", trust = trust }
     end
+    return Trade.offerContext(fid, trust)
+end
+
+-- 신뢰도·생활 자원으로 정해지는 지금 줄 수 있는 물건과 값 (열린 거래와 상관없이). 새 제안과 흥정 중 물건 교체가 함께 쓴다.
+function Trade.offerContext(fid, trust)
+    local rules = Trade.FACTIONS[fid]
+    if not rules then return { allowed = false, reason = "no_trader" } end
     local limit = limitFor(trust)
     if limit.maxTier == 0 then return { allowed = false, reason = "low_trust", trust = trust, need = minTradeTrust() } end
 
@@ -419,34 +429,189 @@ function Trade.fromReply(fid, ps, trade)
 end
 
 -- 대가 제출. itemIds 는 클라이언트가 고른 아이템 ID 목록. 성공하면 true, 배송 퀘스트 / 실패하면 false, 오류 코드
--- 흥정 결과를 반영한다. trade = AI 의 { action = "counter" | "withdraw", price, pay_category }
--- 돌려주는 값: q, "counter" | "withdraw" (바뀐 것이 없으면 nil)
+-- 흥정 결과를 반영한다. trade = AI 의 { action = "counter" | "withdraw" | "none", category, tier, price, pay_category }
+-- counter 에 지금 거래와 다른 category·tier 가 있으면 물건을 바꾼다(교체): 새 물건을 굴리고 값을 다시 매긴다.
+-- 돌려주는 값: q, "counter" | "swap" | "withdraw" / 바뀐 것이 없으면 nil, 이유("same" | "no_rounds" | "blocked" | "no_deal"), 막힘 정보
 function Trade.negotiate(fid, ps, trade)
-    if type(trade) ~= "table" or not ps then return nil end
     local q = Quests.openTrade(fid)
-    if not q or q.state ~= "proposed" then return nil end
+    if not q or q.state ~= "proposed" or not ps then return nil, "no_deal" end
+    if type(trade) ~= "table" then return nil, "same" end
     local now = Sensor.now()
     if trade.action == "withdraw" then
         Quests.withdrawTrade(q, now)
         return q, "withdraw"
     end
-    if trade.action ~= "counter" then return nil end
+    if trade.action ~= "counter" then return nil, "same" end
     if (q.haggles or 0) >= Trade.MAX_HAGGLES then
         log("trade haggle ignored: no rounds left", q.id)
-        return nil
+        return nil, "no_rounds"
     end
+    local trust = Radio.channel(fid).trust
+    local rules = Trade.FACTIONS[fid] or {}
+    local pay = q.payCategory
+    for _, w in ipairs(rules.wants or {}) do
+        if w == trade.pay_category then pay = w end
+    end
+
+    local category = trade.category
+    local tier = math.floor(tonumber(trade.tier) or 0)
+    local swap = type(category) == "string" and category ~= "" and category ~= "none"
+        and (category ~= q.category or (tier > 0 and tier ~= q.tier))
+    if swap then
+        if tier <= 0 then tier = q.tier end
+        tier = math.max(1, math.min(5, tier))
+        local ctx = Trade.offerContext(fid, trust)
+        local maxForCat = nil
+        for _, g in ipairs(ctx.allowed and ctx.goods or {}) do
+            if g.category == category then maxForCat = g.maxTier end
+        end
+        if not maxForCat or tier > maxForCat then
+            log("trade swap blocked:", q.id, tostring(category), tier, "max", tostring(maxForCat))
+            return nil, "blocked", Trade.blocked(fid, category, tier)
+        end
+        local goods = Trade.roll(category, tier, fid)
+        if not goods then return nil, "same" end
+        local price = math.ceil(Value.sum(goods) * priceMult(ctx, tier) * ((ctx.catMult or {})[category] or 1))
+        Quests.swapTrade(q, category, tier, goods, math.max(1, price), pay, now)
+        return q, "swap"
+    end
+
     local base = q.basePrice or q.price
-    local floor = Trade.haggleFloor(fid, Radio.channel(fid).trust, base)
+    local floor = Trade.haggleFloor(fid, trust, base)
     local price = math.floor(tonumber(trade.price) or 0)
     if price <= 0 then price = q.price end
     price = math.max(floor, math.min(base, price))
-    local pay = q.payCategory
-    for _, w in ipairs((Trade.FACTIONS[fid] or {}).wants or {}) do
-        if w == trade.pay_category then pay = w end
-    end
-    if price == q.price and pay == q.payCategory then return nil end
+    if price == q.price and pay == q.payCategory then return nil, "same" end
     Quests.reviseTrade(q, price, pay, now)
     return q, "counter"
+end
+
+-- ---------------------------------------------------------------- 공용 주파수 거래 (여러 NPC 의 제안 중 고르기)
+-- 플레이어가 공용 주파수에서 물건을 청하면 지금 거래할 수 있는 NPC 들(sellers)을 AI 에 넘기고, AI 가 고른 최대
+-- MARKET_MAX 명의 제안을 게임이 1:1 거래와 같은 규칙(신뢰도 한도, 생활 자원, 가격)으로 다시 만든다.
+-- 플레이어는 퀘스트 탭에서 하나를 고르고(Quests.pickMarket), 고른 NPC 와의 거래가 바로 수락된 상태로 생긴다.
+Trade.MARKET_MAX = 3
+
+-- 판매 시장 (2026-10-02): 플레이어가 가진 물건을 내놓으면, 그 품목을 대가로 받는 NPC 들이 자기 물건을 제안한다.
+-- 그 품목의 생활 자원이 모자란 NPC 일수록 후하게 쳐 준다 (가격 / SELL_BONUS). 플레이어가 낼 수 있는 양을 넘는 제안은
+-- 등급을 낮추고, 1등급도 못 내면 버린다.
+Trade.SELL_BONUS = { { below = 20, mult = 1.5 }, { below = 40, mult = 1.3 } }
+
+local function sellBonus(fid, category)
+    local Life = StoryEngine.Life
+    if not Life then return 1 end
+    local level = Life.get(fid, Value.RESOURCE_OF[category] or "safety")
+    for _, row in ipairs(Trade.SELL_BONUS) do
+        if level < row.below then return row.mult end
+    end
+    return 1
+end
+
+-- 플레이어가 대가로 낼 수 있는 물건의 품목별 가치 합 (채집·벌목 재료와 퀘스트 물건은 빠진다, Value.payable)
+function Trade.stockOf(player)
+    local out = {}
+    if not player then return out end
+    for _, cat in ipairs(Value.CATEGORIES) do
+        local total = 0
+        for _, item in ipairs(Value.payableItems(player, cat)) do total = total + Value.of(item:getFullType()) end
+        if total >= 1 then out[cat] = math.floor(total) end
+    end
+    return out
+end
+
+-- 지금 공용 주파수에서 제안할 수 있는 NPC 들. 플레이어에게 진행 중인 거래가 있으면 시장은 닫힌다.
+-- player 가 있으면 가진 물건(stock)과 NPC 마다 모자란 품목(short)도 넘겨 판매 제안에 쓴다.
+function Trade.marketContext(ps, player)
+    if ps and Quests.openFor(ps.key, "trade") then return { closed = "open_deal" } end
+    local sellers = {}
+    for _, f in ipairs(Factions.list) do
+        if Trade.FACTIONS[f.id] and not Factions.isGone(f.id) and not Quests.openTrade(f.id) then
+            local trust = Radio.channel(f.id).trust
+            local ctx = Trade.offerContext(f.id, trust)
+            if ctx.allowed then
+                local short = {}
+                for _, w in ipairs(ctx.wants or {}) do
+                    if sellBonus(f.id, w) > 1 then short[#short + 1] = w end
+                end
+                sellers[#sellers + 1] = { id = f.id, trust = trust, goods = ctx.goods, wants = ctx.wants,
+                                          short = #short > 0 and short or nil }
+            end
+        end
+    end
+    if #sellers == 0 then return { closed = "no_sellers" } end
+    return { sellers = sellers, max = Trade.MARKET_MAX, stock = player and Trade.stockOf(player) or nil }
+end
+
+-- AI 의 offers = { { faction, category, tier, pay_category } } 를 검증해 실제 거래 조건으로 만든다.
+-- 한도를 넘거나 같은 NPC 가 두 번 낸 제안은 버린다. 제안한 NPC 마다 요청 횟수를 센다(너무 잦으면 의심).
+-- selling = 플레이어가 내놓은 품목 (판매): 대가는 그 품목으로 고정, 그것을 받는 NPC 만, 모자란 NPC 는 후하게,
+-- 플레이어가 가진 가치(player 의 stock) 안에서만. 판매는 요청 횟수를 세지 않는다.
+function Trade.marketOffers(ps, offers, selling, player)
+    local out, seen = {}, {}
+    if not ps or type(offers) ~= "table" or Quests.openFor(ps.key, "trade") then return out end
+    local sellCat = nil
+    for _, c in ipairs(Value.CATEGORIES) do
+        if c == selling then sellCat = c end
+    end
+    local have = sellCat and (Trade.stockOf(player)[sellCat] or 0) or nil
+    if sellCat and have < 1 then
+        log("market sell dropped: nothing to sell in", sellCat)
+        return out
+    end
+    for _, o in ipairs(offers) do
+        local fid = type(o) == "table" and o.faction or nil
+        if #out < Trade.MARKET_MAX and type(fid) == "string" and Trade.FACTIONS[fid] and not seen[fid]
+            and not Factions.isGone(fid) and not Quests.openTrade(fid) then
+            local ctx = Trade.offerContext(fid, Radio.channel(fid).trust)
+            local maxForCat = nil
+            for _, g in ipairs(ctx.allowed and ctx.goods or {}) do
+                if g.category == o.category then maxForCat = g.maxTier end
+            end
+            local tier = math.max(1, math.min(5, math.floor(tonumber(o.tier) or 1)))
+            local accepts = not sellCat
+            for _, w in ipairs(ctx.wants or {}) do
+                if w == sellCat then accepts = true end
+            end
+            if not maxForCat then
+                log("market offer dropped:", fid, tostring(o.category), "not offered")
+            elseif not accepts then
+                log("market offer dropped:", fid, "does not take", tostring(sellCat))
+            else
+                tier = math.min(tier, maxForCat)
+                local pay = ctx.wants[1]
+                for _, w in ipairs(ctx.wants) do
+                    if w == o.pay_category then pay = w end
+                end
+                if sellCat then pay = sellCat end
+                local bonus = sellCat and sellBonus(fid, sellCat) or 1
+                local goods, price
+                -- 판매: 플레이어가 가진 만큼만. 넘으면 등급을 하나씩 낮춰 다시 굴린다
+                local lastPrice = nil
+                while tier >= 1 do
+                    goods = Trade.roll(o.category, tier, fid)
+                    price = goods and math.max(1, math.ceil(Value.sum(goods) * priceMult(ctx, tier)
+                        * ((ctx.catMult or {})[o.category] or 1) / bonus)) or nil
+                    lastPrice = price or lastPrice
+                    if not sellCat or (price and price <= have) then break end
+                    tier = tier - 1
+                    goods = nil
+                end
+                if goods and #goods > 0 then
+                    seen[fid] = true
+                    out[#out + 1] = { faction = fid, category = o.category, tier = tier, goods = goods,
+                                      payCategory = pay, price = price, selling = sellCat and true or nil,
+                                      bonus = bonus > 1 and bonus or nil }
+                    if not sellCat then
+                        local okR, errR = pcall(Trade.recordRequest, fid, ps)
+                        if not okR then log("trade request count error:", errR) end
+                    end
+                elseif sellCat then
+                    log("market sell offer dropped:", fid, "player has", have, sellCat, "cheapest", tostring(lastPrice))
+                end
+            end
+        end
+    end
+    return out
 end
 
 function Trade.pay(player, qid, itemIds)

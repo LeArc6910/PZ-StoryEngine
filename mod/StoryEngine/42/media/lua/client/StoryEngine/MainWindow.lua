@@ -324,6 +324,21 @@ local function messageLine(fid, m)
         return " <RGB:1,0.85,0.45> " .. UI.escape(clock .. getText("IGUI_StoryEngine_Trade_RevisedLine",
             catName(r.payCategory), StoryEngine.intToString(r.price or 0), catName(r.oldPayCategory or r.payCategory),
             StoryEngine.intToString(r.oldPrice or 0))) .. " <LINE> "
+    elseif m.from == "system" and m.market then
+        local names = {}
+        for _, o in ipairs(m.market) do names[#names + 1] = Factions.name(o.faction) end
+        return " <RGB:1,0.85,0.45> " .. UI.escape(clock .. getText(m.sell and "IGUI_StoryEngine_Market_LineSell"
+            or "IGUI_StoryEngine_Market_Line", StoryEngine.intToString(#m.market), table.concat(names, ", "))) .. " <LINE> "
+    elseif m.from == "system" and m.swapped then
+        local r = m.swapped
+        return " <RGB:1,0.85,0.45> " .. UI.escape(clock .. getText("IGUI_StoryEngine_Trade_SwappedLine",
+            UI.itemList(r.goods), catName(r.payCategory), StoryEngine.intToString(r.price or 0),
+            UI.itemList(r.oldGoods or {}))) .. " <LINE> "
+    elseif m.from == "system" and m.unchanged then
+        local r = m.unchanged
+        local key = r.noRounds and "IGUI_StoryEngine_Trade_UnchangedNoRounds" or "IGUI_StoryEngine_Trade_UnchangedLine"
+        return " <RGB:0.7,0.7,0.65> " .. UI.escape(clock .. getText(key,
+            UI.itemList(r.goods or {}), catName(r.payCategory), StoryEngine.intToString(r.price or 0))) .. " <LINE> "
     elseif m.from == "system" and m.withdrawn then
         return " <RGB:0.95,0.45,0.4> " .. UI.escape(clock .. getText("IGUI_StoryEngine_Trade_WithdrawnLine")) .. " <LINE> "
     elseif m.from == "system" and m.fate then
@@ -519,6 +534,10 @@ local function questTitle(q)
         if q.town and q.kind ~= "collect" then title = title .. " - " .. UI.townName(q.town) end
         return title
     end
+    if q.kind == "market" then
+        return getText(q.selling and "IGUI_StoryEngine_QTitle_market_sell" or "IGUI_StoryEngine_QTitle_market",
+            StoryEngine.intToString(#(q.offers or {})))
+    end
     if q.kind == "choice" then
         return getText("IGUI_StoryEngine_QTitle_choice", getText("IGUI_StoryEngine_Crisis_" .. tostring(q.crisis) .. "_title"))
     end
@@ -559,6 +578,7 @@ end
 local function questSub(q)
     local fid = q.origin and q.origin.faction
     local who = fid and Factions.byId[fid] and Factions.name(fid) or getText("IGUI_StoryEngine_Quest_Unknown")
+    if q.kind == "market" then who = getText("IGUI_StoryEngine_Market_Channel") end
     local sub = who .. "  -  " .. tostring(q.origin and q.origin.date or "")
     if q.kind == "choice" or q.story == "crisis" then
         sub = getText("IGUI_StoryEngine_Quest_CrisisTag") .. " " .. sub
@@ -756,6 +776,35 @@ local function choiceDetail(q)
     return table.concat(parts)
 end
 
+-- 공용 주파수 거래: 여러 NPC 의 제안 중 하나를 고른다
+local function marketDetail(q)
+    local parts = {}
+    local line = function(text) parts[#parts + 1] = " <LINE> " .. UI.escape(text) end
+    parts[#parts + 1] = " <H2> " .. UI.escape(questTitle(q))
+    if q.state == "completed" and q.chosen then
+        parts[#parts + 1] = " <LINE> <RGB:0.45,0.9,0.45> " .. UI.escape(getText("IGUI_StoryEngine_Market_Chosen", Factions.name(q.chosen)))
+    elseif q.state == "declined" then
+        parts[#parts + 1] = " <LINE> <RGB:0.6,0.6,0.6> " .. UI.escape(getText("IGUI_StoryEngine_Market_Closed"))
+    end
+    if q.state == "proposed" then
+        parts[#parts + 1] = " <LINE> <TEXT> " .. UI.escape(getText(q.selling and "IGUI_StoryEngine_Market_GoalSell"
+            or "IGUI_StoryEngine_Market_Goal"))
+    end
+    parts[#parts + 1] = " <LINE> "
+    for _, o in ipairs(q.offers or {}) do
+        local mark = (q.chosen == o.faction) and "> " or "- "
+        parts[#parts + 1] = " <LINE> <RGB:0.95,0.75,0.4> " .. UI.escape(mark .. Factions.name(o.faction))
+        line(getText("IGUI_StoryEngine_Market_Offer", UI.itemList(o.goods or {}), catName(o.payCategory),
+            StoryEngine.intToString(o.price or 0)))
+        if o.bonus then line(getText("IGUI_StoryEngine_Market_Bonus")) end
+    end
+    if q.state == "proposed" then
+        parts[#parts + 1] = " <LINE> "
+        line(getText("IGUI_StoryEngine_Quest_RespondBy", StoryEngine.intToString(q.respondHours or 0)))
+    end
+    return table.concat(parts)
+end
+
 -- 복구 작전·큰 사건 퀘스트 (회수·보급·모금·소탕·방어·방문)
 local function opDetail(q)
     local parts = {}
@@ -853,6 +902,7 @@ end
 questDetailBase = function(q)
     if q.op or q.saga then return opDetail(q) end
     if q.kind == "choice" then return choiceDetail(q) end
+    if q.kind == "market" then return marketDetail(q) end
     if q.kind == "horde" then return hordeDetail(q) end
     if q.kind == "trade" then return tradeDetail(q) end
     if q.kind == "deliver" or q.kind == "extort" then return deliverDetail(q) end
@@ -944,21 +994,24 @@ function StoryEngineQuestPanel:refresh()
     local active = selected ~= nil and ACTIVE[selected.state] == true
     local proposed = selected ~= nil and selected.state == "proposed"
     local located = selected ~= nil and selected.kind ~= "deliver" and selected.kind ~= "trade" and selected.kind ~= "extort"
-        and selected.kind ~= "choice" and selected.kind ~= "collect"
+        and selected.kind ~= "choice" and selected.kind ~= "collect" and selected.kind ~= "market"
     self.mapButton:setVisible(located)
     self.mapButton:setEnable(active)
-    local choosing = proposed and selected.kind == "choice"
+    -- 위기 선택지와 공용 주파수 거래 제안은 같은 버튼 줄을 쓴다
+    local market = selected ~= nil and selected.kind == "market"
+    local options = selected and (market and selected.offers or selected.options) or nil
+    local choosing = proposed and (selected.kind == "choice" or market)
     self.acceptButton:setVisible(proposed and not choosing)
     self.declineButton:setVisible(proposed and not choosing)
     -- 선택지 버튼: 오른쪽 칸 너비를 나눠 쓰고, 이름은 괄호(거점) 없이 짧게, 전체 이름은 툴팁으로
     local count = 0
     for i = 1, #(self.choiceButtons or {}) do
-        if choosing and selected.options and selected.options[i] then count = i end
+        if choosing and options and options[i] then count = i end
     end
     local left = self.detail:getX()
     local bw = count > 0 and math.floor((self.width - left - PAD - PAD * (count - 1)) / count) or 0
     for i, b in ipairs(self.choiceButtons or {}) do
-        local opt = choosing and selected.options and selected.options[i] or nil
+        local opt = choosing and options and options[i] or nil
         b:setVisible(opt ~= nil)
         if opt then
             local full = Factions.name(opt.faction)
@@ -967,8 +1020,9 @@ function StoryEngineQuestPanel:refresh()
             if cut and cut > 1 then short = string.sub(full, 1, cut - 1) end
             b:setX(left + (i - 1) * (bw + PAD))
             b:setWidth(bw)
-            b:setTitle(fit(getText("IGUI_StoryEngine_Crisis_Choose", short), bw - 12))
-            b.tooltip = getText("IGUI_StoryEngine_Crisis_Choose", full)
+            local key = market and "IGUI_StoryEngine_Market_Choose" or "IGUI_StoryEngine_Crisis_Choose"
+            b:setTitle(fit(getText(key, short), bw - 12))
+            b.tooltip = getText(key, full)
         end
     end
     local canSubmit = selected ~= nil and active
