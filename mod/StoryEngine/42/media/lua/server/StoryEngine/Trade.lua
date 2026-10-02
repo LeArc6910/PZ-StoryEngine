@@ -513,7 +513,7 @@ function Trade.stockOf(player)
     if not player then return out end
     for _, cat in ipairs(Value.CATEGORIES) do
         local total = 0
-        for _, item in ipairs(Value.payableItems(player, cat)) do total = total + Value.of(item:getFullType()) end
+        for _, item in ipairs(Value.payableItems(player, cat)) do total = total + Value.itemValue(item) end
         if total >= 1 then out[cat] = math.floor(total) end
     end
     return out
@@ -521,8 +521,13 @@ end
 
 -- 지금 공용 주파수에서 제안할 수 있는 NPC 들. 플레이어에게 진행 중인 거래가 있으면 시장은 닫힌다.
 -- player 가 있으면 가진 물건(stock)과 NPC 마다 모자란 품목(short)도 넘겨 판매 제안에 쓴다.
+Trade.MARKET_GAP_MIN = 60     -- 공용 주파수 거래·판매 제안은 플레이어마다 게임 1시간에 한 번 (다시 굴리기 방지)
+
 function Trade.marketContext(ps, player)
     if ps and Quests.openFor(ps.key, "trade") then return { closed = "open_deal" } end
+    if ps and ps.lastMarketT and Sensor.now().t - ps.lastMarketT < Trade.MARKET_GAP_MIN then
+        return { closed = "too_soon" }
+    end
     local sellers = {}
     for _, f in ipairs(Factions.list) do
         if Trade.FACTIONS[f.id] and not Factions.isGone(f.id) and not Quests.openTrade(f.id) then
@@ -601,10 +606,7 @@ function Trade.marketOffers(ps, offers, selling, player)
                     out[#out + 1] = { faction = fid, category = o.category, tier = tier, goods = goods,
                                       payCategory = pay, price = price, selling = sellCat and true or nil,
                                       bonus = bonus > 1 and bonus or nil }
-                    if not sellCat then
-                        local okR, errR = pcall(Trade.recordRequest, fid, ps)
-                        if not okR then log("trade request count error:", errR) end
-                    end
+                    -- 요청 횟수(의심)는 플레이어가 고른 NPC 에게만 센다 (Quests.pickMarket, 2026-10-03 점검)
                 elseif sellCat then
                     log("market sell offer dropped:", fid, "player has", have, sellCat, "cheapest", tostring(lastPrice))
                 end
@@ -628,7 +630,7 @@ function Trade.pay(player, qid, itemIds)
             local item = inv:getItemWithIDRecursiv(n)
             if item and Value.payable(player, item, q.payCategory) then
                 chosen[#chosen + 1] = item
-                total = total + Value.of(item:getFullType())
+                total = total + Value.itemValue(item)
             end
         end
     end

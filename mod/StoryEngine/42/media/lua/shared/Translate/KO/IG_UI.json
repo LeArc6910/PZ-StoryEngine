@@ -502,6 +502,8 @@
     "IGUI_StoryEngine_Tip_Vehicle": "%1 프로젝트: 차량 부품 %2점",
     "IGUI_StoryEngine_Tip_Raw": "거래·물자 지원·프로젝트에 쓸 수 없음 (채집·벌목 재료)",
     "IGUI_StoryEngine_Tip_RawMade": "거래·물자 지원·프로젝트에 쓸 수 없음 (채집 재료로 바로 만든 물건)",
+    "IGUI_StoryEngine_Tip_Broken": "부서지거나 다 써서 거래·물자 지원·프로젝트에 쓸 수 없음",
+    "IGUI_StoryEngine_Tip_Worn": "상태 %1%% (가치도 그만큼만 인정)",
     "IGUI_StoryEngine_Tip_Rotten": "상해서 거래·지원에 쓸 수 없음",
     "IGUI_StoryEngine_Tip_Quest": "퀘스트 물건 (거래·지원 불가)",
     "IGUI_StoryEngine_TrustReason_crisis_ally": "위기에서 다른 쪽을 도와 우리도 도움",

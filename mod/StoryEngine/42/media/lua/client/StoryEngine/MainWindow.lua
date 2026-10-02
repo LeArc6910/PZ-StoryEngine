@@ -63,6 +63,16 @@ end
 
 local ACTIVE = { offered = true, approached = true, entered = true, retrieved = true, accepted = true }
 
+-- 물자 지원·프로젝트 창에서 진행 중인 퀘스트 물건만 빼도록 Value 에 알려 준다 (목록에 없으면 끝난 퀘스트로 봄, 서버가 다시 검증)
+if StoryEngine.Value then
+    StoryEngine.Value.isQuestActive = function(id)
+        for _, q in ipairs(StoryEngine.Cache and StoryEngine.Cache.quests or {}) do
+            if q.id == id then return ACTIVE[q.state] == true or q.state == "proposed" end
+        end
+        return false
+    end
+end
+
 -- 이 세력이 답을 기다리는 부탁·거래 제안
 local function pendingProposal(fid)
     for _, q in ipairs(Cache.quests) do
@@ -84,7 +94,7 @@ local function payableValue(q)
     if not p or not q.payCategory then return 0 end
     local total = 0
     for _, it in ipairs(StoryEngine.Value.payableItems(p, q.payCategory)) do
-        total = total + StoryEngine.Value.of(it:getFullType())
+        total = total + StoryEngine.Value.itemValue(it)
     end
     return math.floor(total)
 end

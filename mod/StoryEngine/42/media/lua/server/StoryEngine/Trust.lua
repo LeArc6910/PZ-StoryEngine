@@ -69,6 +69,9 @@ end
 -- 신뢰도를 바꾸고 채널에 기록을 남긴다 (클라이언트가 "신뢰도 +10 (이유)" 로 보여 준다).
 -- byKey: 이 변화의 원인이 된 플레이어 (감점이면 ch.lastOffender 로 기억해 협박 보복 대상으로 쓴다)
 -- src: 관계 파급일 때 도움받은 NPC (클라이언트가 "빅을 도운 것" 처럼 보여 준다)
+Trust.TRADE_WEEK_CAP = 5
+Trust.TRADE_WEEK_MIN = 7 * 24 * 60
+
 function Trust.apply(fid, delta, reason, questId, byKey, src)
     if not Factions.byId[fid] or delta == 0 then return 0 end
     -- 샌드박스 배율 (디버그 조절은 그대로)
@@ -110,6 +113,24 @@ function Trust.forQuest(q, outcome)
             local mult = Store.STAGE_PENALTY[stage] or 1
             delta = -math.max(1, math.floor(-delta * mult + 0.5))
         end
+    end
+    -- 거래로 오르는 신뢰도는 NPC 마다 게임 7일에 TRADE_WEEK_CAP 까지 (2026-10-03 점검: 거래로 신뢰도를 사는 것 방지)
+    if who == "player" and q.kind == "trade" and delta > 0 then
+        local ch = StoryEngine.Radio.channel(fid)
+        local now = StoryEngine.Sensor.now().t
+        local tt = ch.tradeTrust
+        if not tt or now - (tt.start or 0) >= Trust.TRADE_WEEK_MIN then
+            tt = { start = now, gained = 0 }
+            ch.tradeTrust = tt
+        end
+        delta = math.min(delta, math.max(0, Trust.TRADE_WEEK_CAP - (tt.gained or 0)))
+        if delta <= 0 then
+            StoryEngine.log("trade trust capped", fid, q.id)
+            return 0
+        end
+        local applied = Trust.apply(fid, delta, who .. "_" .. outcome, q.id, q.target)
+        tt.gained = (tt.gained or 0) + math.max(0, applied)
+        return applied
     end
     return Trust.apply(fid, delta, who .. "_" .. outcome, q.id, q.target)
 end

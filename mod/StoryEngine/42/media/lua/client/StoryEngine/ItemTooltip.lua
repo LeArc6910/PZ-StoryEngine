@@ -67,6 +67,11 @@ function ItemTooltip.lines(item)
         out[#out + 1] = { getText("IGUI_StoryEngine_Tip_Vehicle", Factions.name("dewey"), fmt(s.vehicle)), COLOR }
     end
     if s.rotten then out[#out + 1] = { getText("IGUI_StoryEngine_Tip_Rotten"), DIM } end
+    if s.broken then
+        out[#out + 1] = { getText("IGUI_StoryEngine_Tip_Broken"), DIM }
+    elseif s.worn then
+        out[#out + 1] = { getText("IGUI_StoryEngine_Tip_Worn", StoryEngine.intToString(s.worn)), DIM }
+    end
     return out
 end
 

@@ -35,6 +35,7 @@ local Radio = {
 StoryEngine.Radio = Radio
 
 Radio.COOLDOWN_MS = 3000
+Radio.CHAT_TRUST_PER_DAY = 1      -- 대화만으로 오르는 신뢰도, NPC 마다 게임 하루 (2026-10-03 점검)
 Radio.PER_HOUR = 60
 Radio.MAX_TEXT = 200
 Radio.MAX_REPLY = 600
@@ -217,6 +218,17 @@ function Radio.request(fid, lang, opts)
         if type(json) == "table" and type(json.reply) == "string" and json.reply ~= "" then
             -- 대화만으로는 신뢰도가 조금만 움직인다 (-1~+1). 큰 변화는 퀘스트 결과로 (Trust.lua).
             local change = math.max(-1, math.min(1, math.floor(tonumber(json.trust_change) or 0)))
+            -- NPC 가 먼저 하는 말(연락·반응)로는 움직이지 않고, 대화로 오르는 것은 NPC 마다 게임 하루 +1 (2026-10-03 점검)
+            if mode then change = 0 end
+            if change > 0 then
+                local day = Store.dayIndex(t.dayKey)
+                if ch.chatTrustDay ~= day then ch.chatTrustDay, ch.chatTrustGain = day, 0 end
+                if (ch.chatTrustGain or 0) >= Radio.CHAT_TRUST_PER_DAY then
+                    change = 0
+                else
+                    ch.chatTrustGain = (ch.chatTrustGain or 0) + change
+                end
+            end
             ch.trust = math.max(0, math.min(100, ch.trust + change))
             if change < 0 and speaker then
                 ch.lastOffender = speaker.key
