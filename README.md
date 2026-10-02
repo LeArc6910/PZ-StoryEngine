@@ -6,7 +6,7 @@ a survival journal and an inner monologue. Unofficial fan-made mod, not affiliat
 한국어: 무전으로 대화하는 생존자들, 사건을 일으키는 AI 디렉터, 실제 보상이 있는 퀘스트, 생존 일지와 혼잣말을 더하는 프로젝트 좀보이드 B42 모드입니다.
 
 - Steam Workshop: https://steamcommunity.com/sharedfiles/filedetails/?id=3808950035
-- AI bridge (optional, host PC only): https://github.com/skditjdqja12/PZ-StoryEngine-Bridge
+- AI bridge (optional, host PC only): https://github.com/LeArc6910/PZ-StoryEngine-Bridge
 
 ## Features
 
@@ -22,7 +22,7 @@ a survival journal and an inner monologue. Unofficial fan-made mod, not affiliat
 - Sandbox options for each part
 
 Without the bridge the mod runs rule-based events and prepared lines. The AI features need the
-[StoryEngine Bridge](https://github.com/skditjdqja12/PZ-StoryEngine-Bridge) running on the host / server PC with your own API key.
+[StoryEngine Bridge](https://github.com/LeArc6910/PZ-StoryEngine-Bridge) running on the host / server PC with your own API key.
 
 ## Repository layout
 
