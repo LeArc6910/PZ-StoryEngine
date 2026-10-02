@@ -117,7 +117,7 @@ LLM에는 3층만 전달. 1층 원시 데이터는 절대 프롬프트에 직접
 - **개발판과 배포판 구분 (2026-09-28)**: 저장소 `mod.info`는 개발판 `id=StoryEngineDev`, `name=AI Story Engine [DEV]` (`Zomboid\mods\StoryEngine` 링크로 로드). `sync_workshop.bat`이 업로드 폴더로 복사한 뒤 사본만 배포판 `id=StoryEngine`, `name=AI Story Engine`으로 바꾼다. Lua 경로가 같아 **두 판을 한 세이브에서 동시에 켜면 안 된다**. 로컬 설정(`mods/default.txt`, `Server/test.ini`의 `Mods=`, 기존 싱글 세이브 `mods.txt`)은 `StoryEngineDev`로 바꿔 둠(`.bak-storyengine` 백업)
 - 모드 저장소(공개): https://github.com/LeArc6910/PZ-StoryEngine — 이 폴더. `bridge/`는 `.gitignore`로 제외
 - 브릿지 저장소(공개): https://github.com/LeArc6910/PZ-StoryEngine-Bridge — `bridge/` 폴더가 별도 git 저장소. 릴리스 v0.1.0, v0.2.0(2026-09-28), v0.2.1(2026-09-29), v0.3.0(2026-10-02, 최신)에 Windows zip(+SHA256). 모드 `modversion`도 0.3.0. 새 버전은 `BRIDGE_VERSION` 올리고 `python build_release.py` → `gh release create`
-- 창작마당 설명 원본: `docs/WORKSHOP_DESCRIPTION.txt` (바꾸면 `workshop.txt`의 description 줄에 반영)
+- 창작마당 설명 원본: `docs/WORKSHOP_DESCRIPTION.txt` (바꾸면 `workshop.txt`의 description 줄에 반영). **Steam 설명 한도는 8000바이트(UTF-8, 한글 3바이트)** — 넘으면 게임 업로더가 오류 표시 없이 업로드를 통째로 실패한다(2026-10-02: 9837바이트로 두 번 실패, 로그엔 `0/1066592` 뒤 `0/0`만). 바꾼 뒤 바이트 수를 확인할 것. 업로드 확인은 Steam API `ISteamRemoteStorage/GetPublishedFileDetails`의 `time_updated`
 
 ## 다른 모드와의 호환
 
