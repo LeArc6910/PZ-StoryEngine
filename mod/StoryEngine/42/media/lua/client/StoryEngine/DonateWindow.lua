@@ -135,6 +135,14 @@ end
 
 function StoryEngineDonateWindow:onToggle(data)
     if not data then return end
+    -- 같은 물건은 한 번에 Value.SAME_ITEM_CAP 개까지 (서버도 넘는 것은 가져가지 않는다)
+    if not data.selected and data.ft then
+        local same = 0
+        for _, row in ipairs(self.list.items) do
+            if row.item.selected and row.item.ft == data.ft then same = same + 1 end
+        end
+        if same >= Value.SAME_ITEM_CAP then return end
+    end
     -- 프로젝트: 한 번에 최대 점수를 채웠으면 더 고르지 못한다 (고른 것을 빼는 건 된다)
     if self.mode == "project" and not data.selected then
         local _, _, points = self:totals()
@@ -167,7 +175,7 @@ function StoryEngineDonateWindow:fill()
         for i, r in ipairs(rows) do
             if i > 300 then break end
             local data = { id = r.item:getID(), name = r.item:getDisplayName(), resource = "project", value = r.value,
-                           points = r.points, selected = false }
+                           points = r.points, selected = false, ft = r.item:getFullType() }
             self.list:addItem(data.name, data)
         end
         return
@@ -180,7 +188,7 @@ function StoryEngineDonateWindow:fill()
     for i, r in ipairs(rows) do
         if i > 300 then break end
         local data = { id = r.item:getID(), name = r.item:getDisplayName(), resource = r.resource, value = r.value,
-                       selected = false }
+                       selected = false, ft = r.item:getFullType() }
         self.list:addItem(data.name, data)
     end
 end

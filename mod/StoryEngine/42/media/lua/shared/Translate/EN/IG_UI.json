@@ -502,6 +502,8 @@
     "IGUI_StoryEngine_Tip_Vehicle": "%1's project: vehicle part, %2 points",
     "IGUI_StoryEngine_Tip_Raw": "Not accepted for trades, donations or projects (foraged or chopped material)",
     "IGUI_StoryEngine_Tip_RawMade": "Not accepted for trades, donations or projects (made straight from foraged materials)",
+    "IGUI_StoryEngine_Tip_Broken": "Broken or used up: not accepted for trades, donations or projects",
+    "IGUI_StoryEngine_Tip_Worn": "Condition %1%% (worth that much less)",
     "IGUI_StoryEngine_Tip_Rotten": "Spoiled: can't be traded or donated",
     "IGUI_StoryEngine_Tip_Quest": "Quest item (can't be traded or donated)",
     "IGUI_StoryEngine_TrustReason_crisis_ally": "Helped us by helping someone else in a crisis",

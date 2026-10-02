@@ -30,20 +30,136 @@ Value.SPECIAL = {
     ["Base.HeavyChain"] = 8, ["Base.HeavyChain_Hook"] = 8, ["Base.CrudeBenchVise"] = 8,
 }
 
+-- 폭발물 (2026-10-03 점검): 군용 수류탄만 가치 20, 직접 만드는 화염병·폭죽·트랩 류는 3
+Value.MILITARY_EXPLOSIVES = { ["Base.BombBig"] = true, ["Base.BombSmall"] = true }
+Value.CRAFTED_EXPLOSIVE = 3
+-- 의약품으로 치지 않는 것 (2026-10-03 점검): 쓰고 난 붕대, 옷을 찢은 천, 수술용 옷, 계속 쓰는 도구
+Value.NOT_MEDICAL = {
+    ["Base.BandageDirty"] = true, ["Base.Gloves_Surgical"] = true, ["Base.Hat_SurgicalCap"] = true,
+    ["Base.Hat_SurgicalMask"] = true, ["Base.MortarPestle"] = true, ["Base.CeramicMortarandPestle"] = true,
+}
+
 local function lookup(fullType)
     local hit = Value.cache[fullType]
     if hit then return hit end
     local ok, c = pcall(StoryEngine.ItemPool.classify, fullType)
     if not ok or not c then c = { category = "misc" } end
-    local value = Value.SPECIAL[fullType] or c.value or Value.BASE[c.category] or Value.BASE.misc
-    hit = { category = c.category, value = value }
+    local category = c.category
+    local value = Value.SPECIAL[fullType] or c.value or Value.BASE[category] or Value.BASE.misc
+    if category == "explosive" and not Value.MILITARY_EXPLOSIVES[fullType] then value = Value.CRAFTED_EXPLOSIVE end
+    if category == "medical" and (Value.NOT_MEDICAL[fullType] or string.find(fullType, "RippedSheets", 1, true)) then
+        category, value = "misc", Value.BASE.misc
+    end
+    if category == "ammo" then value = Value.ammoValue(fullType, value) end
+    hit = { category = category, value = value }
     Value.cache[fullType] = hit
     return hit
+end
+
+-- 탄약 (2026-10-03 점검): 상자 하나 = AMMO_BOX_VALUE, 낱발 = 상자 가치 / 상자 속 발 수 (바닐라 상자 풀기 레시피의
+-- 개수, 9mm 등 50발·소총탄 20발·산탄 25발). 상자를 풀든 다시 담든 가치가 같다. 개수를 모르는 탄약은 예전 값.
+Value.AMMO_BOX_VALUE = 15
+local boxRounds = nil   -- 상자 fullType -> 발 수, 낱발 fullType -> 상자 하나의 발 수
+
+local function scanBoxes()
+    local out = {}
+    local sm = (ScriptManager and ScriptManager.instance) or (getScriptManager and getScriptManager()) or nil
+    if not sm then return out end
+    local ok, recipes = pcall(function() return sm:getAllCraftRecipes() end)
+    if not ok or not recipes then return out end
+    local okN, count = pcall(function() return recipes:size() end)
+    if not okN or type(count) ~= "number" then return out end
+    for i = 0, count - 1 do
+        pcall(function()
+            local recipe = recipes:get(i)
+            local inputs, outputs = recipe:getInputs(), recipe:getOutputs()
+            if inputs:size() ~= 1 or outputs:size() ~= 1 then return end
+            local boxes = inputs:get(0):getPossibleInputItems()
+            local output = outputs:get(0)
+            local amount = output:getAmount()
+            local results = output:getPossibleResultItems()
+            if not boxes or not results or not amount or amount < 2 then return end
+            for b = 0, boxes:size() - 1 do
+                local bt = boxes:get(b):getFullName()
+                if string.find(bt, "Box", 1, true) then
+                    out[bt] = amount
+                    for r = 0, results:size() - 1 do out[results:get(r):getFullName()] = amount end
+                end
+            end
+        end)
+    end
+    return out
+end
+
+function Value.ammoValue(fullType, default)
+    boxRounds = boxRounds or scanBoxes()
+    local n = boxRounds[fullType]
+    if not n then return default end
+    if string.find(fullType, "Box", 1, true) then return Value.AMMO_BOX_VALUE end
+    return Value.AMMO_BOX_VALUE / n
 end
 
 function Value.categoryOf(fullType)
     return lookup(fullType).category
 end
+
+-- 물건 상태 비율 0~1 (2026-10-03 점검): 내구도, 남은 사용량(약통·배터리 등), 액체 용기에 남은 양(의약품·술),
+-- 먹다 남은 음식. 부서진 물건은 0 (거래·지원·프로젝트에 못 냄)
+function Value.ratio(item)
+    local r = 1
+    pcall(function()
+        if item:isBroken() then r = 0 end
+    end)
+    if r == 0 then return 0 end
+    pcall(function()
+        local max = item:getConditionMax()
+        if max and max > 0 then r = r * math.max(0, math.min(1, item:getCondition() / max)) end
+    end)
+    pcall(function()
+        if instanceof(item, "DrainableComboItem") then r = r * math.max(0, math.min(1, item:getCurrentUsesFloat())) end
+    end)
+    pcall(function()
+        local fc = item.getFluidContainer and item:getFluidContainer() or nil
+        local cat = Value.categoryOf(item:getFullType())
+        if fc and fc:getCapacity() > 0 and (cat == "medical" or Value.ALCOHOL[item:getFullType()]) then
+            r = r * math.max(0, math.min(1, fc:getAmount() / fc:getCapacity()))
+        end
+    end)
+    pcall(function()
+        if instanceof(item, "Food") then
+            local base = item:getBaseHunger()
+            if base and base < 0 then r = r * math.max(0, math.min(1, item:getHungChange() / base)) end
+        end
+    end)
+    if r < 0.01 then return 0 end
+    return r
+end
+
+-- 이 물건 하나의 실제 가치 (종류 가치 x 상태 비율)
+function Value.itemValue(item)
+    return Value.of(item:getFullType()) * Value.ratio(item)
+end
+
+-- 퀘스트 표시가 붙은 물건이 아직 진행 중인 퀘스트 것인가. 서버는 퀘스트 데이터로 직접 보고,
+-- 클라이언트는 MainWindow 가 퀘스트 목록으로 바꿔 끼운다. 모르면 진행 중으로 본다 (서버가 다시 검증한다)
+Value.isQuestActive = function(id)
+    local Quests, Store = StoryEngine.Quests, StoryEngine.Store
+    if Quests and Store and Store.data then
+        local q = Store.data().quests[id]
+        return q ~= nil and (q.state == "proposed" or Quests.isActive(q))
+    end
+    return true
+end
+
+-- 물자 지원·프로젝트에서 막는 퀘스트 물건: 진행 중인 퀘스트 것만 (끝난 퀘스트의 보상·거래 물건은 된다, 2026-10-03)
+-- 거래 대가(Value.payable)는 끝난 퀘스트 물건도 계속 막는다 (싸게 사서 되파는 반복 방지)
+local function activeQuestItem(item)
+    local mod = item:getModData()
+    return mod ~= nil and mod.storyQuest ~= nil and Value.isQuestActive(mod.storyQuest) == true
+end
+
+-- 같은 물건은 한 번에 이만큼만 받는다 (물자 지원·프로젝트, 책 더미 방지, 2026-10-03)
+Value.SAME_ITEM_CAP = 10
 
 function Value.of(fullType)
     return lookup(fullType).value
@@ -148,6 +264,12 @@ local function buildRaw()
             end
         end
     end
+    -- 말린 약초·열매 (채집 재료를 건조대에서 말린 것, 2026-10-03 점검): 이름 뒤에 Dried
+    local dried = {}
+    for ft, k in pairs(set) do
+        if k == "raw" then dried[#dried + 1] = ft .. "Dried" end
+    end
+    for _, ft in ipairs(dried) do set[ft] = set[ft] or "raw" end
     addMade(set)
     -- 채집 정의는 지도 구역을 불러온 뒤(OnLoadedMapZones) 생긴다. 아직이면 다음에 다시 만든다
     if any then
@@ -180,6 +302,7 @@ function Value.payable(player, item, category)
     local mod = item:getModData()
     if mod and mod.storyQuest then return false end
     if Value.isRaw(item:getFullType()) then return false end
+    if Value.ratio(item) <= 0 then return false end
     if player and player:isEquippedClothing(item) then return false end
     if instanceof(item, "Food") and item:isRotten() then return false end
     return Value.categoryOf(item:getFullType()) == category
@@ -289,8 +412,7 @@ end
 
 -- 물자 지원으로 보낼 수 있는 아이템인가: 퀘스트 아이템·입은 옷·가방·상한 음식이 아니고 받는 자원이 있다
 function Value.donatable(player, item)
-    local mod = item:getModData()
-    if mod and mod.storyQuest then return nil end
+    if activeQuestItem(item) then return nil end
     if player and (player:isEquippedClothing(item) or player:isEquipped(item)) then return nil end
     if instanceof(item, "Food") and item:isRotten() then return nil end
     if instanceof(item, "InventoryContainer") then return nil end
@@ -299,7 +421,10 @@ function Value.donatable(player, item)
     local res, v = Value.resourceOf(ft)
     -- 다 마신 술병은 받지 않는다
     if res == "morale" and Value.ALCOHOL[ft] and not Value.hasAlcohol(item) then return nil end
-    return res, v
+    if not res then return nil end
+    local ratio = Value.ratio(item)
+    if ratio <= 0 then return nil end
+    return res, v * ratio
 end
 
 -- 아이템 툴팁용 요약 (클라이언트 ItemTooltip). 모드와 상관없는 물건이면 nil
@@ -315,18 +440,20 @@ function Value.summary(item)
     local cat = Value.categoryOf(ft)
     local out = {}
     local any = false
+    local ratio = Value.ratio(item)
     if cat ~= "misc" then
-        out.category, out.value = cat, Value.of(ft)
+        out.category, out.value = cat, Value.of(ft) * ratio
         out.wanted = Value.wantedBy(cat)
         any = true
     end
     local res, rv = Value.resourceOf(ft)
     if res == "morale" and Value.ALCOHOL[ft] and not Value.hasAlcohol(item) then res = nil end
-    if res then out.resource, out.resValue = res, rv; any = true end
+    if res then out.resource, out.resValue = res, rv * ratio; any = true end
     local vv = Value.vehicleValue(ft)
     if vv then out.vehicle = vv; any = true end
     if not any then return nil end
     if instanceof(item, "Food") and item:isRotten() then out.rotten = true end
+    if ratio <= 0 then out.broken = true elseif ratio < 1 then out.worn = math.floor(ratio * 100 + 0.5) end
     return out
 end
 
@@ -375,12 +502,12 @@ end
 
 -- 보낼 수 없는 물건: 퀘스트 아이템·입거나 든 것·가방·상한 음식
 local function locked(player, item)
-    local mod = item:getModData()
-    if mod and mod.storyQuest then return true end
+    if activeQuestItem(item) then return true end
     if player and (player:isEquippedClothing(item) or player:isEquipped(item)) then return true end
     if instanceof(item, "Food") and item:isRotten() then return true end
     if instanceof(item, "InventoryContainer") then return true end
     if Value.isRaw(item:getFullType()) then return true end
+    if Value.ratio(item) <= 0 then return true end
     return false
 end
 
@@ -388,17 +515,19 @@ end
 function Value.projectItem(player, item, rule)
     if not rule or locked(player, item) then return nil end
     local ft = item:getFullType()
+    local ratio = Value.ratio(item)
     local res, value = Value.resourceOf(ft)
     if res == "morale" and Value.ALCOHOL[ft] and not Value.hasAlcohol(item) then res, value = nil, nil end
+    if value then value = value * ratio end
     if rule.accept == "vehicle" then
         local vv = Value.vehicleValue(ft)
-        if vv then return vv, vv end
+        if vv then return vv * ratio, vv * ratio end
         if res then return value * 0.5, value end
         return nil
     elseif rule.accept == "any" then
         if not res then
             local vv = Value.vehicleValue(ft)
-            if vv then res, value = "vehicle", vv end
+            if vv then res, value = "vehicle", vv * ratio end
         end
         if res then return value * (rule.mult or 0.8), value end
         return nil

@@ -1192,6 +1192,7 @@ function Quests.proposeMarket(ps, deals, now)
         state = "proposed", createdT = now.t, respondBy = now.t + Quests.RESPOND_MIN,
     }
     d.quests[q.id] = q
+    ps.lastMarketT = now.t
     log("market proposed", q.id, #deals, "offers for", ps.name)
     notifyTarget(q)
     return q
@@ -1213,6 +1214,11 @@ function Quests.pickMarket(player, qid, index)
     }, now)
     trade.origin.source = "open"
     closeMarket(q, now, opt.faction, ps.name)
+    -- 물건을 청한 것으로 센다 (고른 NPC 만, 판매는 세지 않음)
+    if not q.selling and StoryEngine.Trade then
+        local okR, errR = pcall(StoryEngine.Trade.recordRequest, opt.faction, ps)
+        if not okR then log("trade request count error:", errR) end
+    end
     q.tradeId = trade.id
     -- 그 NPC 채널에도 조건을 남긴다 (1:1 거래 제안과 같은 줄)
     StoryEngine.Radio.push(opt.faction, { from = "system", clock = now.clock, quest = trade.id,

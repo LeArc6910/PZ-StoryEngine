@@ -13,9 +13,14 @@ local function setup()
 end
 
 -- 플레이어가 공용 주파수에서 말하고, AI 가 장면과 제안으로 답한다
-local function ask(p, offers, lines, selling)
+local function ask(p, offers, lines, selling, keepGaps)
     StoryEngine.Radio.lastSay = {}
     StoryEngine.Social.sceneBusy = false
+    if not keepGaps then
+        -- 빈도 제한(장면 5분, 제안 1시간)은 따로 시험한다
+        StoryEngine.Social.lastReplyT = nil
+        StoryEngine.Store.player(p).lastMarketT = nil
+    end
     H.ok(StoryEngine.Radio.say(p, "open", "anyone got food to trade?"))
     local b = H.lastBridge("radio_scene")
     H.ok(b ~= nil, "scene requested")
@@ -171,6 +176,29 @@ function T.selling_more_than_you_have_lowers_or_drops_offers()
     ask(p, { { faction = "ray", category = "tools", tier = 1, pay_category = "medical" } }, nil, "medical")
     H.ok(marketQuest() == nil)
     H.ok(H.logHas("nothing to sell in"))
+end
+
+function T.open_channel_rate_limits()
+    local p, ps = setup()
+    ask(p, { { faction = "ray", category = "food", tier = 1, pay_category = "medical" } })
+    H.ok(marketQuest() ~= nil)
+    -- 같은 게임 시간 안에 또 말하면 장면은 미뤄지고(5분), 시장은 1시간 동안 닫힌다
+    StoryEngine.Radio.lastSay = {}
+    local before = #H.bridge
+    H.ok(StoryEngine.Radio.say(p, "open", "anything else?"))
+    H.eq(#H.bridge, before, "reply scene waits")
+    H.ok(StoryEngine.Social.sceneAgain ~= nil)
+    H.advance(6)
+    StoryEngine.Social.release()
+    local b = H.lastBridge("radio_scene")
+    H.eq(#H.bridge, before + 1, "runs after the gap")
+    H.eq(b.payload.market.closed, "too_soon", "no new offers within the hour")
+    -- 공용 주파수 거래는 고른 NPC 에게만 의심 횟수를 센다
+    local q = marketQuest()
+    local before2 = StoryEngine.Trade.recentRequests("doc")
+    H.ok(StoryEngine.Quests.pickMarket(p, q.id, 1))
+    H.eq(StoryEngine.Trade.recentRequests("doc"), before2, "offers that were not picked do not count")
+    H.eq(StoryEngine.Trade.recentRequests("ray"), 1, "the picked one counts")
 end
 
 return T

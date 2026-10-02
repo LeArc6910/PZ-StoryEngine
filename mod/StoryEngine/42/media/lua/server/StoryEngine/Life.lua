@@ -103,7 +103,8 @@ function Life.get(fid, res)
 end
 
 -- 자원을 바꾼다. 실제로 바뀐 양을 돌려준다
-Life.PLAIN_LOSS = { debug = true, specialty = true, share = true }
+Life.PLAIN_LOSS = { debug = true, specialty = true, share = true, trade_sold = true }
+Life.SOLD_PER_TIER = 4
 
 function Life.change(fid, res, delta, reason)
     if not Factions.byId[fid] or not res or delta == 0 then return 0 end
@@ -318,6 +319,8 @@ function Life.onQuest(q, outcome, trustDelta)
     if q.kind == "trade" then
         if outcome == "completed" then
             Life.change(fid, Value.RESOURCE_OF[q.payCategory] or "safety", 10, "trade")
+            -- 내준 물건만큼 그 품목 자원이 준다 (등급 x SOLD_PER_TIER, 2026-10-03 점검)
+            Life.change(fid, Value.RESOURCE_OF[q.category] or "safety", -Life.SOLD_PER_TIER * tier, "trade_sold")
             Life.record(fid, "trade_done", who, trustDelta)
             if tier >= Life.SPILL_BIG_TIER then Life.spill(fid, who) end
         elseif outcome == "failed" then
@@ -423,12 +426,19 @@ function Life.donate(player, fid, itemIds, mode)
     local chosen, seen, byRes, total, names = {}, {}, {}, 0, {}
     local rule = project and Projects.rule(fid) or nil
     local projectPoints = 0
+    local sameType = {}
     for _, id in ipairs(itemIds or {}) do
         local n = math.floor(tonumber(id) or -1)
         if not seen[n] then
             seen[n] = true
             local item = inv:getItemWithIDRecursiv(n)
             local res, value = nil, nil
+            -- 같은 물건은 한 번에 Value.SAME_ITEM_CAP 개까지 (넘는 것은 가져가지 않는다, 2026-10-03)
+            if item then
+                local ft = item:getFullType()
+                sameType[ft] = (sameType[ft] or 0) + 1
+                if sameType[ft] > Value.SAME_ITEM_CAP then item = nil end
+            end
             if item and project and projectPoints >= Projects.DONATE_CAP then
                 item = nil       -- 한 번에 최대 점수를 채웠다: 나머지 물건은 가져가지 않는다
             end

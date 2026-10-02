@@ -583,8 +583,19 @@ local function releaseLine(s, now)
 end
 
 -- 게임 내 1분마다: 기다리던 줄을 내보낸다 (접속자가 없으면 멈춤)
+Social.REPLY_SCENE_GAP = 5      -- 플레이어 발언 반응 장면 최소 간격 (게임 분)
+
 function Social.release()
     local s = state()
+    -- 미뤄 둔 플레이어 발언 반응 장면 (Social.REPLY_SCENE_GAP)
+    if Social.sceneAgain and not Social.sceneBusy then
+        local again = Social.sceneAgain
+        local last = Social.lastReplyT
+        if not last or Sensor.now().t - last >= Social.REPLY_SCENE_GAP then
+            Social.sceneAgain = nil
+            Social.scene(again.said, again.cut)
+        end
+    end
     if not s.pending or #Sensor.players() == 0 then return end
     local now = Sensor.now()
     if now.t >= (s.pending.nextT or 0) then releaseLine(s, now) end
@@ -599,6 +610,15 @@ function Social.scene(said, cut)
         return false
     end
     if #Sensor.players() == 0 then return false end
+    -- 플레이어 발언 반응은 게임 몇 분에 한 번으로 묶는다 (AI 호출 비용, 2026-10-03 점검). 그 사이 말은 기록에 남고 다음 장면이 함께 반응
+    if said then
+        local now = Sensor.now().t
+        if Social.lastReplyT and now - Social.lastReplyT < Social.REPLY_SCENE_GAP then
+            Social.sceneAgain = { said = said, cut = cut }
+            return false
+        end
+        Social.lastReplyT = now
+    end
     Social.sceneBusy = true
     local count = 2 + ZombRand(2)
     local ids = pickParticipants(count, nil)

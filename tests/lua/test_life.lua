@@ -55,6 +55,7 @@ function T.donate_values_trust_spill_and_cooldown()
     ids[#ids + 1] = H.give(p, "Base.Bullets9mmBox"):getID()
     ids[#ids + 1] = H.give(p, "Base.CigarettePack"):getID()
     local held = H.give(p, "Base.KitchenKnife", { held = true })
+    StoryEngine.Store.data().quests.Q1 = { id = "Q1", kind = "supply_drop", state = "offered" }   -- 진행 중인 퀘스트
     local tagged = H.give(p, "Base.Bandage", { questTag = "Q1" })
     local rotten = H.give(p, "Base.TinnedBeans", { classes = { "Food" }, rotten = true })
     H.give(p, "Base.Jacket", { worn = true })

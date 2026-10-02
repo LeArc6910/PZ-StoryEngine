@@ -131,10 +131,10 @@ function StoryEngineTradePayWindow:fill()
     local player = getSpecificPlayer(0)
     if not player then return end
     local items = Value.payableItems(player, self.quest.payCategory)
-    table.sort(items, function(a, b) return Value.of(a:getFullType()) > Value.of(b:getFullType()) end)
+    table.sort(items, function(a, b) return Value.itemValue(a) > Value.itemValue(b) end)
     for i, it in ipairs(items) do
         if i > 200 then break end
-        local data = { id = it:getID(), name = it:getDisplayName(), value = Value.of(it:getFullType()), selected = false }
+        local data = { id = it:getID(), name = it:getDisplayName(), value = Value.itemValue(it), selected = false }
         self.list:addItem(data.name, data)
     end
 end
