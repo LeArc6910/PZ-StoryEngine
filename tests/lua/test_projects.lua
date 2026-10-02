@@ -117,15 +117,25 @@ function T.effect_casey_radius_and_cooldown()
     H.eq(StoryEngine.Specialty.status("casey").wait, 48)
 end
 
-function T.effect_doc_half_medicine()
+-- 진료소: 서로 다른 두 부위를 치료한다 (2026-10-02, 예전: 의약품 절반)
+function T.effect_doc_two_body_parts()
     local p = setup()
     setTrust("doc", 45)
     P().add("doc", 1000)
     H.eq(res("doc", "medical"), 75, "medicine baseline 55 + 20")
-    p.parts = { H.newBodyPart("arm", { scratch = true }), H.newBodyPart("leg", { cut = true }) }
+    local arm = H.newBodyPart("arm", { scratch = true, cut = true })      -- 같은 부위 두 상처: 하나만
+    local leg = H.newBodyPart("leg", { cut = true })
+    local hand = H.newBodyPart("hand", { scratch = true })
+    p.parts = { arm, leg, hand }
     H.ok(StoryEngine.Specialty.request(p, "doc", {}))
-    H.ok(StoryEngine.Specialty.healDone(p))
-    H.eq(res("doc", "medical"), 75 - 5, "cost 10 halved to 5")
+    local ok, n = StoryEngine.Specialty.healDone(p)
+    H.ok(ok)
+    H.eq(n, 2, "two parts")
+    H.eq(arm.cut, false, "arm: worst wound (cut)")
+    H.eq(arm.scratch, true, "one wound per part")
+    H.eq(leg.cut, false, "leg: second part")
+    H.eq(hand.scratch, true, "third part untouched")
+    H.eq(res("doc", "medical"), 75 - 10, "normal cost 10")
 end
 
 function T.effect_pike_longer_comfort()

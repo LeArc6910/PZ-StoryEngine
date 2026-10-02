@@ -56,10 +56,130 @@ function Value.sum(list)
     return total
 end
 
--- 대가로 낼 수 있는 아이템인가: 분류가 맞고, 퀘스트 아이템이 아니고, 입고 있는 옷이 아니다
+-- ---------------------------------------------------------------- 채집·벌목 재료와 그 1차 가공품 (2026-10-02 사용자 요청)
+-- 거래 대가·물자 지원·장기 프로젝트에 쓸 수 없다.
+-- raw: 나뭇가지·돌·통나무·약초·열매처럼 채집이나 벌목으로 쉽게 얻는 재료. 바닐라 채집 정의(forageSystem.itemDefs, 다른
+--   모드가 더한 것 포함)에서 자연물 분류에 속한 아이템 + 벌목·목공으로 바로 나오는 것(RAW_EXTRA).
+--   공예 재료·숲의 희귀품·쓰레기·옷·탄약 같은 채집 분류에는 진짜 도구·물건이 섞여 있어 넣지 않는다.
+-- made: 소모 재료 칸마다 raw 로 채울 수 있는 제작 레시피의 결과물 (예: 나뭇가지·묘목 + 칼(남는 도구) -> 나무창).
+--   한 단계만 본다. 재료 칸은 "아무거나 하나"라서 (창: 긴 막대기·묘목·갈퀴·걸레…) raw 가 하나라도 들어가면 채울 수 있다고 본다.
+--   아이템 종류로만 판정하므로, 상점에서도 흔히 나오는 쓸모 있는 물건(밧줄·노끈 등)은 RAW_MADE_ALLOW 로 뺀다.
+Value.RAW_FORAGE = {
+    Firewood = true, Stones = true, Bones = true, Animals = true, DeadAnimals = true, Insects = true,
+    Herbs = true, MedicinalPlants = true, WildPlants = true, Berries = true, Mushrooms = true,
+    Fruits = true, Vegetables = true,
+}
+Value.RAW_EXTRA = {
+    "Base.Log", "Base.LogStacks2", "Base.LogStacks3", "Base.LogStacks4", "Base.Plank", "Base.Firewood",
+    "Base.UnusableWood", "Base.Twigs", "Base.TreeBranch2", "Base.LargeBranch", "Base.Branch_Broken", "Base.Sapling",
+    "Base.Pinecone", "Base.Stone2", "Base.SharpedStone", "Base.FlintNodule", "Base.Limestone", "Base.LargeStone",
+    "Base.FlatStone", "Base.Clay",
+}
+-- 1차 가공품으로 보지 않는 것 (바닐라 루팅에도 흔하고 쓸모 있는 재료·물건)
+Value.RAW_MADE_ALLOW = {
+    ["Base.Rope"] = true, ["Base.Twine"] = true, ["Base.BurlapPiece"] = true, ["Base.EggCarton"] = true,
+    ["Base.CuttingBoardWooden"] = true,
+}
+
+local rawSet = nil     -- fullType -> "raw" | "made"
+
+local function scriptManager()
+    if ScriptManager and ScriptManager.instance then return ScriptManager.instance end
+    return getScriptManager and getScriptManager() or nil
+end
+
+-- 소모 재료 칸마다 raw 로 채울 수 있는 레시피의 결과물을 set 에 "made" 로 넣는다 (B42 CraftRecipe)
+local function addMade(set)
+    local sm = scriptManager()
+    if not sm then return end
+    local ok, recipes = pcall(function() return sm:getAllCraftRecipes() end)
+    if not ok or not recipes then return end
+    local okN, count = pcall(function() return recipes:size() end)
+    if not okN or type(count) ~= "number" then return end
+    for i = 0, count - 1 do
+        local okR, outs = pcall(function()
+            local recipe = recipes:get(i)
+            local consumed = 0
+            local inputs = recipe:getInputs()
+            for j = 0, inputs:size() - 1 do
+                local input = inputs:get(j)
+                if input:getResourceType() == ResourceType.Item and not input:isTool() and not input:isKeep()
+                    and not input:isAutomationOnly() then
+                    local items = input:getPossibleInputItems()
+                    local fits = false
+                    for k = 0, (items and items:size() or 0) - 1 do
+                        if set[items:get(k):getFullName()] == "raw" then fits = true end
+                    end
+                    if not fits then return nil end
+                    consumed = consumed + 1
+                end
+            end
+            if consumed == 0 then return nil end
+            local list = {}
+            local outputs = recipe:getOutputs()
+            for j = 0, outputs:size() - 1 do
+                local output = outputs:get(j)
+                if output:getResourceType() == ResourceType.Item then
+                    local results = output:getPossibleResultItems()
+                    for k = 0, (results and results:size() or 0) - 1 do list[#list + 1] = results:get(k):getFullName() end
+                end
+            end
+            return list
+        end)
+        if okR and outs then
+            for _, ft in ipairs(outs) do
+                if not set[ft] and not Value.RAW_MADE_ALLOW[ft] then set[ft] = "made" end
+            end
+        end
+    end
+end
+
+local function buildRaw()
+    local set = {}
+    for _, ft in ipairs(Value.RAW_EXTRA) do set[ft] = "raw" end
+    local defs = forageSystem and forageSystem.itemDefs
+    local any = false
+    if type(defs) == "table" then
+        for key, def in pairs(defs) do
+            any = true
+            local ft = type(def) == "table" and def.type or key
+            for _, c in ipairs(type(def) == "table" and def.categories or {}) do
+                if Value.RAW_FORAGE[c] and type(ft) == "string" then set[ft] = "raw" end
+            end
+        end
+    end
+    addMade(set)
+    -- 채집 정의는 지도 구역을 불러온 뒤(OnLoadedMapZones) 생긴다. 아직이면 다음에 다시 만든다
+    if any then
+        rawSet = set
+        local raw, made = 0, 0
+        for _, k in pairs(set) do
+            if k == "raw" then raw = raw + 1 else made = made + 1 end
+        end
+        StoryEngine.log("raw materials:", raw, "made from them:", made)
+    end
+    return set
+end
+
+-- "raw" (채집·벌목 재료) | "made" (그것만으로 만든 1차 가공품) | nil
+function Value.rawKind(fullType)
+    return (rawSet or buildRaw())[fullType]
+end
+
+function Value.isRaw(fullType)
+    return Value.rawKind(fullType) ~= nil
+end
+
+-- 시험·디버그: 다시 만들게 한다
+function Value.resetRaw()
+    rawSet = nil
+end
+
+-- 대가로 낼 수 있는 아이템인가: 분류가 맞고, 퀘스트 아이템이 아니고, 입고 있는 옷이 아니고, 채집·벌목 재료가 아니다
 function Value.payable(player, item, category)
     local mod = item:getModData()
     if mod and mod.storyQuest then return false end
+    if Value.isRaw(item:getFullType()) then return false end
     if player and player:isEquippedClothing(item) then return false end
     if instanceof(item, "Food") and item:isRotten() then return false end
     return Value.categoryOf(item:getFullType()) == category
@@ -175,6 +295,7 @@ function Value.donatable(player, item)
     if instanceof(item, "Food") and item:isRotten() then return nil end
     if instanceof(item, "InventoryContainer") then return nil end
     local ft = item:getFullType()
+    if Value.isRaw(ft) then return nil end
     local res, v = Value.resourceOf(ft)
     -- 다 마신 술병은 받지 않는다
     if res == "morale" and Value.ALCOHOL[ft] and not Value.hasAlcohol(item) then return nil end
@@ -187,6 +308,10 @@ function Value.summary(item)
     local ft = item:getFullType()
     local mod = item:getModData()
     if mod and mod.storyQuest then return { quest = true } end
+    local kind = Value.rawKind(ft)
+    if kind and (Value.categoryOf(ft) ~= "misc" or Value.resourceOf(ft) or Value.vehicleValue(ft)) then
+        return { raw = kind }
+    end
     local cat = Value.categoryOf(ft)
     local out = {}
     local any = false
@@ -255,6 +380,7 @@ local function locked(player, item)
     if player and (player:isEquippedClothing(item) or player:isEquipped(item)) then return true end
     if instanceof(item, "Food") and item:isRotten() then return true end
     if instanceof(item, "InventoryContainer") then return true end
+    if Value.isRaw(item:getFullType()) then return true end
     return false
 end
 

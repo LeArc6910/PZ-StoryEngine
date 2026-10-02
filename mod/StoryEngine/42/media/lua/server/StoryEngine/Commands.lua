@@ -486,8 +486,17 @@ function Commands.questRespond(player, args)
 end
 
 -- 위기 선택: args = { id, index }
+-- 공용 주파수 거래 제안 고르기도 같은 명령 (퀘스트 종류로 나눈다)
 function Commands.questChoose(player, args)
-    local ok, why = StoryEngine.Quests.choose(player, tostring(args.id or ""), args.index)
+    local Quests = StoryEngine.Quests
+    local id = tostring(args.id or "")
+    local q = StoryEngine.Store.data().quests[id]
+    local ok, why
+    if q and q.kind == "market" then
+        ok, why = Quests.pickMarket(player, id, args.index)
+    else
+        ok, why = Quests.choose(player, id, args.index)
+    end
     reply(player, "questRespondResult", { ok = ok, accept = true, error = not ok and why or nil })
 end
 

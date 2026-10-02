@@ -49,6 +49,10 @@ function ItemTooltip.lines(item)
         out[#out + 1] = { getText("IGUI_StoryEngine_Tip_Quest"), DIM }
         return out
     end
+    if s.raw then
+        out[#out + 1] = { getText(s.raw == "made" and "IGUI_StoryEngine_Tip_RawMade" or "IGUI_StoryEngine_Tip_Raw"), DIM }
+        return out
+    end
     if s.category then
         out[#out + 1] = { getText("IGUI_StoryEngine_Tip_Trade", getText("IGUI_StoryEngine_Cat_" .. s.category), fmt(s.value)), COLOR }
         local who = names(s.wanted)

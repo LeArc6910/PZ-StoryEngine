@@ -248,17 +248,30 @@ function Radio.request(fid, lang, opts)
             -- 거래 제안: 게임 규칙으로 다시 검증한 뒤 퀘스트로 만들고, 대화 기록에 조건을 남긴다
             local action = speaker and Trade and type(json.trade) == "table" and json.trade.action or nil
             if trade.negotiating then
-                -- 답을 기다리는 제안에 대한 흥정: 조건 변경 또는 제안 철회
-                if action == "counter" or action == "withdraw" then
-                    local ok, q, how = pcall(Trade.negotiate, fid, speaker, json.trade)
+                -- 답을 기다리는 제안에 대한 흥정: 조건 변경, 물건 교체, 제안 철회.
+                -- 말로만 바꾸겠다고 하고 조건이 그대로면 채널에 "조건 그대로" 줄을 남긴다 (말과 실제 조건이 어긋나 보이지 않게)
+                if not mode and speaker then
+                    local ok, q, how, info = pcall(Trade.negotiate, fid, speaker, json.trade)
                     if not ok then
                         log("trade haggle error:", q)
                     elseif q and how == "counter" then
                         push(fid, { from = "system", clock = t.clock, quest = q.id, revised = {
                             goods = q.goods, payCategory = q.payCategory, price = q.price,
                             oldPrice = q.oldPrice, oldPayCategory = q.oldPayCategory } })
+                    elseif q and how == "swap" then
+                        push(fid, { from = "system", clock = t.clock, quest = q.id, swapped = {
+                            goods = q.goods, oldGoods = q.oldGoods, payCategory = q.payCategory, price = q.price } })
                     elseif q and how == "withdraw" then
                         push(fid, { from = "system", clock = t.clock, quest = q.id, withdrawn = true })
+                    elseif how == "blocked" and info then
+                        push(fid, { from = "system", clock = t.clock, blocked = info })
+                    elseif how == "same" or how == "no_rounds" then
+                        local open = StoryEngine.Quests.openTrade(fid)
+                        if open then
+                            push(fid, { from = "system", clock = t.clock, quest = open.id, unchanged = {
+                                goods = open.goods, payCategory = open.payCategory, price = open.price,
+                                noRounds = how == "no_rounds" or nil } })
+                        end
                     end
                 end
             elseif action == "offer" or action == "refuse" or action == "gift" then
