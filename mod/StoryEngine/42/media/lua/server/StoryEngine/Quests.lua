@@ -60,7 +60,14 @@ Quests.CITY_RADIUS = 250          -- 5등급: 마을 중심에서 이 반경 안
 Quests.RADIUS = 15
 Quests.SETTLE_MS = 2000
 Quests.MAX_ATTEMPTS = 5
-Quests.HORDE_SIZE = { 8, 14, 20, 30, 45 }
+Quests.HORDE_SIZE = { 12, 20, 30, 45, 65 }   -- 등급별 소탕 무리 (2026-10-02 늘림, 예전 8/14/20/30/45)
+Quests.RESCUE_ZOMBIES = 2                    -- 구조 신호 건물 안 좀비 = (등급 + 1) x 이 값
+
+-- 샌드박스 ZombieMult(모드 좀비 수 배율)를 곱한 실제 마릿수
+function Quests.zombieCount(n)
+    if StoryEngine.Tuning and StoryEngine.Tuning.zombies then return StoryEngine.Tuning.zombies(n) end
+    return math.max(1, math.floor(n + 0.5))
+end
 Quests.HORDE_CLEAR = 0.8          -- 이 비율을 처치하면 완료
 Quests.HORDE_SPREAD = 8           -- 건물 경계에서 이만큼 바깥까지 배치
 Quests.HORDE_AREA = 25            -- 건물 경계에서 이만큼 바깥까지 처치를 센다
@@ -369,7 +376,8 @@ local function spawnAt(q, sq, container)
     q.placed = placed
     q.spawned = true
     if q.origin and q.origin.source == "rescue" and q.bx1 then
-        local ok, zeds = pcall(addZombiesInOutfitArea, q.bx1, q.by1, q.bx2, q.by2, q.z or 0, (q.tier or 1) + 1, nil, nil)
+        local ok, zeds = pcall(addZombiesInOutfitArea, q.bx1, q.by1, q.bx2, q.by2, q.z or 0,
+            Quests.zombieCount(((q.tier or 1) + 1) * Quests.RESCUE_ZOMBIES), nil, nil)
         log("rescue zombies", q.id, ok and zeds and zeds:size() or tostring(zeds))
     end
     log("quest spawned", q.id, q.kind, #placed, "items in", q.containerType or "floor", q.containerSprite or "",
@@ -815,7 +823,7 @@ function Quests.createSite(kind, ps, site, now, origin, opts)
     elseif kind == "supply_drop" then
         q.items = opts.items or {}
     elseif kind == "horde" then
-        q.size = math.max(1, math.floor(opts.size or Quests.HORDE_SIZE[3]))
+        q.size = Quests.zombieCount(opts.size or Quests.HORDE_SIZE[3])
         q.killsNeeded, q.killed = math.ceil(q.size * Quests.HORDE_CLEAR), 0
         q.radius = Quests.RADIUS
     elseif kind == "defend" then
@@ -1161,7 +1169,7 @@ function Quests.proposeHorde(player, ps, fid, tier, now)
     place.inside = false
     place.rooms = roomNames(def)
     place.residential = def:isResidential() == true
-    local size = Quests.HORDE_SIZE[tier]
+    local size = Quests.zombieCount(Quests.HORDE_SIZE[tier])
     local q = {
         id = "Q" .. StoryEngine.intToString(d.questSeq),
         kind = "horde", tier = tier, building = found.key, place = place,

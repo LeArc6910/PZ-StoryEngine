@@ -119,6 +119,20 @@ function T.ai_saver_doubles_the_pace()
     H.eq(Tuning().saverFactor(), 2)
 end
 
+function T.zombie_multiplier_scales_every_group()
+    H.eq(StoryEngine.Quests.zombieCount(StoryEngine.Quests.HORDE_SIZE[1]), 12, "new base")
+    set({ ZombieMult = 2, HuntSizeMult = 1.5 })
+    H.eq(StoryEngine.Quests.zombieCount(StoryEngine.Quests.HORDE_SIZE[5]), 130, "clear-out quest doubled")
+    H.eq(StoryEngine.Hunt.SIZE_BY_STAGE[1], 60, "chasing horde: 20 x 1.5 x 2")
+    set({ Difficulty = 4 })
+    H.eq(StoryEngine.Quests.zombieCount(10), 20, "not part of the presets")
+    set({ Difficulty = 1, ZombieMult = 5, HuntSizeMult = 3 })
+    H.eq(StoryEngine.Hunt.SIZE_BY_STAGE[3], 300, "capped")
+    local p = H.addPlayer("tester", "Gerald", "Kar")
+    local id = StoryEngine.Hunt.start(p, 900, 0, 0, "test")
+    H.eq(StoryEngine.Store.data().hunts[id].remaining, 300, "hunt start capped too")
+end
+
 function T.stage_days_stay_ordered()
     set({ StageMidDay = 50, StageLateDay = 20 })
     H.eq(StoryEngine.Store.STAGE_DAYS[1], 50)

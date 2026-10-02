@@ -322,7 +322,7 @@ end
 local function clearSize(op, n)
     local stage = Store.stage()
     local base = Quests.HORDE_SIZE[math.min(Quests.MAX_TIER, stage + 2)] or 20
-    local mult = Ops.CLEAR_MULT * (StoryEngine.Tuning and StoryEngine.Tuning.num("HuntSizeMult") or 1)
+    local mult = Ops.CLEAR_MULT   -- 샌드박스 ZombieMult 는 Quests.createSite 가 곱한다
     for _ = 1, (op.fails[n] or 0) do mult = mult * Ops.RETRY_SIZE end
     return math.max(6, math.floor(base * mult + 0.5))
 end
