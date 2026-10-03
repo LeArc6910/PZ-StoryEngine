@@ -159,6 +159,10 @@ function Client.handlers.radioChannels(args)
     StoryEngineMainWindow.refreshIfOpen("radio")
 end
 
+function Client.handlers.tradeOptions(args)
+    if StoryEngineRadioPanel and StoryEngineRadioPanel.openTradeMenu then StoryEngineRadioPanel.openTradeMenu(args) end
+end
+
 function Client.handlers.radioHistory(args)
     if args.faction then Cache.messages[args.faction] = args.messages or {} end
     StoryEngineMainWindow.refreshIfOpen("radio")
@@ -232,8 +236,9 @@ Events.OnTick.Add(function()
             local p = findSpeaker(q.line)
             if p and not p:isDead() then
                 local c = Client.BANTER_COLOR
-                local ok = pcall(function() p:addLineChatElement(tostring(q.line.text), c[1], c[2], c[3]) end)
-                if not ok then pcall(function() p:Say(tostring(q.line.text)) end) end
+                local text = q.line.lt and StoryEngine.UI.render(q.line.lt) or tostring(q.line.text)
+                local ok = pcall(function() p:addLineChatElement(text, c[1], c[2], c[3]) end)
+                if not ok then pcall(function() p:Say(text) end) end
             end
         else
             keep[#keep + 1] = q
@@ -538,142 +543,140 @@ local function send(command)
     end
 end
 
-local function onFillWorldObjectContextMenu(playerNum, context, worldobjects, test)
-    if test then return end
-    context:addOption(getText("ContextMenu_StoryEngine_Radio"), worldobjects, function() StoryEngineMainWindow.open("radio") end)
-    context:addOption(getText("ContextMenu_StoryEngine_QuestLog"), worldobjects, function() StoryEngineMainWindow.open("quests") end)
-    context:addOption(getText("ContextMenu_StoryEngine_Journal"), worldobjects, function() StoryEngineMainWindow.open("journal") end)
-    context:addOption(getText("ContextMenu_StoryEngine_Life_Open"), worldobjects, function() StoryEngineMainWindow.open("life") end)
-    -- 디버그 메뉴: 싱글에서는 항상, 멀티에서는 디버그 모드나 관리자일 때만 (서버에서 권한을 다시 확인한다)
-    if isClient() and not (getDebug() or isAdmin()) then return end
-    context:addOption(getText("ContextMenu_StoryEngine_Ping"), worldobjects, send("ping"), playerNum)
-    context:addOption(getText("ContextMenu_StoryEngine_Status"), worldobjects, send("debugStatus"), playerNum)
-    context:addOption(getText("ContextMenu_StoryEngine_WriteJournal"), worldobjects, send("debugJournal"), playerNum)
-    context:addOption(getText("ContextMenu_StoryEngine_Director"), worldobjects, send("debugDirector"), playerNum)
-    context:addOption(getText("ContextMenu_StoryEngine_Supply"), worldobjects, send("debugSupply"), playerNum)
-    context:addOption(getText("ContextMenu_StoryEngine_Fetch"), worldobjects, send("debugFetch"), playerNum)
-    context:addOption(getText("ContextMenu_StoryEngine_Request"), worldobjects, send("debugRequest"), playerNum)
-    context:addOption(getText("ContextMenu_StoryEngine_Horde"), worldobjects, send("debugHorde"), playerNum)
-    context:addOption(getText("ContextMenu_StoryEngine_Event"), worldobjects, send("debugEvent"), playerNum)
-    context:addOption(getText("ContextMenu_StoryEngine_HuntNear"), worldobjects, send("debugHuntNear"), playerNum)
-    context:addOption(getText("ContextMenu_StoryEngine_ALifeSupport"), worldobjects, function()
-        local p = getSpecificPlayer(playerNum)
-        if p then Net.toServer(p, "debugALifeSupport", { faction = Cache.faction }) end
-    end)
-    context:addOption(getText("ContextMenu_StoryEngine_ALifeAttack"), worldobjects, send("debugALifeAttack"), playerNum)
-    -- 신뢰도 조절: 교신 탭에서 고른 상대
-    local fid = Cache.faction
-    local trustOption = context:addOption(getText("ContextMenu_StoryEngine_Trust", StoryEngine.Factions.name(fid)), worldobjects, nil)
-    local sub = ISContextMenu:getNew(context)
-    context:addSubMenu(trustOption, sub)
-    local function trust(args)
+-- 디버그 메뉴는 게임을 디버그 모드(-debug)로 켰을 때만 보인다 (2026-10-03: 예전엔 싱글에서 늘 보였다).
+-- 멀티에서는 서버가 권한(Capability.UseDebugContextMenu)을 다시 확인한다.
+function Client.showDebugMenu()
+    local ok, on = pcall(getDebug)
+    return ok and on == true
+end
+
+-- 번역 문장 앞의 "StoryEngine: " 은 하위 메뉴 안에서는 뺀다
+local function label(key, ...)
+    local text = getText(key, ...)
+    text = string.gsub(text, "^StoryEngine:%s*", "")
+    return text
+end
+
+local function subMenu(context, parent, text)
+    local option = parent:addOption(text, nil, nil)
+    local sub = parent:getNew(parent)
+    context:addSubMenu(option, sub)
+    return sub
+end
+
+-- 우클릭 메뉴 "스토리 엔진 (디버그)" 하나 아래에 분류별로
+local function fillDebugMenu(context, worldobjects, playerNum)
+    local function toServer(command, args)
         return function()
             local p = getSpecificPlayer(playerNum)
-            if p then
-                args.faction = fid
-                Net.toServer(p, "debugTrust", args)
-            end
+            if p then Net.toServer(p, command, args or {}) end
         end
     end
-    sub:addOption("+10", worldobjects, trust({ delta = 10 }))
-    sub:addOption("-10", worldobjects, trust({ delta = -10 }))
+    local root = subMenu(context, context, getText("ContextMenu_StoryEngine_Debug"))
+    local fid = Cache.faction
+    local npcName = StoryEngine.Factions.name(fid)
+
+    -- 점검
+    local check = subMenu(context, root, getText("ContextMenu_StoryEngine_DebugCat_check"))
+    check:addOption(label("ContextMenu_StoryEngine_Ping"), worldobjects, send("ping"), playerNum)
+    check:addOption(label("ContextMenu_StoryEngine_Status"), worldobjects, send("debugStatus"), playerNum)
+    check:addOption(label("ContextMenu_StoryEngine_Sync"), worldobjects, send("debugSync"), playerNum)
+    check:addOption(label("ContextMenu_StoryEngine_Quests"), worldobjects, send("debugQuests"), playerNum)
+    check:addOption(label("ContextMenu_StoryEngine_ItemPool"), worldobjects, send("debugItems"), playerNum)
+
+    -- 디렉터·퀘스트
+    local quests = subMenu(context, root, getText("ContextMenu_StoryEngine_DebugCat_quests"))
+    quests:addOption(label("ContextMenu_StoryEngine_Director"), worldobjects, send("debugDirector"), playerNum)
+    quests:addOption(label("ContextMenu_StoryEngine_Supply"), worldobjects, send("debugSupply"), playerNum)
+    quests:addOption(label("ContextMenu_StoryEngine_Fetch"), worldobjects, send("debugFetch"), playerNum)
+    quests:addOption(label("ContextMenu_StoryEngine_Request"), worldobjects, send("debugRequest"), playerNum)
+    quests:addOption(label("ContextMenu_StoryEngine_Horde"), worldobjects, send("debugHorde"), playerNum)
+    quests:addOption(label("ContextMenu_StoryEngine_Event"), worldobjects, send("debugEvent"), playerNum)
+    quests:addOption(label("ContextMenu_StoryEngine_HuntNear"), worldobjects, send("debugHuntNear"), playerNum)
+    quests:addOption(label("ContextMenu_StoryEngine_Crisis"), worldobjects, send("debugCrisis"), playerNum)
+
+    -- NPC (교신 탭에서 고른 상대 / 생활 자원은 거점 탭에서 고른 상대)
+    local npc = subMenu(context, root, getText("ContextMenu_StoryEngine_DebugCat_npc"))
+    local tsub = subMenu(context, npc, label("ContextMenu_StoryEngine_Trust", npcName))
+    tsub:addOption("+10", worldobjects, toServer("debugTrust", { faction = fid, delta = 10 }))
+    tsub:addOption("-10", worldobjects, toServer("debugTrust", { faction = fid, delta = -10 }))
     for _, v in ipairs({ 0, 20, 40, 50, 60, 70, 80, 90, 100 }) do
-        sub:addOption("= " .. tostring(v), worldobjects, trust({ set = v }))
+        tsub:addOption("= " .. tostring(v), worldobjects, toServer("debugTrust", { faction = fid, set = v }))
     end
-    -- NPC 생활 자원 조절: 거점 탭에서 고른 상대 (없으면 교신 탭 상대)
     local lfid = Cache.lifeFaction or fid
     if not StoryEngine.Factions.byId[lfid] then lfid = "ray" end
-    local lifeOption = context:addOption(getText("ContextMenu_StoryEngine_Life", StoryEngine.Factions.name(lfid)), worldobjects, nil)
-    local lsub = ISContextMenu:getNew(context)
-    context:addSubMenu(lifeOption, lsub)
+    local lsub = subMenu(context, npc, label("ContextMenu_StoryEngine_Life", StoryEngine.Factions.name(lfid)))
     local function life(args)
-        return function()
-            local p = getSpecificPlayer(playerNum)
-            if p then
-                args.faction = lfid
-                Net.toServer(p, "debugLife", args)
-            end
-        end
+        args.faction = lfid
+        return toServer("debugLife", args)
     end
     lsub:addOption("+20", worldobjects, life({ delta = 20 }))
     lsub:addOption("-20", worldobjects, life({ delta = -20 }))
     for _, v in ipairs({ 0, 10, 50, 100 }) do
         lsub:addOption("= " .. tostring(v), worldobjects, life({ set = v }))
     end
-    lsub:addOption(getText("ContextMenu_StoryEngine_LifeBase"), worldobjects, life({ set = "base" }))
-    lsub:addOption(getText("ContextMenu_StoryEngine_LifeClearWait"), worldobjects, life({ delta = 0, clearWait = true }))
-    lsub:addOption(getText("ContextMenu_StoryEngine_SpecClearWait"), worldobjects, life({ delta = 0, clearSpec = true }))
-    lsub:addOption(getText("ContextMenu_StoryEngine_ProjectAdd"), worldobjects, life({ delta = 0, project = 100 }))
-    lsub:addOption(getText("ContextMenu_StoryEngine_ProjectDone"), worldobjects, life({ delta = 0, project = 1000 }))
-    lsub:addOption(getText("ContextMenu_StoryEngine_NpcShare"), worldobjects, life({ delta = 0, npcEvent = "share" }))
-    lsub:addOption(getText("ContextMenu_StoryEngine_NpcClash"), worldobjects, life({ delta = 0, npcEvent = "clash" }))
-    lsub:addOption(getText("ContextMenu_StoryEngine_NpcRaid"), worldobjects, life({ delta = 0, npcEvent = "raid" }))
-    lsub:addOption(getText("ContextMenu_StoryEngine_NpcEmergency"), worldobjects, life({ delta = 0, npcEvent = "emergency" }))
-    lsub:addOption(getText("ContextMenu_StoryEngine_FateDoom"), worldobjects, life({ delta = 0, fate = "doom" }))
-    lsub:addOption(getText("ContextMenu_StoryEngine_FateDead"), worldobjects, life({ delta = 0, fate = "dead" }))
-    lsub:addOption(getText("ContextMenu_StoryEngine_FateGone"), worldobjects, life({ delta = 0, fate = "gone" }))
-    lsub:addOption(getText("ContextMenu_StoryEngine_FateRevive"), worldobjects, life({ delta = 0, fate = "revive" }))
-    context:addOption(getText("ContextMenu_StoryEngine_Monologue"), worldobjects, send("debugMonologue"), playerNum)
-    context:addOption(getText("ContextMenu_StoryEngine_Banter"), worldobjects, send("debugBanter"), playerNum)
-    context:addOption(getText("ContextMenu_StoryEngine_Contact"), worldobjects, send("debugContact"), playerNum)
-    context:addOption(getText("ContextMenu_StoryEngine_Scene"), worldobjects, send("debugScene"), playerNum)
-    context:addOption(getText("ContextMenu_StoryEngine_Broadcast"), worldobjects, send("debugBroadcast"), playerNum)
-    context:addOption(getText("ContextMenu_StoryEngine_Letter", StoryEngine.Factions.name(fid)), worldobjects, function()
-        local p = getSpecificPlayer(playerNum)
-        if p then Net.toServer(p, "debugLetter", { faction = fid }) end
-    end)
-    context:addOption(getText("ContextMenu_StoryEngine_LetterFarewell", StoryEngine.Factions.name(fid)), worldobjects, function()
-        local p = getSpecificPlayer(playerNum)
-        if p then Net.toServer(p, "debugLetter", { faction = fid, reason = "farewell" }) end
-    end)
-    local worldOption = context:addOption(getText("ContextMenu_StoryEngine_World"), worldobjects, nil)
-    local wsub = ISContextMenu:getNew(context)
-    context:addSubMenu(worldOption, wsub)
+    lsub:addOption(label("ContextMenu_StoryEngine_LifeBase"), worldobjects, life({ set = "base" }))
+    lsub:addOption(label("ContextMenu_StoryEngine_LifeClearWait"), worldobjects, life({ delta = 0, clearWait = true }))
+    lsub:addOption(label("ContextMenu_StoryEngine_SpecClearWait"), worldobjects, life({ delta = 0, clearSpec = true }))
+    lsub:addOption(label("ContextMenu_StoryEngine_ProjectAdd"), worldobjects, life({ delta = 0, project = 100 }))
+    lsub:addOption(label("ContextMenu_StoryEngine_ProjectDone"), worldobjects, life({ delta = 0, project = 1000 }))
+    lsub:addOption(label("ContextMenu_StoryEngine_NpcShare"), worldobjects, life({ delta = 0, npcEvent = "share" }))
+    lsub:addOption(label("ContextMenu_StoryEngine_NpcClash"), worldobjects, life({ delta = 0, npcEvent = "clash" }))
+    lsub:addOption(label("ContextMenu_StoryEngine_NpcRaid"), worldobjects, life({ delta = 0, npcEvent = "raid" }))
+    lsub:addOption(label("ContextMenu_StoryEngine_NpcEmergency"), worldobjects, life({ delta = 0, npcEvent = "emergency" }))
+    lsub:addOption(label("ContextMenu_StoryEngine_FateDoom"), worldobjects, life({ delta = 0, fate = "doom" }))
+    lsub:addOption(label("ContextMenu_StoryEngine_FateDead"), worldobjects, life({ delta = 0, fate = "dead" }))
+    lsub:addOption(label("ContextMenu_StoryEngine_FateGone"), worldobjects, life({ delta = 0, fate = "gone" }))
+    lsub:addOption(label("ContextMenu_StoryEngine_FateRevive"), worldobjects, life({ delta = 0, fate = "revive" }))
+    npc:addOption(label("ContextMenu_StoryEngine_Story", npcName), worldobjects, toServer("debugStory", { faction = fid }))
+    npc:addOption(label("ContextMenu_StoryEngine_Contact"), worldobjects, send("debugContact"), playerNum)
+    npc:addOption(label("ContextMenu_StoryEngine_Scene"), worldobjects, send("debugScene"), playerNum)
+    npc:addOption(label("ContextMenu_StoryEngine_Letter", npcName), worldobjects, toServer("debugLetter", { faction = fid }))
+    npc:addOption(label("ContextMenu_StoryEngine_LetterFarewell", npcName), worldobjects,
+        toServer("debugLetter", { faction = fid, reason = "farewell" }))
+
+    -- 캐릭터 (일지, 혼잣말, 동료 대화)
+    local char = subMenu(context, root, getText("ContextMenu_StoryEngine_DebugCat_character"))
+    char:addOption(label("ContextMenu_StoryEngine_WriteJournal"), worldobjects, send("debugJournal"), playerNum)
+    char:addOption(label("ContextMenu_StoryEngine_Monologue"), worldobjects, send("debugMonologue"), playerNum)
+    char:addOption(label("ContextMenu_StoryEngine_Banter"), worldobjects, send("debugBanter"), playerNum)
+
+    -- 세계 (세계 변화·전기 수도, 큰 사건, 복구 작전, 라디오 방송)
+    local world = subMenu(context, root, getText("ContextMenu_StoryEngine_DebugCat_world"))
+    local wsub = subMenu(context, world, label("ContextMenu_StoryEngine_World"))
     for _, ev in ipairs({ "power", "water", "winter", "snow", "day30", "day90", "day180" }) do
-        wsub:addOption(getText("ContextMenu_StoryEngine_World_" .. ev), worldobjects, function()
-            local p = getSpecificPlayer(playerNum)
-            if p then Net.toServer(p, "debugWorld", { event = ev }) end
-        end)
+        wsub:addOption(label("ContextMenu_StoryEngine_World_" .. ev), worldobjects, toServer("debugWorld", { event = ev }))
     end
     for _, kind in ipairs({ "power", "water", "reset" }) do
-        wsub:addOption(getText("ContextMenu_StoryEngine_Grid_" .. kind), worldobjects, function()
-            local p = getSpecificPlayer(playerNum)
-            if p then Net.toServer(p, "debugGrid", { kind = kind }) end
-        end)
+        wsub:addOption(label("ContextMenu_StoryEngine_Grid_" .. kind), worldobjects, toServer("debugGrid", { kind = kind }))
     end
-    local sagaOption = context:addOption(getText("ContextMenu_StoryEngine_Saga"), worldobjects, nil)
-    local ssub = ISContextMenu:getNew(context)
-    context:addSubMenu(sagaOption, ssub)
+    local ssub = subMenu(context, world, label("ContextMenu_StoryEngine_Saga"))
     for _, entry in ipairs({ { "start", "crash" }, { "start", "migration" }, { "start", "epidemic" }, { "start", "blackout" },
                              { "next" }, { "stop" } }) do
-        ssub:addOption(getText("ContextMenu_StoryEngine_Saga_" .. entry[1] .. (entry[2] and ("_" .. entry[2]) or "")),
-            worldobjects, function()
-                local p = getSpecificPlayer(playerNum)
-                if p then Net.toServer(p, "debugSaga", { action = entry[1], kind = entry[2] }) end
-            end)
+        ssub:addOption(label("ContextMenu_StoryEngine_Saga_" .. entry[1] .. (entry[2] and ("_" .. entry[2]) or "")),
+            worldobjects, toServer("debugSaga", { action = entry[1], kind = entry[2] }))
     end
-    local opOption = context:addOption(getText("ContextMenu_StoryEngine_Op"), worldobjects, nil)
-    local osub = ISContextMenu:getNew(context)
-    context:addSubMenu(opOption, osub)
+    local osub = subMenu(context, world, label("ContextMenu_StoryEngine_Op"))
     for _, entry in ipairs({ { "start", "water" }, { "start", "power" }, { "next" }, { "fail" }, { "stop" } }) do
-        osub:addOption(getText("ContextMenu_StoryEngine_Op_" .. entry[1] .. (entry[2] and ("_" .. entry[2]) or "")),
-            worldobjects, function()
-                local p = getSpecificPlayer(playerNum)
-                if p then Net.toServer(p, "debugOp", { action = entry[1], kind = entry[2] }) end
-            end)
+        osub:addOption(label("ContextMenu_StoryEngine_Op_" .. entry[1] .. (entry[2] and ("_" .. entry[2]) or "")),
+            worldobjects, toServer("debugOp", { action = entry[1], kind = entry[2] }))
     end
-    context:addOption(getText("ContextMenu_StoryEngine_BroadcastRerun"), worldobjects, function(_, pn)
-        local p = getSpecificPlayer(pn)
-        if p then Net.toServer(p, "debugBroadcast", { rerun = true }) end
-    end, playerNum)
-    context:addOption(getText("ContextMenu_StoryEngine_Crisis"), worldobjects, send("debugCrisis"), playerNum)
-    context:addOption(getText("ContextMenu_StoryEngine_Story", StoryEngine.Factions.name(Cache.faction)), worldobjects, function()
-        local p = getSpecificPlayer(playerNum)
-        if p then Net.toServer(p, "debugStory", { faction = Cache.faction }) end
-    end)
-    context:addOption(getText("ContextMenu_StoryEngine_Sync"), worldobjects, send("debugSync"), playerNum)
-    context:addOption(getText("ContextMenu_StoryEngine_ItemPool"), worldobjects, send("debugItems"), playerNum)
-    context:addOption(getText("ContextMenu_StoryEngine_Quests"), worldobjects, send("debugQuests"), playerNum)
+    world:addOption(label("ContextMenu_StoryEngine_Broadcast"), worldobjects, send("debugBroadcast"), playerNum)
+    world:addOption(label("ContextMenu_StoryEngine_BroadcastRerun"), worldobjects, toServer("debugBroadcast", { rerun = true }))
+
+    -- A-Life 연동
+    local alife = subMenu(context, root, getText("ContextMenu_StoryEngine_DebugCat_alife"))
+    alife:addOption(label("ContextMenu_StoryEngine_ALifeSupport"), worldobjects, toServer("debugALifeSupport", { faction = fid }))
+    alife:addOption(label("ContextMenu_StoryEngine_ALifeAttack"), worldobjects, send("debugALifeAttack"), playerNum)
+end
+
+local function onFillWorldObjectContextMenu(playerNum, context, worldobjects, test)
+    if test then return end
+    context:addOption(getText("ContextMenu_StoryEngine_Radio"), worldobjects, function() StoryEngineMainWindow.open("radio") end)
+    context:addOption(getText("ContextMenu_StoryEngine_QuestLog"), worldobjects, function() StoryEngineMainWindow.open("quests") end)
+    context:addOption(getText("ContextMenu_StoryEngine_Journal"), worldobjects, function() StoryEngineMainWindow.open("journal") end)
+    context:addOption(getText("ContextMenu_StoryEngine_Life_Open"), worldobjects, function() StoryEngineMainWindow.open("life") end)
+    if Client.showDebugMenu() then fillDebugMenu(context, worldobjects, playerNum) end
 end
 
 Events.OnServerCommand.Add(onServerCommand)

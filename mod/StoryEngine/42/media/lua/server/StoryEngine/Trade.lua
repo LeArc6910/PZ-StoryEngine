@@ -383,10 +383,10 @@ function Trade.roll(category, tier, fid)
 end
 
 -- AI 답장의 trade 필드로 거래 제안(offer) 또는 무상 제공(gift)을 만든다. 반환: 퀘스트, "offer" | "gift" / 없으면 nil
-function Trade.fromReply(fid, ps, trade)
+function Trade.fromReply(fid, ps, trade, ctx)
     if type(trade) ~= "table" or not ps then return nil end
     if trade.action ~= "offer" and trade.action ~= "gift" then return nil end
-    local ctx = Trade.context(fid, ps)
+    ctx = ctx or Trade.context(fid, ps)
     if not ctx.allowed then
         log("trade offer ignored:", fid, ctx.reason)
         if ctx.reason == "low_trust" then return nil, "blocked", Trade.blocked(fid, trade.category, trade.tier) end
@@ -426,6 +426,107 @@ function Trade.fromReply(fid, ps, trade)
     return Quests.proposeTrade(ps, fid, {
         tier = tier, category = trade.category, goods = goods, payCategory = payCategory, price = price,
     }, Sensor.now()), "offer"
+end
+
+-- ---------------------------------------------------------------- 버튼 거래 (AI 없이도, 2026-10-03)
+-- 교신 탭 [거래 요청] 버튼: 품목·등급을 골라 청하면 AI 답장과 같은 규칙(Trade.fromReply)으로 제안·선물·거절을 만든다.
+-- 요청 횟수(의심)도 똑같이 센다. 대가 품목은 그 NPC 가 받는 것 중 플레이어가 가장 많이 가진 것.
+
+-- 메뉴에 보여 줄 것: 취급 품목과 등급별 필요 신뢰도, 지금 막힌 이유
+function Trade.options(fid, ps)
+    local ctx = Trade.context(fid, ps)
+    local out = { faction = fid, reason = ctx.reason, trust = ctx.trust, need = ctx.need, items = {} }
+    if ctx.negotiating then out.reason = "negotiating" end
+    local catalog = ctx.catalog
+    if not catalog then
+        local offer = Trade.offerContext(fid, ctx.trust or Radio.channel(fid).trust)
+        catalog = offer.catalog
+    end
+    if not catalog then
+        -- 아직 거래 전(신뢰도 부족)이어도 무엇을 얼마의 신뢰도에서 파는지는 보여 준다
+        catalog = {}
+        local rules = Trade.FACTIONS[fid] or { goods = {} }
+        for _, cat in ipairs(Value.CATEGORIES) do
+            local cap = rules.goods[cat] or 0
+            if cap > 0 then
+                local needs = {}
+                for t = 1, cap do needs[t] = Trade.needTrust(fid, cat, t) or 101 end
+                catalog[#catalog + 1] = { category = cat, maxTier = 0, needs = needs }
+            end
+        end
+    end
+    for _, c in ipairs(catalog or {}) do
+        out.items[#out.items + 1] = { category = c.category, maxTier = ctx.allowed and c.maxTier or 0, needs = c.needs,
+                                      empty = c.empty, short = c.short }
+    end
+    out.allowed = ctx.allowed == true
+    return out
+end
+
+local function bestPay(wants, player)
+    local stock = player and Trade.stockOf(player) or {}
+    local best, value = wants[1], -1
+    for _, w in ipairs(wants or {}) do
+        local v = stock[w] or 0
+        if v > value then best, value = w, v end
+    end
+    return best
+end
+
+-- 반환: true | false, 오류 코드
+function Trade.ask(player, fid, category, tier)
+    if not Factions.byId[fid] or not Trade.FACTIONS[fid] then return false, "no_trader" end
+    if not Factions.canTalk(player) then return false, "no_radio" end
+    if Factions.isGone(fid) then return false, "gone" end
+    if StoryEngine.Saga and StoryEngine.Saga.radioDown(fid) then return false, "blackout" end
+    if Radio.busy[fid] then return false, "busy" end
+    tier = math.max(1, math.min(5, math.floor(tonumber(tier) or 1)))
+    category = tostring(category or "")
+    local ps = Store.player(player)
+    local ctx = Trade.context(fid, ps)
+    if ctx.negotiating or ctx.reason == "open_deal" then return false, "open_deal" end
+    local now = Sensor.now()
+    local day = Store.dayIndex(now.dayKey)
+    Radio.push(fid, { from = "system", clock = now.clock, day = day, asked = { category = category, tier = tier,
+                                                                             name = ps.name } })
+    Radio.speaker[fid] = ps
+    Radio.channel(fid).lastPlayerT = now.t
+    local okR, errR = pcall(Trade.recordRequest, fid, ps)
+    if not okR then log("trade request count error:", errR) end
+
+    local Lines = StoryEngine.Lines
+    local catText = category .. " (tier " .. StoryEngine.intToString(tier) .. ")"
+    local deal, how, info = nil, nil, nil
+    if ctx.allowed then
+        local action = ((ctx.freeMaxTier or 0) >= tier) and "gift" or "offer"
+        deal, how, info = Trade.fromReply(fid, ps, { action = action, category = category, tier = tier,
+                                                     pay_category = bestPay(ctx.wants or {}, player) }, ctx)
+    else
+        info = Trade.blocked(fid, category, tier)
+        how = info and "blocked" or nil
+    end
+    if deal and how == "gift" then
+        Radio.push(fid, { from = "system", clock = now.clock, quest = deal.id, gift = { goods = deal.items } })
+        Radio.react(fid, "event", ps.name .. " asked you over the radio for " .. catText .. ". You decided to give it "
+            .. "for free this time, because you trust them; it will be left in a building nearby. Tell them briefly.",
+            Lines.fallback(fid, "gift", "This one is on me."), ps)
+    elseif deal then
+        Radio.push(fid, { from = "system", clock = now.clock, quest = deal.id,
+                          offer = { goods = deal.goods, payCategory = deal.payCategory, price = deal.price } })
+        Radio.react(fid, "event", ps.name .. " asked you over the radio for " .. catText .. ". You offer them: "
+            .. Quests.listText(deal.goods) .. ", for " .. StoryEngine.intToString(deal.price) .. " worth of "
+            .. tostring(deal.payCategory) .. ". The terms are already set; tell them the offer briefly in character "
+            .. "and that they can accept or haggle.", Lines.fallback(fid, "offer", "Here is what I can do."), ps)
+    else
+        if how == "blocked" and info then
+            Radio.push(fid, { from = "system", clock = now.clock, blocked = info })
+        end
+        Radio.react(fid, "event", ps.name .. " asked you over the radio for " .. catText .. ", but you will not trade "
+            .. "that with them right now (" .. tostring(ctx.reason or "not enough trust or you are short yourself")
+            .. "). Turn them down briefly in character.", Lines.fallback(fid, "refuse", "Not now."), ps)
+    end
+    log("trade ask", fid, category, tier, "by", ps.name, deal and (how or "offer") or "refused")
+    return true
 end
 
 -- 대가 제출. itemIds 는 클라이언트가 고른 아이템 ID 목록. 성공하면 true, 배송 퀘스트 / 실패하면 false, 오류 코드

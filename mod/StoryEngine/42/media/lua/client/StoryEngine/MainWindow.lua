@@ -45,6 +45,7 @@ local COLOR_DECLINED = { r = 0.6, g = 0.6, b = 0.6 }
 local COLOR_MEMOIR = { r = 0.85, g = 0.75, b = 0.95 }
 local SMALL_W = 80
 local SUPPORT_W = 120
+local TRADE_W = 110
 
 StoryEngine.Cache = StoryEngine.Cache or {
     quests = {}, journal = {}, channels = {}, messages = {}, unread = {},
@@ -234,7 +235,13 @@ function StoryEngineRadioPanel:createChildren()
         getText("IGUI_StoryEngine_Support_Button"), self, function()
             request("supportRequest", { faction = Cache.faction })
         end)
-    for _, b in ipairs({ self.acceptButton, self.declineButton, self.supportButton }) do
+    -- 버튼 거래 (Trade.ask): 품목·등급을 메뉴에서 골라 청한다. AI 없이도 된다
+    self.tradeButton = ISButton:new(self.width - PAD - TRADE_W, rowY, TRADE_W, BUTTON_H,
+        getText("IGUI_StoryEngine_TradeAsk_Button"), self, function()
+            request("tradeOptions", { faction = Cache.faction })
+        end)
+    self.tradeButton.tooltip = getText("IGUI_StoryEngine_TradeAsk_Tooltip")
+    for _, b in ipairs({ self.acceptButton, self.declineButton, self.supportButton, self.tradeButton }) do
         b:initialise()
         b:setAnchorLeft(false)
         b:setAnchorRight(true)
@@ -354,6 +361,12 @@ local function messageLine(fid, m)
     elseif m.from == "system" and m.fate then
         return " <RGB:0.75,0.6,0.9> " .. UI.escape(clock .. getText("IGUI_StoryEngine_Fate_Line_" .. tostring(m.fate),
             Factions.name(fid))) .. " <LINE> "
+    elseif m.from == "system" and m.asked then
+        local a = m.asked
+        return " <RGB:0.55,0.75,1> " .. UI.escape(clock .. getText("IGUI_StoryEngine_TradeAsk_Line", tostring(a.name or "?"),
+            StoryEngine.intToString(a.tier or 1), catName(a.category))) .. " <LINE> "
+    elseif m.from == "system" and m.offlineHint then
+        return " <RGB:0.6,0.6,0.6> " .. UI.escape(clock .. getText("IGUI_StoryEngine_Radio_OfflineHint")) .. " <LINE> "
     elseif m.from == "system" and m.blocked then
         return " <RGB:0.95,0.6,0.4> " .. UI.escape(clock .. blockedText(m.blocked)) .. " <LINE> "
     elseif m.from == "system" then
@@ -408,6 +421,9 @@ function StoryEngineRadioPanel:refresh()
     local proposal = pendingProposal(Cache.faction) ~= nil
     self.acceptButton:setVisible(proposal)
     self.declineButton:setVisible(proposal)
+    local chSel = Cache.channels[Cache.faction]
+    local trades = #(StoryEngine.Value.WANTS[Cache.faction] or {}) > 0
+    self.tradeButton:setVisible(trades and not proposal and not (chSel and chSel.gone))
 
     -- 지원 요청 버튼은 2026-09-29부터 숨긴다: 방위대 특기(거점 탭)로 옮겼고, A-Life 자동 지원만 남았다
     local support = nil
@@ -421,6 +437,55 @@ function StoryEngineRadioPanel:refresh()
             self.supportButton.tooltip = getText("IGUI_StoryEngine_Support_Error_cooldown", StoryEngine.intToString(support.wait))
         else
             self.supportButton.tooltip = getText("IGUI_StoryEngine_Support_Tooltip")
+        end
+    end
+end
+
+-- 버튼 거래 메뉴: 품목마다 하위 메뉴, 등급마다 한 줄. 지금 신뢰도로 안 되는 등급은 회색 + 필요 신뢰도
+function StoryEngineRadioPanel.openTradeMenu(args)
+    if not args or args.faction ~= Cache.faction then return end
+    local context = ISContextMenu.get(0, getMouseX(), getMouseY())
+    local function tip(o, text)
+        local tt = ISToolTip:new()
+        tt:initialise()
+        tt:setVisible(false)
+        tt.description = text
+        o.toolTip = tt
+    end
+    local blockedAll = nil
+    if args.reason == "negotiating" or args.reason == "open_deal" then
+        blockedAll = getText("IGUI_StoryEngine_TradeAsk_OpenDeal")
+    elseif args.reason == "low_trust" then
+        blockedAll = getText("IGUI_StoryEngine_Trade_BlockedAll", StoryEngine.intToString(args.need or 20))
+    end
+    if blockedAll then
+        local o = context:addOption(blockedAll, nil, nil)
+        o.notAvailable = true
+        return
+    end
+    for _, it in ipairs(args.items or {}) do
+        local label = catName(it.category)
+        if it.empty then label = label .. " " .. getText("IGUI_StoryEngine_TradeAsk_Empty") end
+        local parent = context:addOption(label, nil, nil)
+        local sub = context:getNew(context)
+        context:addSubMenu(parent, sub)
+        for tier = 1, #(it.needs or {}) do
+            local o = sub:addOption(getText("IGUI_StoryEngine_TradeAsk_Tier", StoryEngine.intToString(tier)), nil, function()
+                request("tradeAsk", { faction = args.faction, category = it.category, tier = tier })
+            end)
+            if tier > (it.maxTier or 0) then
+                o.notAvailable = true
+                local need = it.needs[tier] or 101
+                if it.empty then
+                    tip(o, getText("IGUI_StoryEngine_TradeAsk_EmptyTip"))
+                elseif need > 100 then
+                    tip(o, getText("IGUI_StoryEngine_TradeAsk_Never"))
+                else
+                    tip(o, getText("IGUI_StoryEngine_TradeAsk_Need", StoryEngine.intToString(need)))
+                end
+            elseif it.short then
+                tip(o, getText("IGUI_StoryEngine_TradeAsk_Short"))
+            end
         end
     end
 end

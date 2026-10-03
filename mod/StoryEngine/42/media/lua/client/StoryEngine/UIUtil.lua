@@ -83,7 +83,14 @@ end
 -- 서버가 보낸 번역 문장을 이 클라이언트의 언어로 만든다.
 -- 멀티 서버는 모드 번역(IG_UI)을 getText 로 찾지 못하고(42.20.4 인게임 호스트 확인), 서버 언어와 플레이어 언어도
 -- 다를 수 있어서 서버는 키와 인자만 보낸다.
--- lt = { key, alt = 키가 없을 때 쓸 키, args = { { t = "town"|"dir"|"item"|"need"|"num"|"s", v = ... }, ... } }
+-- lt = { key, alt = 키가 없을 때 쓸 키, args = { { t = "town"|"dir"|"item"|"need"|"num"|"npc"|"key"|"s", v = ... }, ... } }
+--   npc = NPC 이름 (괄호 속 거점 이름 뺌), key = 다른 번역 문장
+function UI.npcName(fid)
+    local name = StoryEngine.Factions.name(fid)
+    name = string.gsub(name, "%s*%(.*%)%s*$", "")
+    return name
+end
+
 function UI.render(lt)
     if type(lt) ~= "table" or not lt.key then return "" end
     local key = lt.key
@@ -101,6 +108,10 @@ function UI.render(lt)
             a[i] = UI.needText(v)
         elseif t == "num" then
             a[i] = StoryEngine.intToString(tonumber(v) or 0)
+        elseif t == "npc" then
+            a[i] = UI.npcName(v)
+        elseif t == "key" then
+            a[i] = getText(tostring(v))
         else
             a[i] = tostring(v or "")
         end
@@ -116,6 +127,15 @@ end
 -- 메시지·일지 항목의 표시 문장: 번역 문장이 있으면 그것, 없으면 text
 function UI.textOf(entry)
     if type(entry) ~= "table" then return "" end
+    -- 여러 문장 (AI 없이 쓴 일기, Journal.fallbackText): 문단마다 줄을 바꾼다
+    if type(entry.lts) == "table" then
+        local parts = {}
+        for _, lt in ipairs(entry.lts) do
+            local s = UI.render(lt)
+            if s ~= "" then parts[#parts + 1] = s end
+        end
+        return table.concat(parts, " ")
+    end
     if entry.lt then return UI.render(entry.lt) end
     return tostring(entry.text or "")
 end

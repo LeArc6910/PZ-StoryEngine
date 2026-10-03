@@ -510,8 +510,7 @@ function Life.donate(player, fid, itemIds, mode)
     topic = topic .. " Thank them in character, by name."
     -- 프로젝트를 완성시킨 지원이면 완성 무전이 따로 가므로 감사 무전은 생략
     if not (project and Projects.done(fid)) then
-        Radio.react(fid, "event", topic, { text = "Got your supplies. Thank you.",
-            lt = { key = "IGUI_StoryEngine_RadioSay_donation" } }, ps)
+        Radio.react(fid, "event", topic, StoryEngine.Lines.fallback(fid, "donation", "Got your supplies. Thank you."), ps)
     end
     log(project and "project donation" or "donation", fid, "by", ps.name, "value", total, "trust", applied, "points", points)
     return true, { gains = gains, trust = applied, points = project and points or nil }

@@ -320,7 +320,9 @@ function Social.startCrisis(now, forceId)
         end
         StoryEngine.Radio.react(opt.faction, "crisis", c.situation .. " You want the players to " .. opt.ask
             .. ". Others are asking them for help at the same time: " .. table.concat(rivals, "; ")
-            .. ". They can only help one of you and will choose in their quest log.", nil, ps)
+            .. ". They can only help one of you and will choose in their quest log.",
+            StoryEngine.Lines.fallback(opt.faction, "crisis_appeal", "I need your help. Check your quest log.",
+                { { t = "key", v = "IGUI_StoryEngine_Crisis_" .. c.id .. "_title" } }), ps)
     end
     log("crisis", c.id, "for", ps.name)
     return true, c.id
@@ -348,7 +350,8 @@ function Social.onChoice(q, opt, player)
             StoryEngine.Radio.react(o.faction, "event", "The players chose to help " .. nameOf(opt.faction)
                 .. ", and that helps you too. The situation was: " .. (c and c.situation or "a crisis")
                 .. " What " .. nameOf(opt.faction) .. " asked for: " .. tostring(opt.ask)
-                .. ". React in character, relieved or grateful.", nil, ps)
+                .. ". React in character, relieved or grateful.",
+                StoryEngine.Lines.fallback(o.faction, "crisis_thanks", "That helped us too. Thank you."), ps)
         elseif role == "spared" then
             -- 다른 쪽을 골랐지만 이 NPC 도 이해한다: 감점 없음
             st.flags[q.crisis .. "_spared"] = true
@@ -358,7 +361,7 @@ function Social.onChoice(q, opt, player)
             StoryEngine.Radio.react(o.faction, "event", "The players chose to help " .. nameOf(opt.faction)
                 .. " instead of you. The situation was: " .. (c and c.situation or "a crisis")
                 .. " React in character: how hurt, angry or understanding you are depends on how much you trust them.",
-                nil, ps)
+                StoryEngine.Lines.fallback(o.faction, "crisis_snub", "So you went with them. I see."), ps)
         end
     end
     -- NPC 사이 관계: 선택받은 쪽과 외면당한 쪽이 서로 조금 틀어진다 (Bonds)
@@ -399,7 +402,8 @@ function Social.onChoiceIgnored(q)
         Social.story(o.faction).flags[q.crisis .. "_ignored"] = true
         if Trust then Trust.apply(o.faction, -1, "crisis_ignored", q.id) end
         StoryEngine.Radio.react(o.faction, "event", "Nobody answered when you asked for help: "
-            .. tostring(q.situation) .. " React in character, briefly.", nil, nil)
+            .. tostring(q.situation) .. " React in character, briefly.",
+            StoryEngine.Lines.fallback(o.faction, "crisis_ignored", "Nobody answered. Fine."), nil)
     end
     log("crisis ignored", q.crisis)
 end
@@ -408,7 +412,7 @@ end
 
 local function timely(fid, hour, s, now)
     if s.stormT and now.t - s.stormT < 6 * 60 and (fid == "guard" or fid == "casey") then
-        return 6, "A storm is coming. Warn them to get inside and secure things."
+        return 6, "A storm is coming. Warn them to get inside and secure things.", "chat_storm"
     end
     if hour >= 6 and hour < 9 and (fid == "casey" or fid == "ray") then
         local cm = getClimateManager()
@@ -418,10 +422,10 @@ local function timely(fid, hour, s, now)
         local temp = math.floor(cm:getTemperature())
         return 4, "It is morning. Give them a quick weather and morning report the way you would ("
             .. (#sky > 0 and table.concat(sky, ", ") or "clear") .. ", about " .. StoryEngine.intToString(temp)
-            .. " degrees Celsius) and ask about their plans."
+            .. " degrees Celsius) and ask about their plans.", "chat_morning"
     end
     if hour >= 20 and hour < 23 and (fid == "ray" or fid == "pike" or fid == "casey") then
-        return 3, "It is getting dark. Check in with them before night falls."
+        return 3, "It is getting dark. Check in with them before night falls.", "chat_evening"
     end
     return 0, nil
 end
@@ -431,10 +435,10 @@ function Social.pickContact(now)
     local s = state()
     local hour = getGameTime():getHour()
     local cands, total = {}, 0
-    local function add(fid, w, reason, topic, extra)
+    local function add(fid, w, reason, topic, extra, line)
         w = w * (Stories.TALKATIVE[fid] or 1)
         if w <= 0 then return end
-        cands[#cands + 1] = { fid = fid, w = w, reason = reason, topic = topic, extra = extra }
+        cands[#cands + 1] = { fid = fid, w = w, reason = reason, topic = topic, extra = extra, line = line }
         total = total + w
     end
     for _, f in ipairs(Factions.list) do
@@ -445,7 +449,7 @@ function Social.pickContact(now)
             local st = Social.story(fid)
             local node = Stories.node(fid, st.node)
             if node and not st.told and not node.quest then
-                add(fid, 10, "story", "Tell them what has been happening in your life lately: " .. node.beat)
+                add(fid, 10, "story", "Tell them what has been happening in your life lately: " .. node.beat, nil, node.id)
             end
             local news = freshNews(fid, now)
             if #news > 0 then
@@ -453,8 +457,8 @@ function Social.pickContact(now)
                 add(fid, 6, "news", "You heard something and want to talk about it: " .. n.text
                     .. " Call them about it the way you would (ask, worry, tease or warn).", n)
             end
-            local w, topic = timely(fid, hour, s, now)
-            if w > 0 then add(fid, w, "timely", topic) end
+            local w, topic, line = timely(fid, hour, s, now)
+            if w > 0 then add(fid, w, "timely", topic, nil, line) end
             if not ch.lastPlayerT or now.t - ch.lastPlayerT > Social.SILENT_MIN then
                 add(fid, 3, "miss", "You have not heard from them in days. Check that they are alive and how they are doing.")
             end
@@ -481,6 +485,19 @@ function Social.pickContact(now)
     return cands[#cands]
 end
 
+-- AI 없이 쓰는 먼저 거는 말 (Lines.lua): 이야기는 그 장면을 직접 말하고, 나머지는 이유별 잡담.
+-- 소문·다른 NPC 이야기는 내용을 번역할 수 없어서 안부로 대신한다
+Social.CONTACT_LINES = { miss = "chat_miss", checkin = "chat_checkin", news = "chat_checkin", gossip = "chat_checkin" }
+
+function Social.contactFallback(c)
+    local Lines = StoryEngine.Lines
+    if c.reason == "story" and c.line then
+        return { text = c.topic, lt = Lines.story(c.line) }
+    end
+    local kind = (c.reason == "timely" and c.line) or Social.CONTACT_LINES[c.reason] or "chat_checkin"
+    return Lines.fallback(c.fid, kind, "Just checking in.")
+end
+
 function Social.contact(c, now)
     local ch = Radio.channel(c.fid)
     ch.lastChatT = now.t
@@ -495,7 +512,7 @@ function Social.contact(c, now)
     end
     local _, ps = randomTarget()
     log("npc contact", c.fid, c.reason)
-    StoryEngine.Radio.react(c.fid, "chat", c.topic, nil, ps)
+    StoryEngine.Radio.react(c.fid, "chat", c.topic, Social.contactFallback(c), ps)
 end
 
 -- ---------------------------------------------------------------- open channel
@@ -572,7 +589,7 @@ local function releaseLine(s, now)
     if not p then return end
     local l = table.remove(p.lines, 1)
     if l then
-        Radio.push(Social.OPEN, { from = "npc", npc = l.npc, text = l.text,
+        Radio.push(Social.OPEN, { from = "npc", npc = l.npc, text = l.text, lt = l.lt, quiet = l.quiet,
                                   clock = now.clock, day = Store.dayIndex(now.dayKey) })
     end
     if #p.lines == 0 then
@@ -696,6 +713,14 @@ function Social.scene(said, cut)
                 end
             end
         end
+        if #queue == 0 and Radio.OFFLINE_ERRORS[tostring(res.error)] then
+            -- AI 가 없으면 참가자 두 명이 준비된 짧은 말을 한다 (플레이어에게 답하거나 잡담)
+            for i = 1, math.min(2, #ids) do
+                queue[#queue + 1] = { npc = ids[i], text = said and "(short reply, no AI)" or "(small talk, no AI)",
+                                      lt = StoryEngine.Lines.lt(ids[i], said and "open_reply" or "open_chat"), quiet = true }
+            end
+            log("open scene offline", table.concat(ids, ","))
+        end
         if #queue == 0 then
             log("open scene failed", tostring(res.error))
             return
@@ -710,9 +735,9 @@ function Social.scene(said, cut)
         }
         releaseLine(s, Sensor.now())
         -- 거래 제안: 게임 규칙으로 다시 만들고, 고를 수 있는 퀘스트와 채널 안내 줄을 남긴다
-        local offers = res.json.offers
+        local offers = res.json and res.json.offers
         if speakerPs and market and market.sellers and type(offers) == "table" and #offers > 0 then
-            local selling = res.json.selling ~= "none" and res.json.selling or nil
+            local selling = res.json and res.json.selling ~= "none" and res.json.selling or nil
             local okO, deals = pcall(StoryEngine.Trade.marketOffers, speakerPs, offers, selling, speakerPlayer)
             if not okO then
                 log("market offers error:", deals)

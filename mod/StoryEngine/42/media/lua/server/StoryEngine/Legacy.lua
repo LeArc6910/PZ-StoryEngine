@@ -143,7 +143,8 @@ function Legacy.onDeath(name, town)
             .. name .. " and you: " .. (e.what ~= "" and e.what or "a few words over the radio") .. ". " .. depth
             .. " Do not invent things you did together beyond that."
         if StoryEngine.Life then StoryEngine.Life.record(e.fid, "player_died", name, 0) end
-        Radio.react(e.fid, "event", topic, nil)
+        Radio.react(e.fid, "event", topic, StoryEngine.Lines.fallback(e.fid, "player_died", name .. " is gone.",
+            { { t = "s", v = name } }))
     end
     log("legacy death", name, #list, "contacts knew them")
     return math.min(#list, Legacy.MAX_REACT)

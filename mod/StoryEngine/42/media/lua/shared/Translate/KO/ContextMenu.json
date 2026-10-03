@@ -67,5 +67,12 @@
     "ContextMenu_StoryEngine_Saga_start_epidemic": "열병 유행 시작",
     "ContextMenu_StoryEngine_Saga_start_blackout": "통신 두절 시작",
     "ContextMenu_StoryEngine_Saga_next": "다음 단계로",
-    "ContextMenu_StoryEngine_Saga_stop": "지금 결말 내기"
+    "ContextMenu_StoryEngine_Saga_stop": "지금 결말 내기",
+    "ContextMenu_StoryEngine_Debug": "스토리 엔진 (디버그)",
+    "ContextMenu_StoryEngine_DebugCat_check": "점검",
+    "ContextMenu_StoryEngine_DebugCat_quests": "디렉터·퀘스트",
+    "ContextMenu_StoryEngine_DebugCat_npc": "NPC",
+    "ContextMenu_StoryEngine_DebugCat_character": "캐릭터",
+    "ContextMenu_StoryEngine_DebugCat_world": "세계·사건",
+    "ContextMenu_StoryEngine_DebugCat_alife": "A-Life 연동"
 }
