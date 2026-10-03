@@ -24,7 +24,7 @@ Without the bridge the mod runs rule-based events, quests, trust and prepared li
 [h2]Optional: StoryEngine Bridge (AI features)[/h2]
 A small Windows program that runs next to the game on the [b]host / server PC only[/b]. Players who join only need this mod.
 [list]
-[*]It uses [b]your own API key[/b] for OpenAI, Anthropic or Google Gemini; the AI service bills you. Built-in hourly request limit.
+[*]It uses [b]your own API key[/b] for OpenAI, Anthropic, Google Gemini or DeepSeek; the AI service bills you. Built-in hourly request limit.
 [*]It sends character names, in-game event summaries and typed radio messages to the AI service you choose, directly from your PC. No Steam IDs or account names, nothing to the mod author.
 [*]If you host a server, tell your players that their radio messages are sent to an AI service.
 [*]Source code is included. Check the SHA256 on the download page.
@@ -62,7 +62,7 @@ Source: [url=https://github.com/LeArc6910/PZ-StoryEngine]mod[/url], [url=https:/
 [h2]브릿지 (AI 기능, 선택)[/h2]
 브릿지 없이도 규칙 기반 사건·퀘스트·신뢰도·준비된 문장으로 동작합니다. 자유 무전, 공용 주파수, 라디오 방송, AI 일지·편지는 [b]호스트(서버) PC에서만[/b] 실행하는 윈도우 프로그램 StoryEngine 브릿지가 필요합니다.
 [list]
-[*][b]본인 API 키[/b](OpenAI, Anthropic 또는 Google Gemini)를 쓰며 요금은 본인에게 청구됩니다. 시간당 요청 상한이 있습니다.
+[*][b]본인 API 키[/b](OpenAI, Anthropic, Google Gemini 또는 DeepSeek)를 쓰며 요금은 본인에게 청구됩니다. 시간당 요청 상한이 있습니다.
 [*]캐릭터 이름, 사건 요약, 입력한 무전 대화를 이 PC에서 선택한 AI 서비스로 직접 보냅니다. 스팀 ID·계정 이름은 보내지 않으며 제작자에게는 아무것도 보내지 않습니다.
 [*]서버를 연다면 무전 대화가 AI 서비스로 전송된다는 점을 참가자에게 알려 주세요.
 [/list]
