@@ -357,12 +357,24 @@ end
 -- 음식·근접 무기는 한 개씩 비슷한 등급으로.
 Trade.AMMO_BOXES = { 0, 1, 2, 3, 5 }     -- 탄약 거래 등급별 상자 수 (1등급은 낱발 24)
 
-function Trade.roll(category, tier, fid)
+-- 이 NPC 의 이 품목·등급 묶음 후보 (전문 품목이 있으면 그것)
+function Trade.poolFor(category, tier, fid)
     local special = fid and Trade.FACTION_GOODS[fid] and Trade.FACTION_GOODS[fid][category]
-    local pool = (special and special[tier]) or (Trade.GOODS[category] and Trade.GOODS[category][tier])
+    return (special and special[tier]) or (Trade.GOODS[category] and Trade.GOODS[category][tier]), special ~= nil
+end
+
+-- index 가 있으면 그 묶음을 그대로 (거래 목록에서 고른 것, 다른 모드 물건 섞지 않음), 없으면 무작위
+function Trade.roll(category, tier, fid, index)
+    local pool, special = Trade.poolFor(category, tier, fid)
     if not pool then return nil end
-    local bundle = pool[ZombRand(#pool) + 1]
     local out = {}
+    if index and pool[index] then
+        for _, entry in ipairs(pool[index]) do
+            for _ = 1, entry[2] do out[#out + 1] = entry[1] end
+        end
+        return out
+    end
+    local bundle = pool[ZombRand(#pool) + 1]
     if category == "firearm" and not special then
         StoryEngine.Loot.addGun(out, bundle, tier)
         return out
@@ -415,12 +427,12 @@ function Trade.fromReply(fid, ps, trade, ctx)
             return nil
         end
         tier = math.min(tier, ctx.freeMaxTier)
-        local gifts = Trade.roll(trade.category, tier, fid)
+        local gifts = Trade.roll(trade.category, tier, fid, trade.bundle)
         if not gifts then return nil end
         local q = Quests.giftTrade(ps, fid, tier, gifts, Sensor.now())
         return q, "gift"
     end
-    local goods = Trade.roll(trade.category, tier, fid)
+    local goods = Trade.roll(trade.category, tier, fid, trade.bundle)
     if not goods then return nil end
     local price = math.ceil(Value.sum(goods) * priceMult(ctx, tier) * ((ctx.catMult or {})[trade.category] or 1))
     return Quests.proposeTrade(ps, fid, {
@@ -460,6 +472,28 @@ function Trade.options(fid, ps)
                                       empty = c.empty, short = c.short }
     end
     out.allowed = ctx.allowed == true
+    -- 등급마다 고를 수 있는 묶음과 지금 값 (거래 목록 창, 2026-10-04)
+    local offer = ctx.allowed and ctx or Trade.offerContext(fid, ctx.trust or Radio.channel(fid).trust)
+    for _, it in ipairs(out.items) do
+        it.tiers = {}
+        for t = 1, #(it.needs or {}) do
+            local pool = Trade.poolFor(it.category, t, fid) or {}
+            local bundles = {}
+            for i, b in ipairs(pool) do
+                local list = {}
+                for _, entry in ipairs(b) do
+                    for _ = 1, entry[2] do list[#list + 1] = entry[1] end
+                end
+                local price = nil
+                if offer.allowed then
+                    price = math.ceil(Value.sum(list) * priceMult(offer, t) * ((offer.catMult or {})[it.category] or 1))
+                end
+                bundles[i] = { items = b, price = price }
+            end
+            it.tiers[t] = bundles
+        end
+    end
+    out.wants = (Trade.FACTIONS[fid] or {}).wants
     return out
 end
 
@@ -474,7 +508,7 @@ local function bestPay(wants, player)
 end
 
 -- 반환: true | false, 오류 코드
-function Trade.ask(player, fid, category, tier)
+function Trade.ask(player, fid, category, tier, bundle)
     if not Factions.byId[fid] or not Trade.FACTIONS[fid] then return false, "no_trader" end
     if not Factions.canTalk(player) then return false, "no_radio" end
     if Factions.isGone(fid) then return false, "gone" end
@@ -500,7 +534,8 @@ function Trade.ask(player, fid, category, tier)
     if ctx.allowed then
         local action = ((ctx.freeMaxTier or 0) >= tier) and "gift" or "offer"
         deal, how, info = Trade.fromReply(fid, ps, { action = action, category = category, tier = tier,
-                                                     pay_category = bestPay(ctx.wants or {}, player) }, ctx)
+                                                     pay_category = bestPay(ctx.wants or {}, player),
+                                                     bundle = tonumber(bundle) }, ctx)
     else
         info = Trade.blocked(fid, category, tier)
         how = info and "blocked" or nil
@@ -721,6 +756,7 @@ function Trade.pay(player, qid, itemIds)
     local q = Store.data().quests[qid]
     if not q or q.kind ~= "trade" then return false, "no_quest" end
     if q.state ~= "accepted" then return false, "not_active" end
+    if q.payKind and not q.credit then return false, "paying_with_work" end   -- 일로 갚는 중 (Work.lua)
     if not Factions.canTalk(player) then return false, "no_radio" end
     local inv = player:getInventory()
     local chosen, seen, total = {}, {}, 0

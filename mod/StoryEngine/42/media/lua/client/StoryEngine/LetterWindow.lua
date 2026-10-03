@@ -5,6 +5,7 @@ if isServer() then return end
 
 require "ISUI/ISCollapsableWindow"
 require "ISUI/ISRichTextPanel"
+require "StoryEngine/UIUtil"
 require "StoryEngine/Core"
 require "StoryEngine/Net"
 require "StoryEngine/Client"
@@ -68,6 +69,7 @@ function StoryEngineLetterWindow:setInfo(info)
 end
 
 function StoryEngineLetterWindow:close()
+    StoryEngine.UI.saveWindow("letter", self)
     StoryEngineLetterWindow.instance = nil
     ISCollapsableWindow.close(self)
     self:removeFromUIManager()
@@ -86,9 +88,7 @@ end
 function StoryEngineLetterWindow.open(info)
     local w = StoryEngineLetterWindow.instance
     if not w then
-        local width, height = 440, 420
-        local x = (getCore():getScreenWidth() - width) / 2
-        local y = (getCore():getScreenHeight() - height) / 2
+        local x, y, width, height = StoryEngine.UI.windowRect("letter", 500, 480, 320, 260)
         w = StoryEngineLetterWindow:new(x, y, width, height)
         w:initialise()
         w:addToUIManager()

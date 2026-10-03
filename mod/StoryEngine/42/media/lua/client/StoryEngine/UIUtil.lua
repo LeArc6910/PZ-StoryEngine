@@ -140,6 +140,61 @@ function UI.textOf(entry)
     return tostring(entry.text or "")
 end
 
+-- ---------------------------------------------------------------- 창 위치·크기 기억 (2026-10-04)
+-- 닫을 때 저장하고 다음에 열 때 그 자리·크기로 연다. 게임을 다시 켜도 남도록 Zomboid/Lua/StoryEngine/windows.txt 에 쓴다
+-- (한 줄에 "이름=x,y,w,h"). 화면이 작아졌으면 화면 안으로 줄인다.
+UI.WINDOW_FILE = "StoryEngine/windows.txt"
+
+local function readWindows()
+    if UI.windowsLoaded then return UI.windows end
+    UI.windowsLoaded, UI.windows = true, {}
+    pcall(function()
+        local r = getFileReader(UI.WINDOW_FILE, false)
+        if not r then return end
+        local line = r:readLine()
+        while line do
+            local name, x, y, w, h = string.match(line, "^([%w_]+)=(%-?%d+),(%-?%d+),(%d+),(%d+)")
+            if name then UI.windows[name] = { x = tonumber(x), y = tonumber(y), w = tonumber(w), h = tonumber(h) } end
+            line = r:readLine()
+        end
+        r:close()
+    end)
+    return UI.windows
+end
+
+-- 창을 열 자리와 크기: 저장된 값, 없으면 화면 가운데 기본 크기
+function UI.windowRect(name, w, h, minW, minH)
+    local sw, sh = getCore():getScreenWidth(), getCore():getScreenHeight()
+    local saved = readWindows()[name]
+    if saved then w, h = saved.w, saved.h end
+    w = math.max(minW or 200, math.min(w, sw - 20))
+    h = math.max(minH or 150, math.min(h, sh - 20))
+    local x, y
+    if saved then
+        x = math.max(0, math.min(saved.x, sw - w))
+        y = math.max(0, math.min(saved.y, sh - h))
+    else
+        x, y = (sw - w) / 2, (sh - h) / 2
+    end
+    return math.floor(x), math.floor(y), math.floor(w), math.floor(h)
+end
+
+-- 지금 창의 자리·크기를 기억한다 (창의 close 에서 부른다)
+function UI.saveWindow(name, win)
+    local list = readWindows()
+    list[name] = { x = math.floor(win:getX()), y = math.floor(win:getY()), w = math.floor(win:getWidth()),
+                   h = math.floor(win:getHeight()) }
+    pcall(function()
+        local wr = getFileWriter(UI.WINDOW_FILE, true, false)
+        if not wr then return end
+        for k, v in pairs(list) do
+            wr:write(k .. "=" .. StoryEngine.intToString(v.x) .. "," .. StoryEngine.intToString(v.y) .. ","
+                .. StoryEngine.intToString(v.w) .. "," .. StoryEngine.intToString(v.h) .. "\n")
+        end
+        wr:close()
+    end)
+end
+
 -- 이 클라이언트의 게임 언어 코드 (KO, EN, ...)
 function UI.lang()
     local ok, name = pcall(function() return tostring(Translator.getLanguage():name()) end)

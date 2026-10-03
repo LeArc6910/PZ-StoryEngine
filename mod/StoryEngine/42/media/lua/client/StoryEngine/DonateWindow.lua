@@ -9,6 +9,7 @@ require "ISUI/ISScrollingListBox"
 require "ISUI/ISButton"
 require "StoryEngine/Core"
 require "StoryEngine/Net"
+require "StoryEngine/UIUtil"
 require "StoryEngine/Value"
 require "StoryEngine/Factions"
 require "StoryEngine/Tuning"
@@ -194,6 +195,7 @@ function StoryEngineDonateWindow:fill()
 end
 
 function StoryEngineDonateWindow:close()
+    StoryEngine.UI.saveWindow("donate", self)
     StoryEngineDonateWindow.instance = nil
     self:removeFromUIManager()
 end
@@ -215,9 +217,7 @@ end
 -- mode: nil = 생활 지원, "project" = 장기 프로젝트 지원
 function StoryEngineDonateWindow.open(npc, mode)
     if StoryEngineDonateWindow.instance then StoryEngineDonateWindow.instance:close() end
-    local width, height = 460, 500
-    local x = (getCore():getScreenWidth() - width) / 2 + 60
-    local y = (getCore():getScreenHeight() - height) / 2
+    local x, y, width, height = StoryEngine.UI.windowRect("donate", 540, 560, 380, 300)
     local w = StoryEngineDonateWindow:new(x, y, width, height, npc, mode)
     w:initialise()
     w:addToUIManager()

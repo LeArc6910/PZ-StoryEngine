@@ -4,6 +4,7 @@
 if isServer() then return end
 
 require "ISUI/ISCollapsableWindow"
+require "StoryEngine/UIUtil"
 require "ISUI/ISScrollingListBox"
 require "ISUI/ISButton"
 require "StoryEngine/Core"
@@ -140,6 +141,7 @@ function StoryEngineTradePayWindow:fill()
 end
 
 function StoryEngineTradePayWindow:close()
+    StoryEngine.UI.saveWindow("tradePay", self)
     StoryEngineTradePayWindow.instance = nil
     self:removeFromUIManager()
 end
@@ -159,9 +161,7 @@ end
 
 function StoryEngineTradePayWindow.open(quest)
     if StoryEngineTradePayWindow.instance then StoryEngineTradePayWindow.instance:close() end
-    local width, height = 440, 480
-    local x = (getCore():getScreenWidth() - width) / 2 + 60
-    local y = (getCore():getScreenHeight() - height) / 2
+    local x, y, width, height = StoryEngine.UI.windowRect("tradePay", 520, 540, 360, 300)
     local w = StoryEngineTradePayWindow:new(x, y, width, height, quest)
     w:initialise()
     w:addToUIManager()

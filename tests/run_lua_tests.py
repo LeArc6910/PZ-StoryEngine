@@ -115,7 +115,8 @@ def line_key_errors() -> list[str]:
         return dict((k, int(v)) for k, v in re.findall(r"(\w+)\s*=\s*(\d+)", re.sub(r"--[^\n]*", "", m.group(1))))
 
     only = {}
-    for kind, body in re.findall(r"(\w+) = \{ ((?:\w+ = true,? ?)+)\}", lines.split("Lines.ONLY = {", 1)[1].split("\n", 1)[0]):
+    only_body = re.search(r"^Lines.ONLY = \{(.*?)^\}", lines, re.S | re.M).group(1)
+    for kind, body in re.findall(r"(\w+) = \{ ((?:\w+ = true,? ?)+)\}", only_body):
         only[kind] = set(re.findall(r"(\w+) = true", body))
     fids = re.findall(r'\{ id = "(\w+)",\s+freq', (LUA_ROOT / "shared" / "StoryEngine" / "Factions.lua").read_text(encoding="utf-8"))
     keys = []
