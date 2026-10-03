@@ -37,6 +37,12 @@ Lines.COUNT = {
     -- 다른 대가 (Work.lua): 일 장소 안내(마을, 방향, 거리), 외상(기한 일수), 빚, 일 끝, 빚 부탁(물건 목록)
     work_horde = 1, work_fetch = 1, work_scout = 1, work_guard = 1, work_courier = 1, work_credit = 1, work_favor = 1,
     work_done = 1, work_paid = 1, favor_call = 1,
+    -- 아는 얼굴의 좀비 (Named.lua): 부탁(이름, 마을, 방향, 거리), 끝난 뒤 감사(이름)
+    named_ask = 1, named_thanks = 1,
+    -- 유품 회수 (Recover.lua): 알려 주기(죽은 사람, 마을, 방향, 거리), 찾은 뒤(죽은 사람)
+    recover_ask = 1, recover_found = 1,
+    -- 명절 (Holiday.lua): 예고, 잔치 (명절 이름)
+    holiday_soon = 1, holiday_feast = 1,
 }
 -- 이 종류는 이 NPC 들만 (Work.KINDS 와 같게)
 Lines.ONLY = {

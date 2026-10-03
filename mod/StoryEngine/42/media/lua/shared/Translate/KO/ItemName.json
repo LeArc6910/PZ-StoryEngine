@@ -4,5 +4,16 @@
     "StoryEngine.PhotoAlbum": "누군가의 사진 앨범",
     "StoryEngine.Letter": "손으로 쓴 편지",
     "StoryEngine.WaterManual": "상수도 운영 매뉴얼",
-    "StoryEngine.GridSchematic": "카운티 배전도"
+    "StoryEngine.GridSchematic": "카운티 배전도",
+    "StoryEngine.Food_Tteokguk": "떡국",
+    "StoryEngine.Food_Songpyeon": "송편",
+    "StoryEngine.Food_Bureom": "부럼 견과",
+    "StoryEngine.Food_Surichwitteok": "수리취떡",
+    "StoryEngine.Food_Patjuk": "팥죽",
+    "StoryEngine.Food_ChristmasCake": "성탄 케이크",
+    "StoryEngine.Food_NewYearCake": "새해 케이크",
+    "StoryEngine.Food_ApplePie": "독립기념일 애플파이",
+    "StoryEngine.Food_HalloweenCandy": "핼러윈 사탕",
+    "StoryEngine.Food_PumpkinPie": "추수감사절 호박파이",
+    "StoryEngine.Food_ChristmasCookies": "크리스마스 쿠키"
 }

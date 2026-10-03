@@ -63,4 +63,228 @@ module StoryEngine
         StaticModel = Paperwork1,
         WorldStaticModel = Paperwork1,
     }
+
+    item Food_Tteokguk
+    {
+        DisplayCategory = Food,
+        ItemType = base:food,
+        Weight = 1.0,
+        Icon = NoodleSoup,
+        EatType = 2handbowl,
+        ReplaceOnUse = Base.Bowl,
+        DaysFresh = 7,
+        DaysTotallyRotten = 14,
+        HungerChange = -25.0,
+        Calories = 450.0,
+        Carbohydrates = 30.0,
+        Lipids = 8.0,
+        Proteins = 6.0,
+        UnhappyChange = -30,
+        BoredomChange = -20,
+        StressChange = -10,
+        StaticModel = NoodleSoup_Ground,
+        WorldStaticModel = NoodleSoup_Ground,
+    }
+
+    item Food_Songpyeon
+    {
+        DisplayCategory = Food,
+        ItemType = base:food,
+        Weight = 0.2,
+        Icon = MeatDumpling,
+        DaysFresh = 7,
+        DaysTotallyRotten = 14,
+        HungerChange = -12.0,
+        Calories = 216.0,
+        Carbohydrates = 30.0,
+        Lipids = 8.0,
+        Proteins = 6.0,
+        UnhappyChange = -30,
+        BoredomChange = -20,
+        StressChange = -10,
+        StaticModel = MeatDumplings_Ground,
+        WorldStaticModel = MeatDumplings_Ground,
+    }
+
+    item Food_Bureom
+    {
+        DisplayCategory = Food,
+        ItemType = base:food,
+        Weight = 0.2,
+        Icon = Peanut,
+        EatType = EatSmall,
+        DaysFresh = 7,
+        DaysTotallyRotten = 14,
+        HungerChange = -8.0,
+        Calories = 144.0,
+        Carbohydrates = 30.0,
+        Lipids = 8.0,
+        Proteins = 6.0,
+        UnhappyChange = -30,
+        BoredomChange = -20,
+        StressChange = -10,
+        WorldStaticModel = Peanuts,
+    }
+
+    item Food_Surichwitteok
+    {
+        DisplayCategory = Food,
+        ItemType = base:food,
+        Weight = 0.2,
+        Icon = CakeSlice,
+        DaysFresh = 7,
+        DaysTotallyRotten = 14,
+        HungerChange = -12.0,
+        Calories = 216.0,
+        Carbohydrates = 30.0,
+        Lipids = 8.0,
+        Proteins = 6.0,
+        UnhappyChange = -30,
+        BoredomChange = -20,
+        StressChange = -10,
+        StaticModel = CakeSlice,
+        WorldStaticModel = CakeSlice,
+    }
+
+    item Food_Patjuk
+    {
+        DisplayCategory = Food,
+        ItemType = base:food,
+        Weight = 1.0,
+        Icon = NoodleSoup,
+        EatType = 2handbowl,
+        ReplaceOnUse = Base.Bowl,
+        DaysFresh = 7,
+        DaysTotallyRotten = 14,
+        HungerChange = -20.0,
+        Calories = 360.0,
+        Carbohydrates = 30.0,
+        Lipids = 8.0,
+        Proteins = 6.0,
+        UnhappyChange = -30,
+        BoredomChange = -20,
+        StressChange = -10,
+        StaticModel = NoodleSoup_Ground,
+        WorldStaticModel = NoodleSoup_Ground,
+    }
+
+    item Food_ChristmasCake
+    {
+        DisplayCategory = Food,
+        ItemType = base:food,
+        Weight = 0.2,
+        Icon = CakeSlice,
+        DaysFresh = 7,
+        DaysTotallyRotten = 14,
+        HungerChange = -12.0,
+        Calories = 216.0,
+        Carbohydrates = 30.0,
+        Lipids = 8.0,
+        Proteins = 6.0,
+        UnhappyChange = -30,
+        BoredomChange = -20,
+        StressChange = -10,
+        StaticModel = CakeSlice,
+        WorldStaticModel = CakeSlice,
+    }
+
+    item Food_NewYearCake
+    {
+        DisplayCategory = Food,
+        ItemType = base:food,
+        Weight = 0.2,
+        Icon = CakeSlice,
+        DaysFresh = 7,
+        DaysTotallyRotten = 14,
+        HungerChange = -12.0,
+        Calories = 216.0,
+        Carbohydrates = 30.0,
+        Lipids = 8.0,
+        Proteins = 6.0,
+        UnhappyChange = -30,
+        BoredomChange = -20,
+        StressChange = -10,
+        StaticModel = CakeSlice,
+        WorldStaticModel = CakeSlice,
+    }
+
+    item Food_ApplePie
+    {
+        DisplayCategory = Food,
+        ItemType = base:food,
+        Weight = 0.5,
+        Icon = PiePumpkin,
+        DaysFresh = 7,
+        DaysTotallyRotten = 14,
+        HungerChange = -25.0,
+        Calories = 450.0,
+        Carbohydrates = 30.0,
+        Lipids = 8.0,
+        Proteins = 6.0,
+        UnhappyChange = -30,
+        BoredomChange = -20,
+        StressChange = -10,
+        StaticModel = PiePumpkin,
+        WorldStaticModel = PiePumpkin,
+    }
+
+    item Food_HalloweenCandy
+    {
+        DisplayCategory = Food,
+        ItemType = base:food,
+        Weight = 0.2,
+        Icon = CandyCorn,
+        EatType = EatSmall,
+        DaysFresh = 7,
+        DaysTotallyRotten = 14,
+        HungerChange = -8.0,
+        Calories = 144.0,
+        Carbohydrates = 30.0,
+        Lipids = 8.0,
+        Proteins = 6.0,
+        UnhappyChange = -30,
+        BoredomChange = -20,
+        StressChange = -10,
+        WorldStaticModel = CandyCorn_Ground,
+    }
+
+    item Food_PumpkinPie
+    {
+        DisplayCategory = Food,
+        ItemType = base:food,
+        Weight = 0.5,
+        Icon = PiePumpkin,
+        DaysFresh = 7,
+        DaysTotallyRotten = 14,
+        HungerChange = -25.0,
+        Calories = 450.0,
+        Carbohydrates = 30.0,
+        Lipids = 8.0,
+        Proteins = 6.0,
+        UnhappyChange = -30,
+        BoredomChange = -20,
+        StressChange = -10,
+        StaticModel = PiePumpkin,
+        WorldStaticModel = PiePumpkin,
+    }
+
+    item Food_ChristmasCookies
+    {
+        DisplayCategory = Food,
+        ItemType = base:food,
+        Weight = 0.1,
+        Icon = CookiesSugar,
+        DaysFresh = 7,
+        DaysTotallyRotten = 14,
+        HungerChange = -8.0,
+        Calories = 144.0,
+        Carbohydrates = 30.0,
+        Lipids = 8.0,
+        Proteins = 6.0,
+        UnhappyChange = -30,
+        BoredomChange = -20,
+        StressChange = -10,
+        StaticModel = CookiesSugar_Hand,
+        WorldStaticModel = CookiesSugar_Ground,
+    }
 }

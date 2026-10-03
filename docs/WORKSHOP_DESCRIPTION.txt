@@ -13,7 +13,8 @@ Radio contacts you can talk to, an AI director that throws events at you, quests
 [*]Trade list showing each contact's tiers and bundles; pay with goods, or with work (clearing, guarding, scouting, deliveries), credit or a favor
 [*]AI director: supply drops, storms, requests, hordes that follow you, helicopters, threats from hostile groups
 [*]Quests with deadlines and tiers, shared by everyone on the server; rewards in real containers, marked on the map
-[*][b]New in 0.3.0:[/b] power and water repair operations across real facilities in several towns; multi-day events (helicopter crash, great migration, fever epidemic, radio blackout); evening news on in-game radio 105.4 MHz; handwritten letters; item tooltips; difficulty presets
+[*]Power and water repair operations, multi-day events (helicopter crash, migration, fever, radio blackout), evening news on radio 105.4 MHz, handwritten letters, difficulty presets
+[*][b]New:[/b] holidays (Korean or American, by game language) with feasts, gifts and holiday food; friends who turned, to put to rest; a new character can find what the last one left behind
 [*]Survival journal written every in-game midnight from what you actually did; memoirs with remembrances from the living; read other players' journals
 [*]Characters standing together talk to each other (multiplayer); inner monologue when alone
 [*]Uses items from other mods (tested with Vanilla Foods Expanded and Modern Firearms System); optional Project A-Life [ALIFE NPCS] armed backup and raiders
@@ -55,7 +56,8 @@ Source: [url=https://github.com/LeArc6910/PZ-StoryEngine]mod[/url], [url=https:/
 [*]상대별 등급·묶음을 보고 고르는 거래 목록. 대가는 물건 또는 일(소탕·경비·정찰·배달), 외상, 빚으로
 [*]AI 디렉터: 보급, 폭풍, 부탁, 쫓아오는 좀비 무리, 헬기, 적대 세력의 협박
 [*]기한·등급이 있는 퀘스트(서버 전체 공유), 보상은 실제 보관함에 놓이고 지도에 표시
-[*][b]0.3.0 새 기능:[/b] 여러 마을의 실제 시설을 오가는 전기·수도 복구 작전, 여러 날 이어지는 사건(헬기 추락, 대이동, 열병, 통신 두절), 게임 속 라디오 105.4 MHz 저녁 방송, 손편지, 아이템 툴팁, 난이도 프리셋
+[*]전기·수도 복구 작전, 여러 날 이어지는 사건(헬기 추락, 대이동, 열병, 통신 두절), 라디오 105.4 MHz 저녁 방송, 손편지, 난이도 프리셋
+[*][b]새 기능:[/b] 명절(게임 언어에 따라 한국·미국)의 잔치·선물·세뱃돈·명절 음식, 좀비가 된 아는 사람을 보내 주는 부탁, 새 캐릭터가 앞 캐릭터의 유품 찾기
 [*]실제로 한 일로 매일 자정에 쓰는 생존 일지, 추모가 달리는 회고록, 다른 플레이어 일지 열람
 [*]함께 있는 캐릭터끼리 대화(멀티), 혼자일 때는 혼잣말
 [*]다른 모드 아이템 사용(VFE, MFS 확인), Project A-Life [ALIFE NPCS] 선택 연동(무장 지원·습격)

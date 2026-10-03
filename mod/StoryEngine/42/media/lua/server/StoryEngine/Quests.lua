@@ -152,7 +152,11 @@ end
 -- 작전·큰 사건·거래 대가 일이 맡는 퀘스트 (신뢰도·반응·보상을 건너뛴다)
 function Quests.isManaged(q)
     return Quests.isOp(q) or Quests.isSaga(q) or Quests.isWork(q)
+        or (q ~= nil and q.origin ~= nil and (q.origin.holiday ~= nil or q.origin.source == "recover"))
 end
+
+-- 상태가 바뀔 때 부르는 함수들 (명절·유품 회수 등 다른 모듈이 등록한다). fn(q, state, outcome, trustDelta)
+Quests.hooks = {}
 
 -- 아이템 목록 요약 ("권총, 9mm 탄약 상자 x2")
 local function listText(list)
@@ -409,6 +413,10 @@ local function trySpawn(q)
         Quests.spawnHorde(q)
         return
     end
+    if q.kind == "named" then
+        if StoryEngine.Named then StoryEngine.Named.spawn(q) end
+        return
+    end
     local container, loaded = pickContainer(q)
     if not loaded then
         Quests.attempts[q.id] = (Quests.attempts[q.id] or 0) + 1
@@ -553,6 +561,13 @@ local REACT = {
 REACT.extort = {
     completed = "The players handed over what you demanded (%s). You leave them alone, for now.",
 }
+REACT.named = {
+    accepted = "The players agreed to find %s, who turned, and put them to rest.",
+    declined = "The players would not go after %s, who turned.",
+    ignored = "The players never answered when you asked them to put %s to rest.",
+    completed = "The players put %s to rest and brought back what they carried. Tell them what that person was like, in a few words.",
+    failed = "The players never found %s. They are still out there somewhere.",
+}
 REACT.rescue = {
     completed = "The players reached the building near %s where the distress call came from. The survivor was already gone; they found only what was left behind.",
     failed = "Nobody went to check the distress call from near %s in time.",
@@ -569,6 +584,8 @@ local REACT_LINES = {
               failed = "q_failed" },
     extort = { completed = "extort_paid" },
     rescue = { completed = "rescue_done", failed = "rescue_failed" },
+    named = { accepted = "q_accepted", declined = "q_declined", ignored = "q_ignored", completed = "named_thanks",
+              failed = "q_failed" },
 }
 local REACT_TEXT = {
     q_accepted = "Thank you. I am counting on you.", q_declined = "All right. I understand.",
@@ -586,13 +603,15 @@ function Quests.react(q, outcome)
     local what = ((q.kind == "deliver" or q.kind == "extort") and Quests.needText(q)) or (q.kind == "trade" and listText(q.goods))
         or (q.kind == "horde" and (q.place.landmark or ("a building near " .. q.place.town)))
         or (Quests.noteKind(q) == "rescue" and q.place.town)
+        or (q.kind == "named" and tostring(q.personName or "someone"))
         or itemName((q.items or {})[1] or "")
     local topic = string.format(template, what)
     local fight = outcome == "completed" and Quests.fightText(q) or nil
     if fight then topic = topic .. " On the way " .. fight .. "." end
     if outcome == "completed" then topic = topic .. Quests.creditText(q) end
     local lineKind = (REACT_LINES[Quests.noteKind(q)] or {})[outcome]
-    local fallback = lineKind and StoryEngine.Lines.fallback(fid, lineKind, REACT_TEXT[lineKind] or "...") or nil
+    local args = q.kind == "named" and { { t = "key", v = "IGUI_StoryEngine_Named_" .. tostring(q.person) .. "_name" } } or nil
+    local fallback = lineKind and StoryEngine.Lines.fallback(fid, lineKind, REACT_TEXT[lineKind] or "...", args) or nil
     Radio.react(fid, "event", topic, fallback, Store.data().players[q.target])
 end
 
@@ -651,6 +670,10 @@ local function setState(q, state, now, entry, outcome)
     if StoryEngine.Social and TRUST_STATES[state] and not isOp then
         local ok, err = pcall(StoryEngine.Social.onQuest, q, outcome or state)
         if not ok then log("social quest error:", err) end
+    end
+    for _, fn in ipairs(Quests.hooks) do
+        local ok, err = pcall(fn, q, state, outcome or state, trustDelta)
+        if not ok then log("quest hook error:", err) end
     end
     -- 거래 대가 일·외상·빚 (Work.lua)
     if StoryEngine.Work and (Quests.isWork(q) or q.kind == "trade" or q.favorCall) then
@@ -1492,13 +1515,15 @@ end
 -- 부탁·거래 제안에 대한 수락/거절. 멀티에서는 답한 사람이 대상이 된다.
 function Quests.respond(player, qid, accept)
     local q = all()[qid]
-    if not q or (q.kind ~= "deliver" and q.kind ~= "trade" and q.kind ~= "horde") then return false, "no_quest" end
+    if not q or (q.kind ~= "deliver" and q.kind ~= "trade" and q.kind ~= "horde" and q.kind ~= "named") then
+        return false, "no_quest"
+    end
     if q.state ~= "proposed" then return false, "not_proposed" end
     local ps = Store.player(player)
     local now = Sensor.now()
     q.target, q.targetName = ps.key, ps.name
     if accept then
-        q.deadlineT = now.t + (q.kind == "horde" and Quests.deadlineMinutes(q.distance or 0)
+        q.deadlineT = now.t + ((q.kind == "horde" or q.kind == "named") and Quests.deadlineMinutes(q.distance or 0)
             or (q.urgent and 24 * 60) or Quests.deliverMinutes(q.tier))
         setState(q, "accepted", now, { ps = ps })
     else
@@ -1582,7 +1607,7 @@ function Quests.contribute(player, q)
     if done then
         setState(q, "completed", Sensor.now(), { ps = ps })
     else
-        if StoryEngine.Ops then pcall(StoryEngine.Ops.onContribution, q, ps, gave) end
+        if StoryEngine.Ops and Quests.isOp(q) then pcall(StoryEngine.Ops.onContribution, q, ps, gave) end
         notifyTarget(q)
     end
     return true
@@ -1591,7 +1616,9 @@ end
 function Quests.submit(player, qid)
     local q = all()[qid]
     if q and q.kind == "collect" then return Quests.contribute(player, q) end
-    if not q or (q.kind ~= "fetch" and q.kind ~= "deliver" and q.kind ~= "extort") then return false, "no_quest" end
+    if not q or (q.kind ~= "fetch" and q.kind ~= "deliver" and q.kind ~= "extort" and q.kind ~= "named") then
+        return false, "no_quest"
+    end
     if q.kind == "deliver" or q.kind == "extort" then
         if q.state ~= "accepted" then return false, "not_active" end
         if not Factions.canTalk(player) then return false, "no_radio" end
@@ -1691,7 +1718,8 @@ function Quests.track(entries, now)
                 end
             end
             if q.kind == "defend" or q.kind == "visit" then Quests.trackSite(q, entries, now) end
-            local left = (q.kind ~= "horde" and q.kind ~= "defend" and q.kind ~= "visit") and atSpot(q, false) or nil
+            local left = (q.kind ~= "horde" and q.kind ~= "defend" and q.kind ~= "visit" and q.kind ~= "named")
+                and atSpot(q, false) or nil
             if left == 0 and q.spawned and q.state ~= "retrieved" then
                 local best, bestD = nil, 40
                 for _, e in ipairs(entries) do
@@ -1760,6 +1788,8 @@ function Quests.listFor(psKey, now)
             end
             if q.kind == "visit" or q.kind == "defend" then item.radius = q.radius end
             item.favorCall = q.favorCall
+            if q.kind == "named" then item.person, item.slain = q.person, q.slain end
+            if q.origin and q.origin.holiday then item.holiday = q.origin.holiday end
             if q.kind == "horde" then
                 item.size, item.killed, item.killsNeeded = q.size, q.killed or 0, q.killsNeeded
             end

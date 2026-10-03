@@ -4,5 +4,16 @@
     "StoryEngine.PhotoAlbum": "Someone's Photo Album",
     "StoryEngine.Letter": "Handwritten Letter",
     "StoryEngine.WaterManual": "Waterworks Operating Manual",
-    "StoryEngine.GridSchematic": "County Grid Schematic"
+    "StoryEngine.GridSchematic": "County Grid Schematic",
+    "StoryEngine.Food_Tteokguk": "Rice Cake Soup",
+    "StoryEngine.Food_Songpyeon": "Songpyeon",
+    "StoryEngine.Food_Bureom": "Bureom Nuts",
+    "StoryEngine.Food_Surichwitteok": "Surichwi Rice Cake",
+    "StoryEngine.Food_Patjuk": "Red Bean Porridge",
+    "StoryEngine.Food_ChristmasCake": "Christmas Cake",
+    "StoryEngine.Food_NewYearCake": "New Year's Cake",
+    "StoryEngine.Food_ApplePie": "Fourth of July Apple Pie",
+    "StoryEngine.Food_HalloweenCandy": "Halloween Candy",
+    "StoryEngine.Food_PumpkinPie": "Thanksgiving Pumpkin Pie",
+    "StoryEngine.Food_ChristmasCookies": "Christmas Cookies"
 }
