@@ -120,7 +120,8 @@ function Fate.onStoryFinal(fid, node)
         end
         Life.record(fid, "survived", nil, 0)
         Radio.react(fid, "event", "You came very close to the end: " .. Fate.DOOM[fid].text
-            .. " But you survived it, badly hurt. Tell the players what happened, shaken.", nil, nil)
+            .. " But you survived it, badly hurt. Tell the players what happened, shaken.",
+            StoryEngine.Lines.fallback(fid, "survived", "It nearly finished us. We are still here, barely."), nil)
         log("fate survived", fid)
         return
     end
@@ -152,8 +153,7 @@ function Fate.daily()
                     Radio.react(fid, "event", "Your people have run out of almost everything: food, medicine, "
                         .. "ammunition and hope are all nearly gone. Tell the players you cannot hold out much longer "
                         .. "and will have to abandon your place soon unless something changes.",
-                        { text = "We're out of everything. We can't hold out much longer.",
-                          lt = { key = "IGUI_StoryEngine_RadioSay_fate_warn" } }, nil)
+                        StoryEngine.Lines.fallback(fid, "fate_warn", "We're out of everything. We can't hold out much longer."), nil)
                 end
             elseif any then
                 n.starve = 0
@@ -191,7 +191,7 @@ function Fate.apply(fid, kind, reason)
     if kind == "gone" then
         Radio.react(fid, "event", "This is your last call before you go off the air for good: " .. text
             .. " Say goodbye to the players in character.",
-            { text = "This is my last call. Take care of yourselves.", lt = { key = "IGUI_StoryEngine_RadioSay_fate_goodbye" } }, nil)
+            StoryEngine.Lines.fallback(fid, "fate_goodbye", "This is my last call. Take care of yourselves."), nil)
     end
     -- 떠나는 사람의 마지막 편지는 다음 보급에 실려 온다 (Letters.lua)
     if kind == "gone" and StoryEngine.Letters then StoryEngine.Letters.queue(fid, "farewell", text) end
@@ -205,7 +205,8 @@ function Fate.apply(fid, kind, reason)
         local who = announcer(fid)
         if who then
             Radio.react(who, "event", "You just heard terrible news: " .. text
-                .. " Tell the players, grieving or shaken in your own way.", nil, nil)
+                .. " Tell the players, grieving or shaken in your own way.",
+                StoryEngine.Lines.fallback(who, "npc_died", "Did you hear? We lost someone today.", { { t = "npc", v = fid } }), nil)
         end
     end
     -- 다른 NPC: 사기 하락, 소문

@@ -384,6 +384,18 @@ function Commands.radioSay(player, args)
     if not ok then reply(player, "radioError", { faction = args.faction, error = why }) end
 end
 
+-- 버튼 거래 (Trade.ask): 메뉴에 보일 품목·등급, 그리고 요청
+function Commands.tradeOptions(player, args)
+    local fid = tostring(args.faction or "")
+    if not StoryEngine.Trade.FACTIONS[fid] then return end
+    reply(player, "tradeOptions", StoryEngine.Trade.options(fid, StoryEngine.Store.player(player)))
+end
+
+function Commands.tradeAsk(player, args)
+    local ok, why = StoryEngine.Trade.ask(player, tostring(args.faction or ""), args.category, args.tier)
+    if not ok then reply(player, "radioError", { faction = args.faction, error = why }) end
+end
+
 function Commands.questList(player, args)
     local ps = StoryEngine.Store.player(player)
     reply(player, "questList", { quests = StoryEngine.Quests.listFor(ps.key, StoryEngine.Sensor.now()) })

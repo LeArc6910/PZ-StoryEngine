@@ -67,5 +67,12 @@
     "ContextMenu_StoryEngine_Saga_start_epidemic": "Start fever epidemic",
     "ContextMenu_StoryEngine_Saga_start_blackout": "Start radio blackout",
     "ContextMenu_StoryEngine_Saga_next": "Next stage",
-    "ContextMenu_StoryEngine_Saga_stop": "End it now"
+    "ContextMenu_StoryEngine_Saga_stop": "End it now",
+    "ContextMenu_StoryEngine_Debug": "Story Engine (debug)",
+    "ContextMenu_StoryEngine_DebugCat_check": "Checks",
+    "ContextMenu_StoryEngine_DebugCat_quests": "Director & quests",
+    "ContextMenu_StoryEngine_DebugCat_npc": "NPCs",
+    "ContextMenu_StoryEngine_DebugCat_character": "Character",
+    "ContextMenu_StoryEngine_DebugCat_world": "World & events",
+    "ContextMenu_StoryEngine_DebugCat_alife": "A-Life"
 }

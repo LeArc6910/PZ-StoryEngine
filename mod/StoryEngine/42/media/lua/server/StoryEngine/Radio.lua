@@ -16,6 +16,7 @@ require "StoryEngine/Store"
 require "StoryEngine/Bridge"
 require "StoryEngine/Sensor"
 require "StoryEngine/Factions"
+require "StoryEngine/Lines"
 
 local Store = StoryEngine.Store
 local Sensor = StoryEngine.Sensor
@@ -103,7 +104,7 @@ local function push(fid, msg, audience)
     ch.seq = ch.seq + 1
     msg.n = ch.seq
     Store.push(ch.messages, msg, Radio.KEEP)
-    if msg.from == "npc" and type(msg.text) == "string" then
+    if msg.from == "npc" and type(msg.text) == "string" and not msg.quiet then
         local who = msg.npc or fid       -- 공용 주파수에서는 말한 NPC
         if audience then
             Radio.logLine(audience, who, "npc", msg.text, msg.clock, msg.day)
@@ -138,6 +139,10 @@ local function rateLimited(key)
     Radio.lastSay[key] = now
     return nil
 end
+
+-- 이 오류면 AI 가 없는 것으로 보고 준비된 답장을 쓴다 (그 밖의 오류는 잡음)
+Radio.OFFLINE_ERRORS = { bridge_offline = true, timeout = true, write_failed = true }
+Radio.OFFLINE_HINT_MIN = 6 * 60     -- 버튼 안내 줄 간격 (채널마다, 게임 분)
 
 -- opts: nil (플레이어 발언에 답장)
 --     | { mode = "follow_up", topic, chain, retried }       약속한 연락 (예약)
@@ -319,12 +324,26 @@ function Radio.request(fid, lang, opts)
             -- 부탁처럼 꼭 전해야 하는 말은 준비된 문장으로 대신 보낸다
             log("radio " .. mode .. " failed:", fid, tostring(res.error))
             local fb = opts.fallback
+            if type(fb) == "table" and fb.pre then
+                -- 앞에 붙는 말 (이야기 부탁: 지금 사정을 먼저 말한다)
+                push(fid, { from = "npc", text = fb.pre.text, lt = fb.pre.lt, clock = t.clock, day = Store.dayIndex(t.dayKey) })
+            end
             if type(fb) == "table" then
                 push(fid, { from = "npc", text = fb.text, lt = fb.lt, clock = t.clock, day = Store.dayIndex(t.dayKey) })
                 if opts.overhead then Radio.overhead(opts.overhead, fid, fb.text, fb.lt) end
             elseif fb then
                 push(fid, { from = "npc", text = fb, clock = t.clock, day = Store.dayIndex(t.dayKey) })
                 if opts.overhead then Radio.overhead(opts.overhead, fid, fb) end
+            end
+        elseif Radio.OFFLINE_ERRORS[tostring(res.error)] then
+            -- AI 가 없으면(브릿지 꺼짐) 그 NPC 의 말투로 짧게 답하고, 버튼으로 할 수 있는 일을 가끔 알려 준다
+            log("radio reply offline:", fid, tostring(res.error))
+            local lt = StoryEngine.Lines.lt(fid, "offline_reply")
+            push(fid, { from = "npc", text = "(short reply, no AI)", lt = lt, quiet = true, clock = t.clock,
+                        day = Store.dayIndex(t.dayKey) }, speaker)
+            if not ch.offlineHintT or t.t - ch.offlineHintT >= Radio.OFFLINE_HINT_MIN then
+                ch.offlineHintT = t.t
+                push(fid, { from = "system", offlineHint = true, clock = t.clock, day = Store.dayIndex(t.dayKey) })
             end
         else
             log("radio reply failed:", fid, tostring(res.error))

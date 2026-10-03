@@ -93,6 +93,57 @@ def mod_file_errors() -> list[str]:
     for f in sorted((LUA_ROOT / "server").rglob("*.lua")):
         if "if isClient() then return end" not in f.read_text(encoding="utf-8"):
             errors.append(f"{f.relative_to(LUA_ROOT)}: no 'if isClient() then return end' (server files load on clients too)")
+    errors += line_key_errors()
+    return errors
+
+
+def line_key_errors() -> list[str]:
+    """AI 없이 쓰는 대사(shared/StoryEngine/Lines.lua)의 번역 키가 KO/EN IG_UI.json 에 모두 있는지 (2026-10-03).
+
+    NPC 대사 Line_<npc>_<종류>_<n> (Lines.COUNT, Lines.ONLY), 이야기 Story_<노드>, 동료 대화 Banter_<묶음>_<n>_a|b,
+    일기 Diary_* (Journal.DIARY_NOTES/MOODS/ACTS, 하루 분류별 시작 문장), 회고록 Memoir_*.
+    """
+    import json
+    import re
+    errors: list[str] = []
+    tr = {lang: json.loads((LUA_ROOT / "shared" / "Translate" / lang / "IG_UI.json").read_text(encoding="utf-8"))
+          for lang in ("KO", "EN")}
+    lines = (LUA_ROOT / "shared" / "StoryEngine" / "Lines.lua").read_text(encoding="utf-8")
+
+    def table(name):
+        m = re.search(r"^" + re.escape(name) + r" = \{(.*?)^\}", lines, re.S | re.M)
+        return dict((k, int(v)) for k, v in re.findall(r"(\w+)\s*=\s*(\d+)", re.sub(r"--[^\n]*", "", m.group(1))))
+
+    only = {}
+    for kind, body in re.findall(r"(\w+) = \{ ((?:\w+ = true,? ?)+)\}", lines.split("Lines.ONLY = {", 1)[1].split("\n", 1)[0]):
+        only[kind] = set(re.findall(r"(\w+) = true", body))
+    fids = re.findall(r'\{ id = "(\w+)",\s+freq', (LUA_ROOT / "shared" / "StoryEngine" / "Factions.lua").read_text(encoding="utf-8"))
+    keys = []
+    for fid in fids:
+        for kind, n in table("Lines.COUNT").items():
+            if kind in only and fid not in only[kind]:
+                continue
+            keys += [f"IGUI_StoryEngine_Line_{fid}_{kind}_{i}" for i in range(1, n + 1)]
+    for group, n in table("Lines.BANTER").items():
+        for i in range(1, n + 1):
+            keys += [f"IGUI_StoryEngine_Banter_{group}_{i}_a", f"IGUI_StoryEngine_Banter_{group}_{i}_b"]
+    stories = (LUA_ROOT / "server" / "StoryEngine" / "Stories.lua").read_text(encoding="utf-8").split("Stories.CRISES")[0]
+    keys += ["IGUI_StoryEngine_Story_" + n for n in re.findall(r'\{ id = "(\w+)"', stories)]
+    journal = (LUA_ROOT / "server" / "StoryEngine" / "Journal.lua").read_text(encoding="utf-8")
+    notes = re.search(r"Journal.DIARY_NOTES = \{(.*?)\n\}", journal, re.S).group(1)
+    keys += ["IGUI_StoryEngine_Diary_note_" + n for n in set(re.findall(r'= "(\w+)"', notes))]
+    for name, prefix in (("DIARY_MOODS", "mood_"), ("DIARY_ACTS", "act_")):
+        body = re.search(r"Journal." + name + r" = \{(.*?)\}", journal, re.S).group(1)
+        keys += ["IGUI_StoryEngine_Diary_" + prefix + x for x in re.findall(r'"(\w+)"', body)]
+    for cls in ("stayed_home", "local_scavenge", "expedition", "combat_day"):
+        keys += [f"IGUI_StoryEngine_Diary_open_{cls}_{i}" for i in (1, 2)] + ["IGUI_StoryEngine_Memoir_class_" + cls]
+    keys += ["IGUI_StoryEngine_Diary_" + k for k in ("kills_many", "kills_some", "kills_few", "kills_none", "hurt",
+                                                       "end_1", "end_2", "end_3")]
+    keys += ["IGUI_StoryEngine_Memoir_" + k for k in ("kills", "friend", "voice", "place", "end_1", "end_2")]
+    for lang, d in tr.items():
+        missing = [k for k in keys if k not in d]
+        if missing:
+            errors.append(f"IG_UI.json {lang}: {len(missing)} line keys missing, e.g. {missing[:3]}")
     return errors
 
 

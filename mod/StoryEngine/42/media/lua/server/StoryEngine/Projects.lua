@@ -116,7 +116,7 @@ local function complete(fid, who)
     if fid == "rats" and StoryEngine.Bonds then StoryEngine.Bonds.onTradingPost() end
     Radio.react(fid, "event", "Your big project is finished: " .. def.name .. ". The players' help made it possible. "
         .. "Tell them, proud and grateful in your own way, and say what it changes for your people.",
-        { text = "We finished it. Thank you.", lt = { key = "IGUI_StoryEngine_RadioSay_project_done" } }, nil)
+        StoryEngine.Lines.fallback(fid, "project_done", "We finished it. Thank you."), nil)
     if StoryEngine.Social then
         StoryEngine.Social.news("all", (Stories.NAMES[fid] or fid) .. " finished " .. def.name .. " with the players' help.")
     end
@@ -147,7 +147,8 @@ function Projects.add(fid, points, who, why)
             p.stage = i
             Radio.react(fid, "event", "Progress on your big project (" .. def.name .. "): about "
                 .. StoryEngine.intToString(percent(p)) .. "% done, thanks to the players. Tell them how it is going.",
-                nil, nil)
+                StoryEngine.Lines.fallback(fid, "project_progress", "The project is coming along.",
+                    { { t = "num", v = percent(p) } }), nil)
         end
     end
     return added

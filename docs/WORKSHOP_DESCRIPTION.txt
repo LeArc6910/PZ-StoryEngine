@@ -1,5 +1,5 @@
 [h1]StoryEngine - AI Story Engine (Build 42)[/h1]
-Unofficial fan-made mod. Not affiliated with or endorsed by The Indie Stone, OpenAI, Anthropic or Google.
+Unofficial fan-made mod. Not affiliated with or endorsed by The Indie Stone, OpenAI, Anthropic, Google or DeepSeek.
 Free. No paid features, no donation-only content.
 
 Radio contacts you can talk to, an AI director that throws events at you, quests with real rewards, a survival journal and an inner monologue.
@@ -19,7 +19,7 @@ Radio contacts you can talk to, an AI director that throws events at you, quests
 [/list]
 
 [h2]Works without extra software[/h2]
-Without the bridge the mod runs rule-based events, quests, trust and prepared lines. Free-form radio talk, calls, the open channel, radio news, character conversations and AI-written journals and letters need the bridge below.
+Without the bridge the mod runs rule-based events, quests and trust, and every contact still talks in their own voice with prepared lines: quest calls, reactions, story moments, short replies, open-channel chatter, companion talk and multi-sentence journals. Trades work from the [Ask to trade] button. Free-form radio talk, haggling, open-channel trading, radio news and AI-written journals and letters need the bridge below.
 
 [h2]Optional: StoryEngine Bridge (AI features)[/h2]
 A small Windows program that runs next to the game on the [b]host / server PC only[/b]. Players who join only need this mod.
@@ -41,7 +41,7 @@ Source: [url=https://github.com/LeArc6910/PZ-StoryEngine]mod[/url], [url=https:/
 [hr][/hr]
 
 [h1]StoryEngine - AI 스토리 엔진 (Build 42)[/h1]
-비공식 팬 제작 모드이며 The Indie Stone, OpenAI, Anthropic, Google과 관계가 없습니다. 무료이며 유료·후원자 전용 콘텐츠가 없습니다.
+비공식 팬 제작 모드이며 The Indie Stone, OpenAI, Anthropic, Google, DeepSeek과 관계가 없습니다. 무료이며 유료·후원자 전용 콘텐츠가 없습니다.
 
 무전으로 대화하는 생존자들, 사건을 일으키는 AI 디렉터, 실제 보상이 있는 퀘스트, 매일 자정에 쓰는 생존 일지와 혼잣말을 더합니다.
 
@@ -60,7 +60,7 @@ Source: [url=https://github.com/LeArc6910/PZ-StoryEngine]mod[/url], [url=https:/
 [/list]
 
 [h2]브릿지 (AI 기능, 선택)[/h2]
-브릿지 없이도 규칙 기반 사건·퀘스트·신뢰도·준비된 문장으로 동작합니다. 자유 무전, 공용 주파수, 라디오 방송, AI 일지·편지는 [b]호스트(서버) PC에서만[/b] 실행하는 윈도우 프로그램 StoryEngine 브릿지가 필요합니다.
+브릿지 없이도 규칙 기반 사건·퀘스트·신뢰도로 동작하고, 무전 상대마다 자기 말투의 준비된 대사(퀘스트 연락·반응·이야기·짧은 답장·공용 주파수 잡담·동료 대화)와 여러 문장 일지가 나옵니다. 거래는 [거래 요청] 버튼으로 할 수 있습니다. 자유 무전·흥정·공용 주파수 거래, 라디오 방송, AI 일지·편지는 [b]호스트(서버) PC에서만[/b] 실행하는 윈도우 프로그램 StoryEngine 브릿지가 필요합니다.
 [list]
 [*][b]본인 API 키[/b](OpenAI, Anthropic, Google Gemini 또는 DeepSeek)를 쓰며 요금은 본인에게 청구됩니다. 시간당 요청 상한이 있습니다.
 [*]캐릭터 이름, 사건 요약, 입력한 무전 대화를 이 PC에서 선택한 AI 서비스로 직접 보냅니다. 스팀 ID·계정 이름은 보내지 않으며 제작자에게는 아무것도 보내지 않습니다.

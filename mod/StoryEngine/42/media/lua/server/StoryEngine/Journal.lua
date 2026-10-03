@@ -124,16 +124,123 @@ function Journal.notify(ps, entry, player)
     end
 end
 
--- 브릿지 없이 쓰는 일기. 표시 문장은 클라이언트가 번역하고(lt), text 는 파일과 다음 일지 요청용 영어 요약이다.
-function Journal.fallbackText(ps, episodes, summary, date)
-    local kills = summary and summary.kills or 0
+-- AI 없이 쓰는 일기에 넣는 사건 (일지 메모 종류 -> 문장 IGUI_StoryEngine_Diary_note_<이름>). 인자는 그 NPC 이름 또는 사람 이름
+Journal.DIARY_NOTES = {
+    supply_drop_completed = "supply", fetch_completed = "fetch", rescue_completed = "rescue",
+    deliver_accepted = "promise", horde_accepted = "promise", deliver_declined = "declined", horde_declined = "declined",
+    deliver_completed = "delivered", horde_completed = "cleared", trade_completed = "trade",
+    deliver_failed = "failed", fetch_failed = "failed", horde_failed = "failed", trade_failed = "failed",
+    donation = "donation", project_donation = "donation", extort_demanded = "extort", death_of = "death_of",
+    npc_dead = "npc_dead", npc_gone = "npc_gone", helicopter = "heli", storm = "storm",
+    horde_nearby = "hunted", stay_horde = "hunted", world_power = "world_power", world_water = "world_water",
+    world_winter = "world_winter", world_snow = "world_snow", world_day30 = "world_day30", world_day90 = "world_day90",
+    world_day180 = "world_day180", letter_read = "letter", broadcast_heard = "broadcast", alife_support = "help",
+    specialty_guard = "help", specialty_snipe = "help", specialty_doc = "help", specialty_dewey_done = "help",
+    specialty_casey = "help", specialty_ray = "help", specialty_pike = "help", specialty_rats = "help",
+    project_done = "project", banter = "banter",
+}
+Journal.DIARY_MAX_NOTES = 4
+-- 하루를 마무리하는 기분 (가장 심했던 무들 2단계 이상)
+Journal.DIARY_MOODS = { "PANIC", "SICK", "PAIN", "UNHAPPY", "STRESS", "HUNGRY", "THIRST", "TIRED", "BORED" }
+Journal.DIARY_ACTS = { "craft", "dismantle", "cook", "build", "forage", "fish", "fish_net", "chop", "plant", "harvest",
+    "plow", "water_plants", "trap", "butcher", "animals", "read", "treat_other", "sew", "barricade", "bury",
+    "burn_corpse", "mechanic", "write", "exercise" }
+
+local function pick(n) return StoryEngine.intToString(ZombRand(n) + 1) end
+
+-- 브릿지 없이 쓰는 일기. 표시 문장은 클라이언트가 번역하고(lts: 여러 문장), text 는 파일과 다음 일지 요청용 영어 요약이다.
+-- 그날의 하루 분류·처치·부상·한 일·사건 메모·기분으로 몇 문장을 잇는다 (2026-10-03).
+function Journal.fallbackText(ps, episodes, summary, date, notes)
+    summary = summary or {}
+    local kills = summary.kills or 0
     local place = ps.home and Places.describe(ps.home.x, ps.home.y) or nil
     local town = place and place.town or "?"
     local text = tostring(date) .. ", near " .. town .. ": killed " .. StoryEngine.intToString(kills)
         .. " zombies, " .. StoryEngine.intToString(#episodes) .. " outings. (written without the AI)"
     local lt = { key = "IGUI_StoryEngine_FallbackDiary", args = { { t = "s", v = tostring(date) },
         { t = "town", v = town }, { t = "num", v = kills }, { t = "num", v = #episodes } } }
-    return text, lt
+
+    local lts = {}
+    local class = summary.class or "stayed_home"
+    lts[#lts + 1] = { key = "IGUI_StoryEngine_Diary_open_" .. class .. "_" .. pick(2), args = { { t = "town", v = town } } }
+    if kills >= 15 then
+        lts[#lts + 1] = { key = "IGUI_StoryEngine_Diary_kills_many", args = { { t = "num", v = kills } } }
+    elseif kills >= 5 then
+        lts[#lts + 1] = { key = "IGUI_StoryEngine_Diary_kills_some", args = { { t = "num", v = kills } } }
+    elseif kills > 0 then
+        lts[#lts + 1] = { key = "IGUI_StoryEngine_Diary_kills_few", args = { { t = "num", v = kills } } }
+    elseif class ~= "stayed_home" then
+        lts[#lts + 1] = { key = "IGUI_StoryEngine_Diary_kills_none" }
+    end
+    if summary.harmed then lts[#lts + 1] = { key = "IGUI_StoryEngine_Diary_hurt" } end
+    -- 많이 한 일 두 가지
+    local acts = {}
+    for _, k in ipairs(Journal.DIARY_ACTS) do
+        local a = (summary.acts or {})[k]
+        if type(a) == "table" and (a.n or 0) > 0 then acts[#acts + 1] = { k = k, n = a.n } end
+    end
+    table.sort(acts, function(a, b) return a.n > b.n end)
+    for i = 1, math.min(2, #acts) do lts[#lts + 1] = { key = "IGUI_StoryEngine_Diary_act_" .. acts[i].k } end
+    -- 사건 (같은 문장은 한 번만)
+    local used, count = {}, 0
+    for _, n in ipairs(notes or {}) do
+        local name = type(n) == "table" and Journal.DIARY_NOTES[tostring(n.kind)] or nil
+        if name and not used[name] and count < Journal.DIARY_MAX_NOTES then
+            used[name] = true
+            count = count + 1
+            local arg = (name == "death_of" and { t = "s", v = tostring(n.by or "?") })
+                or (n.faction and { t = "npc", v = n.faction }) or { t = "s", v = "" }
+            lts[#lts + 1] = { key = "IGUI_StoryEngine_Diary_note_" .. name, args = { arg } }
+        end
+    end
+    -- 기분
+    local mood, level = nil, 1
+    for _, m in ipairs(Journal.DIARY_MOODS) do
+        local v = (summary.moodlePeaks or {})[m] or 0
+        if v > level then mood, level = m, v end
+    end
+    if mood then
+        lts[#lts + 1] = { key = "IGUI_StoryEngine_Diary_mood_" .. mood }
+    else
+        lts[#lts + 1] = { key = "IGUI_StoryEngine_Diary_end_" .. pick(3) }
+    end
+    return text, lt, lts
+end
+
+-- 브릿지 없이 쓰는 회고록: 살아남은 날, 주로 보낸 날, 처치 수, 가장 오래 함께한 사람, 가장 자주 교신한 상대, 마지막 장소
+function Journal.fallbackMemoir(ps, survived, days, kills, deathTown)
+    local lts = { { key = "IGUI_StoryEngine_FallbackMemoir", args = { { t = "s", v = ps.name }, { t = "num", v = survived } } } }
+    local classes = {}
+    for _, d in ipairs(days or {}) do
+        if d.class then classes[d.class] = (classes[d.class] or 0) + 1 end
+    end
+    local best, bestN = nil, 0
+    for c, n in pairs(classes) do
+        if n > bestN then best, bestN = c, n end
+    end
+    if best then lts[#lts + 1] = { key = "IGUI_StoryEngine_Memoir_class_" .. best } end
+    if (kills or 0) > 0 then lts[#lts + 1] = { key = "IGUI_StoryEngine_Memoir_kills", args = { { t = "num", v = kills } } } end
+    local friend, minutes = nil, 0
+    for name, m in pairs(ps.met or {}) do
+        if m > minutes then friend, minutes = name, m end
+    end
+    if friend and minutes >= 60 then
+        lts[#lts + 1] = { key = "IGUI_StoryEngine_Memoir_friend", args = { { t = "s", v = friend } } }
+    end
+    local talks = {}
+    for _, l in ipairs(ps.radioLife or {}) do
+        if l.from == "player" and l.faction and l.faction ~= "open" then talks[l.faction] = (talks[l.faction] or 0) + 1 end
+    end
+    local voice, voiceN = nil, 0
+    for fid, n in pairs(talks) do
+        if n > voiceN then voice, voiceN = fid, n end
+    end
+    if voice and voiceN >= 3 then
+        lts[#lts + 1] = { key = "IGUI_StoryEngine_Memoir_voice", args = { { t = "npc", v = voice } } }
+    end
+    if deathTown then lts[#lts + 1] = { key = "IGUI_StoryEngine_Memoir_place", args = { { t = "town", v = deathTown } } } end
+    lts[#lts + 1] = { key = "IGUI_StoryEngine_Memoir_end_" .. pick(2) }
+    return lts
 end
 
 local function store(ps, entry, player)
@@ -186,6 +293,7 @@ function Journal.write(player, ps, reason, day)
         previous = lastText(ps),
         weeks = weekTexts(ps, 1),
     }
+    local notes = ps.notes or {}
     ps.notes = {}
     log("journal request", ps.name, reason, "episodes", #episodes)
 
@@ -196,7 +304,7 @@ function Journal.write(player, ps, reason, day)
         if text and text ~= "" then
             entry.text = text
         else
-            entry.text, entry.lt = Journal.fallbackText(ps, episodes, summary, date)
+            entry.text, entry.lt, entry.lts = Journal.fallbackText(ps, episodes, summary, date, notes)
             entry.fallback = true
             entry.error = res.error
         end
@@ -341,6 +449,8 @@ function Journal.memoir(player, ps)
         else
             entry.text = ps.name .. " survived " .. StoryEngine.intToString(survived) .. " days. (written without the AI)"
             entry.lt = { key = "IGUI_StoryEngine_FallbackMemoir", args = { { t = "s", v = ps.name }, { t = "num", v = survived } } }
+            local okK, kills = pcall(function() return player:getZombieKills() end)
+            entry.lts = Journal.fallbackMemoir(ps, survived, days, okK and kills or 0, deathPlace.town)
             entry.fallback = true
             entry.error = res.error
         end

@@ -554,6 +554,25 @@ REACT.rescue = {
 }
 local TRUST_STATES = { accepted = true, declined = true, completed = true, failed = true }
 
+-- AI 없이 쓰는 반응 (Lines.lua 종류). 영어 문장은 AI 가 다음 교신에서 읽는 기록
+local REACT_LINES = {
+    deliver = { accepted = "q_accepted", declined = "q_declined", ignored = "q_ignored", completed = "q_thanks",
+                failed = "q_failed" },
+    fetch = { failed = "q_failed" },
+    trade = { failed = "trade_failed" },
+    horde = { accepted = "q_accepted", declined = "q_declined", ignored = "q_ignored", completed = "horde_thanks",
+              failed = "q_failed" },
+    extort = { completed = "extort_paid" },
+    rescue = { completed = "rescue_done", failed = "rescue_failed" },
+}
+local REACT_TEXT = {
+    q_accepted = "Thank you. I am counting on you.", q_declined = "All right. I understand.",
+    q_ignored = "You never answered me.", q_thanks = "Got it. Thank you, truly.",
+    q_failed = "You never came through.", horde_thanks = "You cleared them out. Thank you.",
+    trade_failed = "You never paid. The deal is off.", rescue_done = "You went. That matters.",
+    rescue_failed = "Nobody went for them.", extort_paid = "Smart. We will leave you be, for now.",
+}
+
 function Quests.react(q, outcome)
     local fid = q.origin and q.origin.faction
     local byKind = REACT[Quests.noteKind(q)]
@@ -567,7 +586,9 @@ function Quests.react(q, outcome)
     local fight = outcome == "completed" and Quests.fightText(q) or nil
     if fight then topic = topic .. " On the way " .. fight .. "." end
     if outcome == "completed" then topic = topic .. Quests.creditText(q) end
-    Radio.react(fid, "event", topic, nil, Store.data().players[q.target])
+    local lineKind = (REACT_LINES[Quests.noteKind(q)] or {})[outcome]
+    local fallback = lineKind and StoryEngine.Lines.fallback(fid, lineKind, REACT_TEXT[lineKind] or "...") or nil
+    Radio.react(fid, "event", topic, fallback, Store.data().players[q.target])
 end
 
 -- outcome: 신뢰도·반응에 쓰는 결과 이름 (무응답은 state = declined, outcome = ignored)
@@ -701,12 +722,18 @@ function Quests.announce(q, player)
         text = "I picked up a distress call. Someone says they are trapped in " .. where
             .. ". I cannot get there. Can you check on them?"
     end
+    local lineKind = q.kind
+    if q.origin.source == "rescue" then lineKind = "rescue" end
     if q.origin.source == "reward" then
         lt.key = "IGUI_StoryEngine_RadioSay_reward"
         local kind = Quests.rewardKind(q)
         if kind then lt.alt, lt.key = lt.key, lt.key .. "_" .. kind end
         text = "Your payment is in " .. where .. "."
+        lineKind = (kind == "trade" and "reward_trade") or (kind == "horde" and "reward_horde") or "reward"
     end
+    -- 그 NPC 의 말투로 (Lines.lua). 없으면 위의 공통 문장
+    local Lines = StoryEngine.Lines
+    if Lines and Lines.has(fid, lineKind) then lt = Lines.lt(fid, lineKind, lt.args) end
     Radio.push(fid, { from = "npc", text = text, lt = lt, clock = Sensor.now().clock, quest = q.id })
 end
 
@@ -925,10 +952,22 @@ function Quests.propose(player, ps, fid, tier, now, opts)
         .. " once they agree.") or ""
     Radio.react(fid, "request", "You need " .. Quests.needText(q) .. " because " .. q.why
         .. "." .. urgency .. " Payment: a " .. tierWord .. " supply cache.",
-        { text = "Could you find me " .. Quests.needText(q) .. "? I will pay you back. Answer me on the radio.",
-          lt = { key = "IGUI_StoryEngine_RadioSay_request", args = { { t = "need", v = q.need } } } }, ps)
+        StoryEngine.Lines.fallback(fid, "request",
+            "Could you find me " .. Quests.needText(q) .. "? I will pay you back. Answer me on the radio.",
+            { { t = "need", v = q.need } }), ps)
     notifyTarget(q)
     return q
+end
+
+-- 이야기 부탁의 대체 문장: 그 NPC 가 지금 사정을 먼저 말하고(이야기 장면 번역), 이어서 부탁한다
+function Quests.storyFallback(fid, q, story)
+    local fb = StoryEngine.Lines.fallback(fid, "request",
+        "Could you find me " .. Quests.needText(q) .. "? I will pay you back. Answer me on the radio.",
+        { { t = "need", v = q.need } })
+    if type(fb) == "table" and story and story.node then
+        fb.pre = { text = tostring(q.why or ""), lt = StoryEngine.Lines.story(story.node) }
+    end
+    return fb
 end
 
 -- 이야기·위기에서 정한 부탁 (Social.lua). spec = { tier, why, items }, extra = { story = {...} | crisis = id, silent }
@@ -955,8 +994,7 @@ function Quests.proposeCustom(player, ps, fid, spec, now, extra)
         local tierWord = ({ "small", "modest", "good", "large", "huge" })[q.tier] or "small"
         Radio.react(fid, "request", "You need " .. Quests.needText(q) .. " because " .. tostring(q.why)
             .. ". This is part of what is going on in your life right now. Payment: a " .. tierWord .. " supply cache.",
-            { text = "Could you find me " .. Quests.needText(q) .. "? I will pay you back. Answer me on the radio.",
-              lt = { key = "IGUI_StoryEngine_RadioSay_request", args = { { t = "need", v = q.need } } } }, ps)
+            Quests.storyFallback(fid, q, extra.story), ps)
     end
     notifyTarget(q)
     return q
@@ -1037,8 +1075,9 @@ function Quests.demand(player, ps, fid, tier, now)
         .. Quests.needText(q) .. ", handed over on the radio within " .. hours .. " hours, or you will make them pay: "
         .. "lure a horde of the dead onto them or bring a helicopter down on their heads. Be menacing and brief; "
         .. "do not ask politely and do not offer a trade.",
-        { text = "Hand over " .. Quests.needText(q) .. " within " .. hours .. " hours, or the dead come for you.",
-          lt = { key = "IGUI_StoryEngine_RadioSay_extort", args = { { t = "need", v = q.need }, { t = "s", v = hours } } } }, ps)
+        StoryEngine.Lines.fallback(fid, "extort",
+            "Hand over " .. Quests.needText(q) .. " within " .. hours .. " hours, or the dead come for you.",
+            { { t = "need", v = q.need }, { t = "s", v = hours } }), ps)
     notifyTarget(q)
     return q
 end
@@ -1271,11 +1310,10 @@ function Quests.proposeHorde(player, ps, fid, tier, now)
         .. spot .. ". It is about " .. StoryEngine.intToString(distance) .. " tiles to the " .. dirEn .. " of the players (measured from them, "
         .. "not from you). Ask them to clear it out. Payment: a " .. tierWord .. " supply cache left near the spot. "
         .. "Use the town name as given.",
-        { text = "About " .. StoryEngine.intToString(size) .. " dead are gathered around a building near "
-            .. place.town .. ", about " .. StoryEngine.intToString(distance) .. " tiles " .. dirEn
-            .. " of you. Can you clear them out? I will leave you something for it.",
-          lt = { key = "IGUI_StoryEngine_RadioSay_horde", args = { { t = "town", v = place.town }, { t = "dir", v = code },
-              { t = "num", v = distance }, { t = "num", v = size } } } }, ps)
+        StoryEngine.Lines.fallback(fid, "horde", "About " .. StoryEngine.intToString(size)
+            .. " dead are gathered around a building near " .. place.town .. ", about " .. StoryEngine.intToString(distance)
+            .. " tiles " .. dirEn .. " of you. Can you clear them out? I will leave you something for it.",
+            { { t = "town", v = place.town }, { t = "dir", v = code }, { t = "num", v = distance }, { t = "num", v = size } }), ps)
     notifyTarget(q)
     return q
 end

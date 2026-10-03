@@ -19,6 +19,7 @@ require "StoryEngine/Places"
 require "StoryEngine/Store"
 require "StoryEngine/Bridge"
 require "StoryEngine/Sensor"
+require "StoryEngine/Lines"
 
 local Store = StoryEngine.Store
 local Sensor = StoryEngine.Sensor
@@ -213,7 +214,7 @@ local function show(speakers, lines)
     local out = {}
     for i, l in ipairs(lines) do
         local p = byName[l.speaker]
-        out[#out + 1] = { speaker = p:getOnlineID(), name = l.speaker, text = l.text,
+        out[#out + 1] = { speaker = p:getOnlineID(), name = l.speaker, text = l.text, lt = l.lt,
                           delay = (i - 1) * Banter.LINE_DELAY_MS }
     end
     local cx, cy = speakers[1]:getX(), speakers[1]:getY()
@@ -226,6 +227,8 @@ local function show(speakers, lines)
 end
 
 -- 대화를 시작한다. 요청했으면 true
+Banter.OFFLINE_ERRORS = { bridge_offline = true, timeout = true, write_failed = true }
+
 function Banter.fire(group, event, info, owner, force)
     if not Banter.enabled() or not group or #group < 2 then return false end
     local key = groupKey(group)
@@ -261,6 +264,17 @@ function Banter.fire(group, event, info, owner, force)
                 end
             end
         end
+        if #lines == 0 and Banter.OFFLINE_ERRORS[tostring(res.error)] and #names >= 2 then
+            -- AI 가 없으면 준비된 한 쌍 (사건의 주인공이 먼저, 혼잣말 계기면 그 혼잣말로 말을 꺼낸다)
+            local a, b = StoryEngine.Lines.banter(event)
+            local args = event == "death" and info and info.name and { { t = "s", v = info.name } } or nil
+            a.args, b.args = args, args
+            local Mono = StoryEngine.Monologue
+            if Mono and Mono.TRIGGERS and Mono.TRIGGERS[event] then a = Mono.fallbackText(event, info).lt end
+            lines[1] = { speaker = names[1], text = "(no AI)", lt = a }
+            lines[2] = { speaker = names[2], text = "(no AI)", lt = b }
+            log("banter offline", event)
+        end
         if #lines == 0 then
             log("banter failed", event, tostring(res.error or "empty"))
             return
@@ -282,6 +296,7 @@ function Banter.fire(group, event, info, owner, force)
         end
         if #kept == 0 then return end
         show(speakers, kept)
+        if kept[1].lt then return end     -- 준비된 문장은 일기·반복 방지 기록에 남기지 않는다
 
         -- 기록: 다시 하지 않도록, 그리고 참여한 사람들의 다음 일기에
         local said = st.said[key] or {}

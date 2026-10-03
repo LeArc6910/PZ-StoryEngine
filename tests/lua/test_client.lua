@@ -157,4 +157,15 @@ function T.radio_overhead_splits_into_timed_lines()
     H.eq(#C.overheadQueue, 0, "shown")
 end
 
+
+-- AI 없이 쓴 일기(여러 문장)와 새 인자 종류 (Lines.lua, 2026-10-03)
+function T.renders_sentence_lists_and_npc_names()
+    local UI = StoryEngine.UI
+    local text = UI.textOf({ lts = { { key = "IGUI_A" }, { key = "IGUI_B" } } })
+    H.ok(string.find(text, "IGUI_A", 1, true) and string.find(text, "IGUI_B", 1, true), text)
+    local npc = UI.render({ key = "IGUI_X", args = { { t = "npc", v = "doc" }, { t = "key", v = "IGUI_Y" } } })
+    H.ok(string.find(npc, "IGUI_Y", 1, true), npc)
+    H.ok(StoryEngine.Client.handlers.tradeOptions, "trade menu handler")
+end
+
 return T

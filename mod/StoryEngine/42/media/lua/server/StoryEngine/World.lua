@@ -236,7 +236,9 @@ function World.fire(id, key, now)
             if not dup and alive(f.id) then others[#others + 1] = f.id end
         end
         if #others > 0 then who[#who + 1] = others[ZombRand(#others) + 1] end
-        for _, fid in ipairs(who) do Radio.react(fid, "event", ev.topic, nil) end
+        for _, fid in ipairs(who) do
+            Radio.react(fid, "event", ev.topic, StoryEngine.Lines.fallback(fid, "world_" .. id, ev.news))
+        end
     end
     for _, ps in ipairs(livingPlayers()) do
         Store.addNote(ps, { kind = "world_" .. id, clock = now.clock })

@@ -376,11 +376,10 @@ Director.events.horde_nearby = {
         local each = #ctx.entries > 1 and " Each of the players has a pack like that on their trail." or ""
         StoryEngine.Radio.react(fid, "event", "You spotted a pack of about " .. StoryEngine.intToString(size)
             .. " dead moving toward " .. entry.ps.name .. " from the " .. DIR_WORDS[code] .. " (as seen from them), maybe "
-            .. "half an hour away, and they will not stop following." .. each .. " Warn them quickly.", {
-                text = "Heads up. About " .. StoryEngine.intToString(size) .. " of the dead are heading your way from the "
-                    .. DIR_WORDS[code] .. ".",
-                lt = { key = "IGUI_StoryEngine_RadioSay_horde_warning", args = { { t = "num", v = size }, { t = "dir", v = code } } },
-            }, entry.ps)
+            .. "half an hour away, and they will not stop following." .. each .. " Warn them quickly.",
+            StoryEngine.Lines.fallback(fid, "horde_warning", "Heads up. About " .. StoryEngine.intToString(size)
+                .. " of the dead are heading your way from the " .. DIR_WORDS[code] .. ".",
+                { { t = "num", v = size }, { t = "dir", v = code } }), entry.ps)
         return true
     end,
 }
@@ -407,7 +406,8 @@ Director.events.helicopter = {
         if StoryEngine.Monologue then pcall(StoryEngine.Monologue.onHelicopter, ctx.entries) end
         local fid = StoryEngine.Factions.byId.guard and "guard" or Director.pickFaction()
         StoryEngine.Radio.react(fid, "event", "A helicopter is flying low over the county, circling. The noise will pull "
-            .. "every dead thing for miles toward wherever it goes. You have no idea who is flying it.", nil, entry.ps)
+            .. "every dead thing for miles toward wherever it goes. You have no idea who is flying it.",
+            StoryEngine.Lines.fallback(fid, "heli", "A helicopter is circling low. Stay out of its way."), entry.ps)
         return true
     end,
 }
