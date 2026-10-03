@@ -133,6 +133,19 @@ function Client.handlers.tradePayResult(args)
     Net.toServer(player, "questList", {})
 end
 
+-- 명절 예고·당일 (Holiday.lua)
+function Client.handlers.holidayNotice(args)
+    local player = getPlayer()
+    if not player then return end
+    local name = getText("IGUI_StoryEngine_Holiday_" .. tostring(args.id))
+    if (args.days or 0) <= 0 then
+        HaloTextHelper.addGoodText(player, getText("IGUI_StoryEngine_Holiday_NoticeToday", name))
+    else
+        HaloTextHelper.addGoodText(player, getText("IGUI_StoryEngine_Holiday_Notice", name, StoryEngine.intToString(args.days)))
+    end
+    Net.toServer(player, "questList", {})
+end
+
 -- 거래 대가를 일·외상·빚으로 (Work.lua)
 function Client.handlers.tradeWorkResult(args)
     local player = getPlayer()
@@ -646,6 +659,8 @@ local function fillDebugMenu(context, worldobjects, playerNum)
     lsub:addOption(label("ContextMenu_StoryEngine_FateRevive"), worldobjects, life({ delta = 0, fate = "revive" }))
     npc:addOption(label("ContextMenu_StoryEngine_Story", npcName), worldobjects, toServer("debugStory", { faction = fid }))
     npc:addOption(label("ContextMenu_StoryEngine_Contact"), worldobjects, send("debugContact"), playerNum)
+    npc:addOption(label("ContextMenu_StoryEngine_DebugNamed"), worldobjects, toServer("debugNamed", { faction = fid }))
+    npc:addOption(label("ContextMenu_StoryEngine_DebugRecover"), worldobjects, send("debugRecover"), playerNum)
     npc:addOption(label("ContextMenu_StoryEngine_Scene"), worldobjects, send("debugScene"), playerNum)
     npc:addOption(label("ContextMenu_StoryEngine_Letter", npcName), worldobjects, toServer("debugLetter", { faction = fid }))
     npc:addOption(label("ContextMenu_StoryEngine_LetterFarewell", npcName), worldobjects,
@@ -678,6 +693,15 @@ local function fillDebugMenu(context, worldobjects, playerNum)
             worldobjects, toServer("debugOp", { action = entry[1], kind = entry[2] }))
     end
     world:addOption(label("ContextMenu_StoryEngine_Broadcast"), worldobjects, send("debugBroadcast"), playerNum)
+    local hsub = subMenu(context, world, label("ContextMenu_StoryEngine_DebugHoliday"))
+    for _, id in ipairs({ "newyear", "seollal", "daeboreum", "dano", "chuseok", "dongji", "christmas", "july4", "halloween",
+                          "thanksgiving" }) do
+        local hname = getText("IGUI_StoryEngine_Holiday_" .. id)
+        hsub:addOption(label("ContextMenu_StoryEngine_DebugHolidayAnnounce", hname), worldobjects,
+            toServer("debugHoliday", { id = id, stage = "announce" }))
+        hsub:addOption(label("ContextMenu_StoryEngine_DebugHolidayFeast", hname), worldobjects,
+            toServer("debugHoliday", { id = id, stage = "feast" }))
+    end
     world:addOption(label("ContextMenu_StoryEngine_BroadcastRerun"), worldobjects, toServer("debugBroadcast", { rerun = true }))
 
     -- A-Life 연동

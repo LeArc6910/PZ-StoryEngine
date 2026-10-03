@@ -35,6 +35,9 @@ require "StoryEngine/Grid"
 require "StoryEngine/Ops"
 require "StoryEngine/Saga"
 require "StoryEngine/Work"
+require "StoryEngine/Named"
+require "StoryEngine/Recover"
+require "StoryEngine/Holiday"
 StoryEngine.Tuning.safeApply()
 
 local Net = StoryEngine.Net
@@ -228,6 +231,49 @@ function Commands.debugLetter(player, args)
         { source = "director", faction = fid, initiator = "gift", friend = true })
     reply(player, "debugStatus", { text = "letter " .. fid .. ": " .. (q and ("in " .. q.id) or tostring(why))
         .. " | " .. StoryEngine.Letters.statusText() })
+end
+
+-- 디버그: 아는 얼굴의 좀비 부탁 (신뢰도·간격 무시, 남은 사람 중 교신 탭 상대 먼저)
+function Commands.debugNamed(player, args)
+    if not canUseDebug(player) then return end
+    local Named = StoryEngine.Named
+    local fid = tostring(args.faction or "")
+    local pick = nil
+    for _, p in ipairs(Named.PEOPLE) do
+        if not pick and p.npc == fid and not p.requires then pick = p end
+    end
+    pick = pick or Named.PEOPLE[1]
+    local q, why = Named.propose(player, StoryEngine.Store.player(player), pick, StoryEngine.Sensor.now())
+    reply(player, "debugStatus", { text = "named " .. pick.id .. ": " .. (q and q.id or tostring(why)) .. " | "
+        .. Named.statusText() })
+end
+
+-- 디버그: 유품 회수. 같은 계정의 죽음이 있으면 바로 퀘스트
+function Commands.debugRecover(player, args)
+    if not canUseDebug(player) then return end
+    local ps = StoryEngine.Store.player(player)
+    local q = StoryEngine.Recover.start(player, ps, StoryEngine.Sensor.now())
+    reply(player, "debugStatus", { text = "recover: " .. (q and q.id or "no recent death of this account with a position") })
+end
+
+-- 디버그: 명절 예고·잔치 바로 (args.id, args.stage = announce|feast). 지금 언어의 명절 목록에서 찾는다
+function Commands.debugHoliday(player, args)
+    if not canUseDebug(player) then return end
+    local H = StoryEngine.Holiday
+    local set, setName = H.set()
+    local h = nil
+    for _, x in ipairs(set) do if x.id == args.id then h = x end end
+    if not h then
+        reply(player, "debugStatus", { text = "holiday " .. tostring(args.id) .. " is not in the " .. setName .. " list" })
+        return
+    end
+    local y = H.today()
+    local u = { h = h, key = setName .. "_" .. h.id .. "_debug" .. StoryEngine.intToString(ZombRand(100000)), days = 0,
+                date = { y, 1, 1 }, set = setName }
+    local now = StoryEngine.Sensor.now()
+    H.announce(u, now)
+    if args.stage == "feast" then H.celebrate(u, now) end
+    reply(player, "debugStatus", { text = H.statusText() })
 end
 
 -- 디버그: 세계 변화 사건을 바로 일으킨다 (이미 했어도). args.event = power|water|winter|snow|day30|day90|day180
@@ -580,7 +626,8 @@ function Commands.debugStatus(player, args)
         .. " | " .. StoryEngine.Bonds.statusText() .. " | " .. StoryEngine.Broadcast.statusText()
         .. " | " .. StoryEngine.World.statusText() .. " | " .. StoryEngine.Letters.statusText()
         .. " | " .. StoryEngine.Ops.statusText() .. " | " .. StoryEngine.Saga.statusText()
-        .. " | " .. StoryEngine.Work.statusText() })
+        .. " | " .. StoryEngine.Work.statusText() .. " | " .. StoryEngine.Named.statusText()
+        .. " | " .. StoryEngine.Holiday.statusText() })
 end
 
 local function onClientCommand(module, command, player, args)

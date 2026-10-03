@@ -74,5 +74,10 @@
     "ContextMenu_StoryEngine_DebugCat_npc": "NPCs",
     "ContextMenu_StoryEngine_DebugCat_character": "Character",
     "ContextMenu_StoryEngine_DebugCat_world": "World & events",
-    "ContextMenu_StoryEngine_DebugCat_alife": "A-Life"
+    "ContextMenu_StoryEngine_DebugCat_alife": "A-Life",
+    "ContextMenu_StoryEngine_DebugNamed": "Familiar-face request (radio tab contact, now)",
+    "ContextMenu_StoryEngine_DebugRecover": "Belongings recovery (now)",
+    "ContextMenu_StoryEngine_DebugHoliday": "Holidays",
+    "ContextMenu_StoryEngine_DebugHolidayAnnounce": "Announce %1",
+    "ContextMenu_StoryEngine_DebugHolidayFeast": "Celebrate %1"
 }

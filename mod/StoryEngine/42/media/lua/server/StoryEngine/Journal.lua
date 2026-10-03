@@ -138,6 +138,7 @@ Journal.DIARY_NOTES = {
     specialty_guard = "help", specialty_snipe = "help", specialty_doc = "help", specialty_dewey_done = "help",
     specialty_casey = "help", specialty_ray = "help", specialty_pike = "help", specialty_rats = "help",
     project_done = "project", banter = "banter",
+    named_completed = "named", recover_found = "recover", memorial_read = "memorial", holiday = "holiday",
 }
 Journal.DIARY_MAX_NOTES = 4
 -- 하루를 마무리하는 기분 (가장 심했던 무들 2단계 이상)
@@ -188,7 +189,8 @@ function Journal.fallbackText(ps, episodes, summary, date, notes)
         if name and not used[name] and count < Journal.DIARY_MAX_NOTES then
             used[name] = true
             count = count + 1
-            local arg = (name == "death_of" and { t = "s", v = tostring(n.by or "?") })
+            local arg = (n.holiday and { t = "key", v = "IGUI_StoryEngine_Holiday_" .. tostring(n.holiday) })
+                or ((name == "death_of" or name == "recover" or name == "memorial") and { t = "s", v = tostring(n.by or "?") })
                 or (n.faction and { t = "npc", v = n.faction }) or { t = "s", v = "" }
             lts[#lts + 1] = { key = "IGUI_StoryEngine_Diary_note_" .. name, args = { arg } }
         end
@@ -361,7 +363,7 @@ function Journal.onDeath(ps, death, now)
     local d = Store.data()
     d.deaths = d.deaths or {}
     Store.push(d.deaths, { key = ps.key, name = ps.name, date = now.date, day = Store.dayIndex(now.dayKey),
-                           town = death.place and death.place.town }, 50)
+                           town = death.place and death.place.town, x = death.x, y = death.y, t = now.t }, 50)
     local others = {}
     for key, other in pairs(d.players) do
         if key ~= ps.key and not other.dead and other.name and other.name ~= ps.name then
@@ -425,7 +427,8 @@ function Journal.memoir(player, ps)
     for i = math.max(1, #ps.pending - 4), #ps.pending do recent[#recent + 1] = ps.pending[i] end
 
     local survived = #days + covered
-    local okDeath, errDeath = pcall(Journal.onDeath, ps, { place = deathPlace, harm = harm, survived = survived }, now)
+    local okDeath, errDeath = pcall(Journal.onDeath, ps, { place = deathPlace, harm = harm, survived = survived,
+        x = math.floor(player:getX()), y = math.floor(player:getY()) }, now)
     if not okDeath then log("death note error:", errDeath) end
     local life = {}
     local all = ps.radioLife or {}

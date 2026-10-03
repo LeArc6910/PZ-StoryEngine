@@ -74,5 +74,10 @@
     "ContextMenu_StoryEngine_DebugCat_npc": "NPC",
     "ContextMenu_StoryEngine_DebugCat_character": "캐릭터",
     "ContextMenu_StoryEngine_DebugCat_world": "세계·사건",
-    "ContextMenu_StoryEngine_DebugCat_alife": "A-Life 연동"
+    "ContextMenu_StoryEngine_DebugCat_alife": "A-Life 연동",
+    "ContextMenu_StoryEngine_DebugNamed": "아는 얼굴의 좀비 부탁 (교신 탭 상대, 바로)",
+    "ContextMenu_StoryEngine_DebugRecover": "유품 회수 (바로)",
+    "ContextMenu_StoryEngine_DebugHoliday": "명절",
+    "ContextMenu_StoryEngine_DebugHolidayAnnounce": "%1 예고",
+    "ContextMenu_StoryEngine_DebugHolidayFeast": "%1 잔치"
 }

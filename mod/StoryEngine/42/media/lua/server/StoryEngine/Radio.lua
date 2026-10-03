@@ -453,6 +453,11 @@ function Radio.say(player, fid, text)
         push(fid, { from = "static", error = "blackout", clock = now.clock, day = day })
         return true
     end
+    -- 명절 아침 인사(세배): 그 NPC 에게 처음이면 작은 선물 (Holiday.lua)
+    if StoryEngine.Holiday and fid ~= Radio.OPEN then
+        local okH, errH = pcall(StoryEngine.Holiday.onSay, player, ps, fid)
+        if not okH then log("holiday greet error:", errH) end
+    end
     if fid == Radio.OPEN then
         -- 공용 주파수: NPC 들이 각자 반응하고 서로 이야기한다
         if StoryEngine.Social then StoryEngine.Social.onOpenSay(ps, text) end

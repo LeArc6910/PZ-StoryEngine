@@ -22,7 +22,25 @@ StoryEngineLetterWindow = ISCollapsableWindow:derive("StoryEngineLetterWindow")
 StoryEngineLetterWindow.instance = nil
 
 -- 창에 넣을 글 (서식 태그 포함)
+-- 유품 수첩 (Recover.lua): 죽은 캐릭터의 마지막 일기들
+local function memorialBody(info)
+    local parts = {}
+    parts[#parts + 1] = " <CENTRE> <SIZE:medium> " .. UI.escape(getText("IGUI_StoryEngine_Memorial_Title", tostring(info.memorial)))
+        .. " <SIZE:small> <LEFT> <LINE> <LINE> "
+    local pages = info.pages or {}
+    if #pages == 0 then
+        parts[#parts + 1] = " <RGB:0.7,0.7,0.7> " .. UI.escape(getText("IGUI_StoryEngine_Memorial_Empty"))
+    end
+    for _, page in ipairs(pages) do
+        local head = page.memoir and getText("IGUI_StoryEngine_Memorial_Memoir") or tostring(page.date or "")
+        parts[#parts + 1] = " <RGB:0.75,0.7,0.6> " .. UI.escape(head) .. " <LINE> <RGB:0.92,0.88,0.78> "
+            .. UI.escape(UI.textOf(page)) .. " <LINE> <LINE> "
+    end
+    return table.concat(parts)
+end
+
 function StoryEngineLetterWindow.body(info)
+    if info.memorial then return memorialBody(info) end
     local name = StoryEngine.Factions.name(tostring(info.from))
     local parts = {}
     if info.title and info.title ~= "" then
@@ -62,7 +80,8 @@ end
 
 function StoryEngineLetterWindow:setInfo(info)
     self.info = info
-    self.title = getText("IGUI_StoryEngine_Letter_Title", StoryEngine.Factions.name(tostring(info.from)))
+    self.title = info.memorial and getText("IGUI_StoryEngine_Memorial_Title", tostring(info.memorial))
+        or getText("IGUI_StoryEngine_Letter_Title", StoryEngine.Factions.name(tostring(info.from)))
     self.text.text = StoryEngineLetterWindow.body(info)
     self.text:paginate()
     self.text:setYScroll(0)

@@ -366,6 +366,12 @@ local function messageLine(fid, m)
         local a = m.asked
         return " <RGB:0.55,0.75,1> " .. UI.escape(clock .. getText("IGUI_StoryEngine_TradeAsk_Line", tostring(a.name or "?"),
             StoryEngine.intToString(a.tier or 1), catName(a.category))) .. " <LINE> "
+    elseif m.from == "system" and m.holidayGift then
+        local g = m.holidayGift
+        local hname = getText("IGUI_StoryEngine_Holiday_" .. tostring(g.holiday))
+        local text = g.money and getText("IGUI_StoryEngine_Holiday_GiftMoney", Factions.name(fid), UI.itemList(g.items or {}))
+            or getText("IGUI_StoryEngine_Holiday_GiftFood", Factions.name(fid), hname, UI.itemList(g.items or {}))
+        return " <RGB:0.5,0.9,0.6> " .. UI.escape(clock .. text) .. " <LINE> "
     elseif m.from == "system" and m.offlineHint then
         return " <RGB:0.6,0.6,0.6> " .. UI.escape(clock .. getText("IGUI_StoryEngine_Radio_OfflineHint")) .. " <LINE> "
     elseif m.from == "system" and m.blocked then
@@ -445,6 +451,7 @@ end
 -- ================================================================ quest tab
 
 local findQuest
+local namedDetail
 
 StoryEngineQuestPanel = derivePanel("StoryEngineQuestPanel")
 
@@ -516,7 +523,7 @@ local function holdsQuestItem(q)
         end
         return false
     end
-    if q.kind ~= "fetch" then return false end
+    if q.kind ~= "fetch" and q.kind ~= "named" then return false end
     for _, fullType in ipairs(q.items or {}) do
         local list = p:getInventory():getAllTypeRecurse(fullType)
         for i = 0, list:size() - 1 do
@@ -582,6 +589,21 @@ local function sagaName(sg) return getText("IGUI_StoryEngine_Saga_" .. tostring(
 local function sagaStageName(sg) return getText("IGUI_StoryEngine_Saga_" .. tostring(sg.kind) .. "_" .. tostring(sg.stageId)) end
 
 local function questTitle(q)
+    local src = q.origin and q.origin.source
+    if q.kind == "named" then
+        return getText("IGUI_StoryEngine_QTitle_named", getText("IGUI_StoryEngine_Named_" .. tostring(q.person) .. "_name"),
+            UI.townName(q.town))
+    end
+    if q.holiday and q.kind == "collect" then
+        return getText("IGUI_StoryEngine_QTitle_holiday_collect", getText("IGUI_StoryEngine_Holiday_" .. tostring(q.holiday)))
+    end
+    if q.holiday then
+        return getText("IGUI_StoryEngine_QTitle_holiday", getText("IGUI_StoryEngine_Holiday_" .. tostring(q.holiday)),
+            UI.townName(q.town))
+    end
+    if src == "recover" then
+        return getText("IGUI_StoryEngine_QTitle_recover", tostring(q.origin.dead or "?"), UI.townName(q.town))
+    end
     if q.work then
         local key = "IGUI_StoryEngine_Work_Title_" .. tostring(q.work.how) .. (q.work.stage and ("_" .. q.work.stage) or "")
         local title = getText(key, UI.npcName(q.work.faction))
@@ -658,6 +680,7 @@ local function questSub(q)
         sub = getText("IGUI_StoryEngine_Saga_Tag") .. " " .. sagaName(q.saga) .. " - " .. sagaStageName(q.saga)
     end
     if q.work then sub = getText("IGUI_StoryEngine_Work_Tag") .. " " .. sub end
+    if q.holiday then sub = getText("IGUI_StoryEngine_Holiday_Tag") .. " " .. sub end
     if q.favorCall then sub = getText("IGUI_StoryEngine_Work_FavorTag") .. " " .. sub end
     -- 다른 사람이 받은 퀘스트는 누가 받았는지 붙인다 (퀘스트는 서버 전체가 함께 본다)
     if q.owner and not q.mine then sub = sub .. "  -  " .. tostring(q.owner) end
@@ -746,6 +769,49 @@ local function tradeDetail(q)
     if q.state == "proposed" then
         line(getText("IGUI_StoryEngine_Quest_RespondBy", StoryEngine.intToString(q.respondHours or 0)))
     elseif q.state == "accepted" then
+        line(getText("IGUI_StoryEngine_Quest_Deadline", StoryEngine.intToString(q.hoursLeft or 0)))
+    end
+    return table.concat(parts)
+end
+
+-- 아는 얼굴의 좀비 (Named.lua)
+namedDetail = function(q)
+    local parts = {}
+    local origin = q.origin or {}
+    local fid = origin.faction
+    local who = fid and Factions.byId[fid] and Factions.name(fid) or getText("IGUI_StoryEngine_Quest_Unknown")
+    local line = function(text) parts[#parts + 1] = " <LINE> " .. UI.escape(text) end
+    local active = ACTIVE[q.state] == true
+    local name = getText("IGUI_StoryEngine_Named_" .. tostring(q.person) .. "_name")
+    local keep = UI.itemList(q.items or {})
+    parts[#parts + 1] = " <H2> " .. UI.escape(questTitle(q))
+    if q.state == "completed" then
+        parts[#parts + 1] = " <LINE> <RGB:0.45,0.9,0.45> " .. UI.escape(getText("IGUI_StoryEngine_Quest_Result_completed"))
+    elseif q.state == "failed" then
+        parts[#parts + 1] = " <LINE> <RGB:0.95,0.4,0.35> " .. UI.escape(getText("IGUI_StoryEngine_Quest_Result_failed"))
+    elseif q.state == "declined" then
+        parts[#parts + 1] = " <LINE> <RGB:0.6,0.6,0.6> " .. UI.escape(getText("IGUI_StoryEngine_Quest_Result_declined"))
+    end
+    parts[#parts + 1] = " <LINE> <RGB:0.95,0.75,0.4> " .. UI.escape(who .. "  -  " .. tostring(origin.date or ""))
+    parts[#parts + 1] = " <LINE> <TEXT> " .. UI.escape(getText("IGUI_StoryEngine_Named_" .. tostring(q.person) .. "_desc"))
+    parts[#parts + 1] = " <LINE> "
+    if q.state == "proposed" then
+        line(getText("IGUI_StoryEngine_Quest_Goal_proposed"))
+    elseif active and q.slain then
+        parts[#parts + 1] = " <LINE> <RGB:0.5,0.9,0.6> " .. UI.escape(getText("IGUI_StoryEngine_Named_Slain", name, keep))
+    elseif active then
+        line(getText("IGUI_StoryEngine_Named_Goal", name, keep))
+    end
+    line(getText("IGUI_StoryEngine_Quest_Location", UI.townName(q.town)))
+    local p = player()
+    if p and active and q.x then
+        local x, y = StoryEngine.QuestMap.markerPos(q)
+        local dir, dist = UI.distanceText(p, x, y)
+        line(getText("IGUI_StoryEngine_Quest_Direction", dir, dist))
+    end
+    if q.state == "proposed" then
+        line(getText("IGUI_StoryEngine_Quest_RespondBy", StoryEngine.intToString(q.respondHours or 0)))
+    elseif active then
         line(getText("IGUI_StoryEngine_Quest_Deadline", StoryEngine.intToString(q.hoursLeft or 0)))
     end
     return table.concat(parts)
@@ -884,7 +950,9 @@ local function opDetail(q)
     local line = function(text) parts[#parts + 1] = " <LINE> " .. UI.escape(text) end
     local active = ACTIVE[q.state] == true
     local header
-    if q.work then
+    if q.holiday then
+        header = getText("IGUI_StoryEngine_Holiday_Header", getText("IGUI_StoryEngine_Holiday_" .. tostring(q.holiday)))
+    elseif q.work then
         header = getText("IGUI_StoryEngine_Work_Header", Factions.name(q.work.faction),
             getText("IGUI_StoryEngine_Work_" .. tostring(q.work.how)))
     elseif q.op then
@@ -917,6 +985,7 @@ local function opDetail(q)
         if q.work then
             goal = "IGUI_StoryEngine_Work_Goal_" .. tostring(q.work.how) .. (q.work.stage and ("_" .. q.work.stage) or "")
         end
+        if q.holiday and q.kind == "collect" then goal = "IGUI_StoryEngine_Holiday_CollectGoal" end
         line(getText(goal, StoryEngine.intToString(q.radius or 0)))
     end
     parts[#parts + 1] = " <LINE> "
@@ -979,7 +1048,8 @@ local function opDetail(q)
 end
 
 questDetailBase = function(q)
-    if q.op or q.saga or q.work then return opDetail(q) end
+    if q.op or q.saga or q.work or q.holiday then return opDetail(q) end
+    if q.kind == "named" then return namedDetail(q) end
     if q.kind == "choice" then return choiceDetail(q) end
     if q.kind == "market" then return marketDetail(q) end
     if q.kind == "horde" then return hordeDetail(q) end
@@ -1108,7 +1178,7 @@ function StoryEngineQuestPanel:refresh()
     end
     local canSubmit = selected ~= nil and active
         and (selected.kind == "fetch" or selected.kind == "deliver" or selected.kind == "trade" or selected.kind == "extort"
-            or selected.kind == "collect")
+            or selected.kind == "collect" or selected.kind == "named")
     -- 배달 대행 꾸러미는 무전으로 내지 않고 배달지로 가져간다 / 일로 갚는 거래는 물건으로 내지 않는다
     if canSubmit and selected.work and selected.work.how == "courier" then canSubmit = false end
     if canSubmit and selected.kind == "trade" and selected.payKind and selected.payKind ~= "credit" then canSubmit = false end
