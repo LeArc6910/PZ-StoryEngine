@@ -133,6 +133,21 @@ function Client.handlers.tradePayResult(args)
     Net.toServer(player, "questList", {})
 end
 
+-- 거래 대가를 일·외상·빚으로 (Work.lua)
+function Client.handlers.tradeWorkResult(args)
+    local player = getPlayer()
+    if not player then return end
+    if args.ok then
+        HaloTextHelper.addGoodText(player, getText("IGUI_StoryEngine_Work_Chosen_" .. tostring(args.how)))
+    else
+        local key = "IGUI_StoryEngine_Work_Error_" .. tostring(args.error)
+        local text = getText(key)
+        if text == key then text = getText("IGUI_StoryEngine_Error", tostring(args.error)) end
+        HaloTextHelper.addBadText(player, text)
+    end
+    Net.toServer(player, "questList", {})
+end
+
 function Client.handlers.questRespondResult(args)
     local player = getPlayer()
     if not player then return end
@@ -159,8 +174,9 @@ function Client.handlers.radioChannels(args)
     StoryEngineMainWindow.refreshIfOpen("radio")
 end
 
+-- 거래 목록 창 (TradeCatalogWindow.lua)
 function Client.handlers.tradeOptions(args)
-    if StoryEngineRadioPanel and StoryEngineRadioPanel.openTradeMenu then StoryEngineRadioPanel.openTradeMenu(args) end
+    if StoryEngineTradeCatalogWindow then StoryEngineTradeCatalogWindow.open(args) end
 end
 
 function Client.handlers.radioHistory(args)

@@ -34,8 +34,24 @@ Lines.COUNT = {
     open_chat = 3, open_reply = 2,
     -- 위협 세력만
     extort = 2, extort_paid = 1,
+    -- 다른 대가 (Work.lua): 일 장소 안내(마을, 방향, 거리), 외상(기한 일수), 빚, 일 끝, 빚 부탁(물건 목록)
+    work_horde = 1, work_fetch = 1, work_scout = 1, work_guard = 1, work_courier = 1, work_credit = 1, work_favor = 1,
+    work_done = 1, work_paid = 1, favor_call = 1,
 }
-Lines.ONLY = { extort = { guard = true, rats = true }, extort_paid = { guard = true, rats = true } }
+-- 이 종류는 이 NPC 들만 (Work.KINDS 와 같게)
+Lines.ONLY = {
+    extort = { guard = true, rats = true },
+    extort_paid = { guard = true, rats = true },
+    work_horde = { guard = true, rats = true, hunter = true },
+    work_fetch = { ray = true, casey = true, doc = true, dewey = true, rats = true },
+    work_scout = { casey = true, dewey = true, guard = true, hunter = true },
+    work_guard = { pike = true, guard = true },
+    work_courier = { ray = true, casey = true, doc = true, pike = true, rats = true },
+    work_credit = { ray = true, casey = true, doc = true, dewey = true, rats = true },
+    work_favor = { ray = true, pike = true, dewey = true, guard = true, rats = true, hunter = true },
+    favor_call = { ray = true, pike = true, dewey = true, guard = true, rats = true, hunter = true },
+    work_done = { pike = true, guard = true, rats = true, hunter = true },      -- 덤이 붙는 일(소탕·경비)을 받는 NPC
+}
 
 -- 이 NPC 대사가 없을 때 쓰는 공통 문장 (예전 키)
 Lines.ALT = {
@@ -46,6 +62,7 @@ Lines.ALT = {
     horde_warning = "IGUI_StoryEngine_RadioSay_horde_warning", extort = "IGUI_StoryEngine_RadioSay_extort",
     donation = "IGUI_StoryEngine_RadioSay_donation", fate_warn = "IGUI_StoryEngine_RadioSay_fate_warn",
     fate_goodbye = "IGUI_StoryEngine_RadioSay_fate_goodbye", project_done = "IGUI_StoryEngine_RadioSay_project_done",
+    favor_call = "IGUI_StoryEngine_RadioSay_request",
 }
 
 -- 동료 대화 묶음별 문장 쌍 수 (Banter 대체). 혼잣말 계기는 a 대신 그 혼잣말 문장(Mono)을 쓰고 b 만 쓴다

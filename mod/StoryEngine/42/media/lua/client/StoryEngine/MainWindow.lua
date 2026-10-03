@@ -23,6 +23,7 @@ require "StoryEngine/Factions"
 require "StoryEngine/Value"
 require "StoryEngine/TradePayWindow"
 require "StoryEngine/DonateWindow"
+require "StoryEngine/TradeCatalogWindow"
 
 local UI = StoryEngine.UI
 local Net = StoryEngine.Net
@@ -441,55 +442,6 @@ function StoryEngineRadioPanel:refresh()
     end
 end
 
--- 버튼 거래 메뉴: 품목마다 하위 메뉴, 등급마다 한 줄. 지금 신뢰도로 안 되는 등급은 회색 + 필요 신뢰도
-function StoryEngineRadioPanel.openTradeMenu(args)
-    if not args or args.faction ~= Cache.faction then return end
-    local context = ISContextMenu.get(0, getMouseX(), getMouseY())
-    local function tip(o, text)
-        local tt = ISToolTip:new()
-        tt:initialise()
-        tt:setVisible(false)
-        tt.description = text
-        o.toolTip = tt
-    end
-    local blockedAll = nil
-    if args.reason == "negotiating" or args.reason == "open_deal" then
-        blockedAll = getText("IGUI_StoryEngine_TradeAsk_OpenDeal")
-    elseif args.reason == "low_trust" then
-        blockedAll = getText("IGUI_StoryEngine_Trade_BlockedAll", StoryEngine.intToString(args.need or 20))
-    end
-    if blockedAll then
-        local o = context:addOption(blockedAll, nil, nil)
-        o.notAvailable = true
-        return
-    end
-    for _, it in ipairs(args.items or {}) do
-        local label = catName(it.category)
-        if it.empty then label = label .. " " .. getText("IGUI_StoryEngine_TradeAsk_Empty") end
-        local parent = context:addOption(label, nil, nil)
-        local sub = context:getNew(context)
-        context:addSubMenu(parent, sub)
-        for tier = 1, #(it.needs or {}) do
-            local o = sub:addOption(getText("IGUI_StoryEngine_TradeAsk_Tier", StoryEngine.intToString(tier)), nil, function()
-                request("tradeAsk", { faction = args.faction, category = it.category, tier = tier })
-            end)
-            if tier > (it.maxTier or 0) then
-                o.notAvailable = true
-                local need = it.needs[tier] or 101
-                if it.empty then
-                    tip(o, getText("IGUI_StoryEngine_TradeAsk_EmptyTip"))
-                elseif need > 100 then
-                    tip(o, getText("IGUI_StoryEngine_TradeAsk_Never"))
-                else
-                    tip(o, getText("IGUI_StoryEngine_TradeAsk_Need", StoryEngine.intToString(need)))
-                end
-            elseif it.short then
-                tip(o, getText("IGUI_StoryEngine_TradeAsk_Short"))
-            end
-        end
-    end
-end
-
 -- ================================================================ quest tab
 
 local findQuest
@@ -521,6 +473,12 @@ function StoryEngineQuestPanel:createChildren()
     self.declineButton = newButton(x + 120 + PAD, h - PAD - BUTTON_H, 120, getText("IGUI_StoryEngine_Quest_Decline"),
         self, function(panel) respond(findQuest(Cache.questId), false) end)
     self:addChild(self.declineButton)
+    -- 다른 대가 (Work.lua): 일·외상·빚을 고르는 메뉴
+    self.workButton = newButton(x, h - PAD - BUTTON_H, 150, getText("IGUI_StoryEngine_Work_Button"),
+        self, StoryEngineQuestPanel.onWork)
+    self.workButton.tooltip = getText("IGUI_StoryEngine_Work_Tooltip")
+    self.workButton:setVisible(false)
+    self:addChild(self.workButton)
     -- 위기 선택 버튼 (선택지마다 하나)
     self.choiceButtons = {}
     for i = 1, 3 do
@@ -574,6 +532,31 @@ function StoryEngineQuestPanel:onSelect(q)
     self:refresh()
 end
 
+-- 다른 대가 메뉴: 이 NPC 가 받는 방식, 안 되는 것은 회색 + 이유
+function StoryEngineQuestPanel:onWork()
+    local q = findQuest(Cache.questId)
+    if not q or not q.workOptions then return end
+    local context = ISContextMenu.get(0, getMouseX(), getMouseY())
+    for _, o in ipairs(q.workOptions) do
+        local opt = context:addOption(getText("IGUI_StoryEngine_Work_" .. tostring(o.how)), nil, function()
+            request("tradeWork", { id = q.id, how = o.how })
+        end)
+        local tt = ISToolTip:new()
+        tt:initialise()
+        tt:setVisible(false)
+        local text = getText("IGUI_StoryEngine_Work_" .. tostring(o.how) .. "_desc")
+        if not o.ok then
+            opt.notAvailable = true
+            local why = getText("IGUI_StoryEngine_Work_Why_" .. tostring(o.why), StoryEngine.intToString(o.need or 0))
+            text = why .. " <LINE> " .. text
+        end
+        tt.description = text
+        opt.toolTip = tt
+    end
+    local left = context:addOption(getText("IGUI_StoryEngine_Work_WeekLeft", StoryEngine.intToString(q.workWeekLeft or 0)), nil, nil)
+    left.notAvailable = true
+end
+
 function StoryEngineQuestPanel:onShowMap()
     local q = findQuest(Cache.questId)
     if not q then return end
@@ -599,6 +582,12 @@ local function sagaName(sg) return getText("IGUI_StoryEngine_Saga_" .. tostring(
 local function sagaStageName(sg) return getText("IGUI_StoryEngine_Saga_" .. tostring(sg.kind) .. "_" .. tostring(sg.stageId)) end
 
 local function questTitle(q)
+    if q.work then
+        local key = "IGUI_StoryEngine_Work_Title_" .. tostring(q.work.how) .. (q.work.stage and ("_" .. q.work.stage) or "")
+        local title = getText(key, UI.npcName(q.work.faction))
+        if q.town then title = title .. " - " .. UI.townName(q.town) end
+        return title
+    end
     if q.op then
         local title = opActName(q.op)
         if q.town and q.kind ~= "collect" then title = title .. " - " .. UI.townName(q.town) end
@@ -668,6 +657,8 @@ local function questSub(q)
     if q.saga then
         sub = getText("IGUI_StoryEngine_Saga_Tag") .. " " .. sagaName(q.saga) .. " - " .. sagaStageName(q.saga)
     end
+    if q.work then sub = getText("IGUI_StoryEngine_Work_Tag") .. " " .. sub end
+    if q.favorCall then sub = getText("IGUI_StoryEngine_Work_FavorTag") .. " " .. sub end
     -- 다른 사람이 받은 퀘스트는 누가 받았는지 붙인다 (퀘스트는 서버 전체가 함께 본다)
     if q.owner and not q.mine then sub = sub .. "  -  " .. tostring(q.owner) end
     return sub
@@ -735,11 +726,18 @@ local function tradeDetail(q)
         else
             line(getText("IGUI_StoryEngine_Trade_Goal_noHaggle"))
         end
+    elseif q.state == "accepted" and q.payKind and q.payKind ~= "credit" then
+        line(getText("IGUI_StoryEngine_Work_Goal_trade", getText("IGUI_StoryEngine_Work_" .. tostring(q.payKind))))
+    elseif q.state == "accepted" and q.credit then
+        line(getText("IGUI_StoryEngine_Work_Goal_credit"))
     elseif q.state == "accepted" then
         line(getText("IGUI_StoryEngine_Trade_Goal_pay"))
     end
+    if q.workOptions then line(getText("IGUI_StoryEngine_Work_Hint")) end
+    if q.favor then line(getText("IGUI_StoryEngine_Work_FavorOwed")) end
     parts[#parts + 1] = " <LINE> "
     line(getText("IGUI_StoryEngine_Trade_Goods", UI.itemList(q.goods)))
+    if q.workBonus and #q.workBonus > 0 then line(getText("IGUI_StoryEngine_Work_Bonus", UI.itemList(q.workBonus))) end
     line(getText("IGUI_StoryEngine_Trade_Price", catName(q.payCategory), StoryEngine.intToString(q.price or 0),
         StoryEngine.intToString(payableValue(q))))
     if q.basePrice and q.basePrice ~= q.price then
@@ -886,7 +884,10 @@ local function opDetail(q)
     local line = function(text) parts[#parts + 1] = " <LINE> " .. UI.escape(text) end
     local active = ACTIVE[q.state] == true
     local header
-    if q.op then
+    if q.work then
+        header = getText("IGUI_StoryEngine_Work_Header", Factions.name(q.work.faction),
+            getText("IGUI_StoryEngine_Work_" .. tostring(q.work.how)))
+    elseif q.op then
         header = getText("IGUI_StoryEngine_Op_Header", opName(q.op), StoryEngine.intToString(q.op.act or 1),
             StoryEngine.intToString(q.op.acts or 5))
     else
@@ -913,6 +914,9 @@ local function opDetail(q)
     if active then
         local goal = "IGUI_StoryEngine_Op_Goal_" .. q.kind
         if q.kind == "supply_drop" then goal = "IGUI_StoryEngine_Quest_Goal_supply_drop" end
+        if q.work then
+            goal = "IGUI_StoryEngine_Work_Goal_" .. tostring(q.work.how) .. (q.work.stage and ("_" .. q.work.stage) or "")
+        end
         line(getText(goal, StoryEngine.intToString(q.radius or 0)))
     end
     parts[#parts + 1] = " <LINE> "
@@ -975,7 +979,7 @@ local function opDetail(q)
 end
 
 questDetailBase = function(q)
-    if q.op or q.saga then return opDetail(q) end
+    if q.op or q.saga or q.work then return opDetail(q) end
     if q.kind == "choice" then return choiceDetail(q) end
     if q.kind == "market" then return marketDetail(q) end
     if q.kind == "horde" then return hordeDetail(q) end
@@ -1078,6 +1082,8 @@ function StoryEngineQuestPanel:refresh()
     local choosing = proposed and (selected.kind == "choice" or market)
     self.acceptButton:setVisible(proposed and not choosing)
     self.declineButton:setVisible(proposed and not choosing)
+    local canWork = selected ~= nil and selected.kind == "trade" and selected.workOptions ~= nil
+        and (proposed or (selected.state == "accepted" and not selected.payKind))
     -- 선택지 버튼: 오른쪽 칸 너비를 나눠 쓰고, 이름은 괄호(거점) 없이 짧게, 전체 이름은 툴팁으로
     local count = 0
     for i = 1, #(self.choiceButtons or {}) do
@@ -1103,6 +1109,9 @@ function StoryEngineQuestPanel:refresh()
     local canSubmit = selected ~= nil and active
         and (selected.kind == "fetch" or selected.kind == "deliver" or selected.kind == "trade" or selected.kind == "extort"
             or selected.kind == "collect")
+    -- 배달 대행 꾸러미는 무전으로 내지 않고 배달지로 가져간다 / 일로 갚는 거래는 물건으로 내지 않는다
+    if canSubmit and selected.work and selected.work.how == "courier" then canSubmit = false end
+    if canSubmit and selected.kind == "trade" and selected.payKind and selected.payKind ~= "credit" then canSubmit = false end
     self.submitButton:setVisible(canSubmit)
     if canSubmit then
         self.submitButton:setTitle(getText((selected.kind == "trade" and "IGUI_StoryEngine_Trade_PayButton")
@@ -1113,6 +1122,11 @@ function StoryEngineQuestPanel:refresh()
         self.submitButton:setX(located and (self.mapButton:getRight() + PAD) or self.mapButton:getX())
     end
     self.submitButton:setEnable(selected ~= nil and (selected.kind == "trade" or holdsQuestItem(selected)))
+    self.workButton:setVisible(canWork)
+    if canWork then
+        local after = (proposed and self.declineButton) or (canSubmit and self.submitButton) or nil
+        self.workButton:setX(after and (after:getRight() + PAD) or self.detail:getX())
+    end
 end
 
 -- ================================================================ journal tab
@@ -1545,6 +1559,7 @@ function StoryEngineMainWindow:showTab(key)
 end
 
 function StoryEngineMainWindow:close()
+    UI.saveWindow("main", self)          -- 다음에 열 때 같은 자리·크기로 (UIUtil)
     StoryEngineMainWindow.instance = nil
     self:removeFromUIManager()
 end
@@ -1564,9 +1579,7 @@ end
 function StoryEngineMainWindow.open(key)
     local w = StoryEngineMainWindow.instance
     if not w then
-        local width, height = 820, 540
-        local x = (getCore():getScreenWidth() - width) / 2
-        local y = (getCore():getScreenHeight() - height) / 2
+        local x, y, width, height = UI.windowRect("main", 1000, 640, 640, 400)
         w = StoryEngineMainWindow:new(x, y, width, height)
         w:initialise()
         w:addToUIManager()

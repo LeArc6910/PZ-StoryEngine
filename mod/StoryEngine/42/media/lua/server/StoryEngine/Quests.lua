@@ -144,9 +144,14 @@ function Quests.isSaga(q)
     return q ~= nil and q.origin ~= nil and q.origin.saga ~= nil
 end
 
--- 작전·큰 사건이 맡는 퀘스트 (신뢰도·반응·보상을 건너뛴다)
+-- 거래 대가로 하는 일(Work.lua) 퀘스트인가
+function Quests.isWork(q)
+    return q ~= nil and q.origin ~= nil and q.origin.work ~= nil
+end
+
+-- 작전·큰 사건·거래 대가 일이 맡는 퀘스트 (신뢰도·반응·보상을 건너뛴다)
 function Quests.isManaged(q)
-    return Quests.isOp(q) or Quests.isSaga(q)
+    return Quests.isOp(q) or Quests.isSaga(q) or Quests.isWork(q)
 end
 
 -- 아이템 목록 요약 ("권총, 9mm 탄약 상자 x2")
@@ -647,16 +652,24 @@ local function setState(q, state, now, entry, outcome)
         local ok, err = pcall(StoryEngine.Social.onQuest, q, outcome or state)
         if not ok then log("social quest error:", err) end
     end
+    -- 거래 대가 일·외상·빚 (Work.lua)
+    if StoryEngine.Work and (Quests.isWork(q) or q.kind == "trade" or q.favorCall) then
+        local ok, err = pcall(StoryEngine.Work.onState, q, state, outcome or state, trustDelta)
+        if not ok then log("work state error:", err) end
+    end
     notifyTarget(q)
 end
+Quests.setState = function(q, state, now, entry, outcome) return setState(q, state, now, entry, outcome) end
+Quests.notify = function(q) return notifyTarget(q) end
 
 -- 죽거나 떠난 NPC 의 부탁·거래를 조용히 거둔다 (신뢰도·반응·생활 상태 변화 없음, Fate.lua).
 -- 이미 놓인 보급(보상·선물)은 그대로 둔다.
 local CANCELABLE = { deliver = true, trade = true, horde = true, extort = true }
 function Quests.cancelFor(fid, now)
     for _, q in pairs(all()) do
-        if q.origin and q.origin.faction == fid and CANCELABLE[q.kind]
-            and (q.state == "proposed" or q.state == "accepted") then
+        local job = Quests.isWork(q) and Quests.isActive(q)     -- 거래 대가로 하던 일 (Work.lua)
+        if q.origin and q.origin.faction == fid and (job or (CANCELABLE[q.kind]
+            and (q.state == "proposed" or q.state == "accepted"))) then
             q.state = "declined"
             q.cancelled = true
             q.endedT = now.t
@@ -692,6 +705,7 @@ local function whereFrom(q, player)
     if town == key then town = q.place.town end
     return town, code, distance, DIR_WORDS[code]
 end
+Quests.whereFrom = whereFrom
 
 -- 보상 보급이 무엇의 대가인지 (예전 세이브는 rewardFor 로 찾는다)
 function Quests.rewardKind(q)
@@ -939,6 +953,7 @@ function Quests.propose(player, ps, fid, tier, now, opts)
     local q = {
         id = "Q" .. StoryEngine.intToString(d.questSeq),
         kind = "deliver", tier = need.tier, need = items, why = need.why, urgent = opts.urgent or nil,
+        favorCall = opts.favor and true or nil,
         origin = { source = "director", faction = fid, initiator = "npc",
                    day = Store.dayIndex(now.dayKey), date = now.date, clock = now.clock },
         target = ps.key, targetName = ps.name,
@@ -950,9 +965,13 @@ function Quests.propose(player, ps, fid, tier, now, opts)
     local tierWord = ({ "small", "modest", "good", "large", "huge" })[q.tier] or "small"
     local urgency = opts.urgent and (" This is URGENT: your people have almost run out and cannot wait; they have one day"
         .. " once they agree.") or ""
+    if opts.favor then
+        urgency = urgency .. " You are calling in the favor " .. tostring(opts.favor) .. " owes you from an earlier trade:"
+            .. " you gave them goods for nothing. Remind them; refusing would be a real betrayal."
+    end
     Radio.react(fid, "request", "You need " .. Quests.needText(q) .. " because " .. q.why
         .. "." .. urgency .. " Payment: a " .. tierWord .. " supply cache.",
-        StoryEngine.Lines.fallback(fid, "request",
+        StoryEngine.Lines.fallback(fid, opts.favor and "favor_call" or "request",
             "Could you find me " .. Quests.needText(q) .. "? I will pay you back. Answer me on the radio.",
             { { t = "need", v = q.need } }), ps)
     notifyTarget(q)
@@ -1460,8 +1479,12 @@ function Quests.completeTrade(player, q)
     local ps = Store.player(player)
     Quests.addHelper(q, ps)
     local distanceTier = q.tier <= 2 and 1 or 2
-    local delivery = Quests.create("supply_drop", player, ps, distanceTier, now,
-        { source = "reward", faction = q.origin and q.origin.faction, rewardFor = q.id, rewardKind = q.kind }, q.goods)
+    -- 외상(Work.lua)은 물건을 이미 보냈다
+    local delivery = nil
+    if not q.credit then
+        delivery = Quests.create("supply_drop", player, ps, distanceTier, now,
+            { source = "reward", faction = q.origin and q.origin.faction, rewardFor = q.id, rewardKind = q.kind }, q.goods)
+    end
     setState(q, "completed", now, { ps = ps })
     return true, delivery
 end
@@ -1613,6 +1636,18 @@ function Quests.trackSite(q, entries, now)
     end
     q.present = #here
     if q.kind == "visit" then
+        if #here > 0 and q.carry then
+            -- 배달 대행 (Work.lua): 꾸러미를 가진 사람이 와야 끝난다. 꾸러미는 건네준다
+            for _, e in ipairs(here) do
+                local held = e.player and findInInventory(e.player, { items = q.carry.items, id = q.carry.qid }) or {}
+                if #held > 0 then
+                    for _, it in ipairs(held) do StoryEngine.Items.remove(it, e.player) end
+                    setState(q, "completed", now, e)
+                    return
+                end
+            end
+            return
+        end
         if #here > 0 then setState(q, "completed", now, here[1]) end
         return
     end
@@ -1710,7 +1745,21 @@ function Quests.listFor(psKey, now)
                 item.basePrice, item.withdrawn = q.basePrice, q.withdrawn
                 local Trade = StoryEngine.Trade
                 item.haggleLeft = Trade and math.max(0, Trade.MAX_HAGGLES - (q.haggles or 0)) or 0
+                -- 다른 대가 (Work.lua)
+                item.payKind, item.credit, item.favor, item.workId = q.payKind, q.credit, q.favor, q.workId
+                item.workBonus = q.workBonus
+                local Work = StoryEngine.Work
+                if Work and (state == "proposed" or (state == "accepted" and not q.payKind)) then
+                    item.workOptions, item.workWeekLeft = Work.options(q)
+                end
             end
+            if Quests.isWork(q) then
+                item.work = { how = q.origin.workKind, stage = q.origin.stage, trade = q.origin.work,
+                              faction = q.origin.faction }
+                item.site = nil
+            end
+            if q.kind == "visit" or q.kind == "defend" then item.radius = q.radius end
+            item.favorCall = q.favorCall
             if q.kind == "horde" then
                 item.size, item.killed, item.killsNeeded = q.size, q.killed or 0, q.killsNeeded
             end

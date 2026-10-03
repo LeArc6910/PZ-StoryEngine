@@ -96,7 +96,7 @@ end
 -- outcome: accepted | declined | ignored | completed | failed
 function Trust.forQuest(q, outcome)
     local fid = q.origin and q.origin.faction
-    if not fid then return 0 end
+    if not fid or q.noTrust then return 0 end      -- 빚으로 받은 거래 (Work.lua): 신뢰도 변화 없음
     local who = Trust.initiator(q)
     local row = who and Trust.DELTA[who] and Trust.DELTA[who][outcome]
     if not row then return 0 end

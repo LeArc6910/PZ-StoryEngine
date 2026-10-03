@@ -34,6 +34,7 @@ require "StoryEngine/Tuning"
 require "StoryEngine/Grid"
 require "StoryEngine/Ops"
 require "StoryEngine/Saga"
+require "StoryEngine/Work"
 StoryEngine.Tuning.safeApply()
 
 local Net = StoryEngine.Net
@@ -391,8 +392,14 @@ function Commands.tradeOptions(player, args)
     reply(player, "tradeOptions", StoryEngine.Trade.options(fid, StoryEngine.Store.player(player)))
 end
 
+-- 거래 대가를 물건 대신 일·외상·빚으로 (Work.lua)
+function Commands.tradeWork(player, args)
+    local ok, why = StoryEngine.Work.choose(player, tostring(args.id or ""), tostring(args.how or ""))
+    reply(player, "tradeWorkResult", { ok = ok, how = args.how, error = not ok and why or nil })
+end
+
 function Commands.tradeAsk(player, args)
-    local ok, why = StoryEngine.Trade.ask(player, tostring(args.faction or ""), args.category, args.tier)
+    local ok, why = StoryEngine.Trade.ask(player, tostring(args.faction or ""), args.category, args.tier, args.bundle)
     if not ok then reply(player, "radioError", { faction = args.faction, error = why }) end
 end
 
@@ -572,7 +579,8 @@ function Commands.debugStatus(player, args)
         .. " | " .. StoryEngine.Fate.statusText() .. " | " .. StoryEngine.Projects.statusText()
         .. " | " .. StoryEngine.Bonds.statusText() .. " | " .. StoryEngine.Broadcast.statusText()
         .. " | " .. StoryEngine.World.statusText() .. " | " .. StoryEngine.Letters.statusText()
-        .. " | " .. StoryEngine.Ops.statusText() .. " | " .. StoryEngine.Saga.statusText() })
+        .. " | " .. StoryEngine.Ops.statusText() .. " | " .. StoryEngine.Saga.statusText()
+        .. " | " .. StoryEngine.Work.statusText() })
 end
 
 local function onClientCommand(module, command, player, args)
