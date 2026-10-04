@@ -2,16 +2,24 @@
 --
 -- 이름이 아니라 아이템 속성으로 판단한다 (모드마다 이름 규칙이 달라서).
 --   food    : 먹을 수 있고 상하지 않는(또는 밀봉된) 음식. 향신료·재료(minoringredient)·상하는 음식·위험한 날것은 뺀다.
---             등급은 열량으로. 통조림 상자처럼 음식을 담은 묶음은 foodBox (대가로만 받는다)
---   firearm : 원거리 무기 + 등록된 탄약(AmmoType). 등급은 쓰는 탄약으로 정한다 (ItemPool.AMMO_TIERS, 2026-09-27 사용자 결정)
---             1 9mm·.38 / 2 .45·.357·.44 / 3 .30-30·.308 / 4 12게이지 / 5 5.56·5.45·5.8·.338
---             + 20발 이상 탄창을 쓰는 자동화기는 탄약과 관계없이 5 (총 아이템을 만들 수 있을 때만 알 수 있다)
---             .50 BMG·14.5mm·유탄·화염 연료를 쓰는 무기는 뺀다. 모르는 탄약은 3등급 (items.txt 의 ammo 줄로 지정)
+--             통조림 상자처럼 음식을 담은 묶음은 foodBox (대가로만 받는다)
+--   firearm : 원거리 무기 + 등록된 탄약(AmmoType).
 --   ammo    : 총이 가리키는 낱발(AmmoType)·상자(AmmoBox)·탄창(MagazineType)
---   melee   : 근접 무기 (DisplayCategory Weapon). 등급은 피해 순위 5분위
+--   melee   : 근접 무기 (DisplayCategory Weapon)
 -- 나머지(도구·의약품 등)는 DisplayCategory 로만 분류한다 (보상 목록은 바닐라 그대로).
 -- 도구 (2026-09-30 좁힘): Tool·ToolWeapon (망치·렌치·쇠지렛대처럼 무기 겸 도구도 거래·물자 지원에서는 도구, 보상 근접 무기
---   풀은 그대로). 디버그·틀·굽지 않은 것·부품·씨앗 반죽·담뱃잎은 도구가 아니다. 가치는 무게로 0.3kg 미만 2, 5kg 이상 20, 그 밖 8
+--   풀은 그대로). 디버그·틀·굽지 않은 것·부품·씨앗 반죽·담뱃잎은 도구가 아니다.
+--
+-- 등급 기준 (2026-10-04 사용자 결정, 가치도 등급을 따른다. 게임 밖에서만 알 수 있는 값은 ItemTiers.lua 표):
+--   음식    : 배고픔 + 갈증이 줄어드는 양 (따기 전 통조림·상자는 안에 든 음식 x 개수). 10 미만 / 10~14 / 15~24 / 25~39 / 40+
+--   의약품  : 1 덮기·소독 / 2 먹는 약 / 3 큰 상처 처치 (ItemTiers.MEDICAL). 휴지·청진기·설압자는 의약품 아님
+--   도구    : 바닐라 루팅표 등장 가중치 (ItemTiers.TOOLS, 흔할수록 낮음). 손으로 만드는 도구·낡은 변형은 거래 안 함
+--   근접 무기: 실전 점수 = 평균 피해 x 속도^0.5 x 수명^1 x 타격 수^0.5 (수명 = 최대 내구도 x 내구 감소 확률 분모)의
+--             5분위 (도구 겸 무기는 빼고 나눈 경계로). 부서진 무기·재료(손잡이·쇠스랑 머리 등)·맨손은 빼고,
+--             판자·금속 파이프·납 파이프·강철 봉·장작은 넣는다
+--   탄약    : 구경 위력. 1 .38·9mm·.45·석궁 화살 / 2 .357·.44 / 3 5.45·5.56·5.8 / 4 .30-30·12게이지·.308 / 5 .338.
+--             .50 BMG·14.5mm·유탄·화염 연료는 뺀다. 모르는 탄약은 3등급 (items.txt 의 ammo 줄로 지정)
+--   총기    : 탄약 등급 + 자동 사격 가능 +2, 수동 장전(볼트·레버·더블 배럴) -2, 펌프 산탄총·반자동·리볼버는 그대로
 --
 -- 조정 파일 Zomboid/Lua/StoryEngine/items.txt (없으면 서버가 설명을 담아 만든다):
 --   exclude <아이템 또는 접두어*>          예) exclude Base.DogfoodOpen   exclude VFX.Frozen*
@@ -24,6 +32,7 @@
 -- 로그와 itempool.txt 에 모아 보여 준다 (ItemPool.unmapped).
 
 require "StoryEngine/Core"
+require "StoryEngine/ItemTiers"
 
 local ItemPool = {
     built = false,
@@ -32,27 +41,30 @@ local ItemPool = {
     guns = {},         -- fullType -> { tier, round, box, mag }
     gunsByTier = {},   -- tier -> { fullType, ... }
     ammoRole = {},     -- fullType -> "round" | "box" | "mag"
+    ammoTier = {},     -- 낱발·상자·탄창 fullType -> 탄약(구경) 등급
     excludes = {}, prefixes = {},
     stats = {},
 }
 StoryEngine.ItemPool = ItemPool
 
 ItemPool.FILE = "StoryEngine/items.txt"
-ItemPool.MIN_CALORIES = 100
 ItemPool.FRESH_DAYS = 30            -- 이보다 빨리 상하면 보상에서 뺀다 (0 은 상하지 않음)
-ItemPool.FOOD_TIERS = { 200, 350, 500, 700 }   -- 열량 경계 -> 1~5등급
-ItemPool.AUTO_AMMO = 20             -- 이 이상 들어가는 탄창을 쓰면 자동화기 -> 5등급
+ItemPool.FOOD_TIERS = { 10, 15, 25, 40 }   -- 배고픔 + 갈증 해소 경계 -> 1~5등급
 ItemPool.UNKNOWN_AMMO_TIER = 3
 
--- 낱발 아이템(모듈 없이, 소문자) -> 총 등급. false 는 제외
+-- 낱발 아이템(모듈 없이, 소문자) -> 탄약(구경) 등급. false 는 제외
 ItemPool.AMMO_TIERS = {
-    bullets9mm = 1, bullets38 = 1,
-    bullets45 = 2, bullets357 = 2, bullets44 = 2,
-    ["3030bullets"] = 3, ["308bullets"] = 3,
-    shotgunshells = 4,
-    ["556bullets"] = 5, ["545bullets"] = 5, a_58bullets = 5, bullets86 = 5,
+    bullets38 = 1, bullets9mm = 1, bullets45 = 1, crossbowbolt = 1,
+    bullets357 = 2, bullets44 = 2,
+    ["545bullets"] = 3, ["556bullets"] = 3, a_58bullets = 3,
+    ["3030bullets"] = 4, shotgunshells = 4, ["308bullets"] = 4,
+    bullets86 = 5,
     bullets50 = false, bullets145 = false, grenadeammo = false, flamefuel = false,
 }
+-- 총 등급 = 탄약 등급 + 사격 방식 (1~5로 자름)
+ItemPool.ACTION_MOD = { auto = 2, manual = -2, pump = 0, semi = 0 }
+ItemPool.MANUAL_RELOAD = { boltactionnomag = true, leveraction = true, doublebarrelshotgun = true,
+                           doublebarrelshotgunsawn = true }
 -- 분류 이름(DisplayCategory, 소문자) -> 종류
 ItemPool.CATEGORY_KINDS = {
     tools = { "tool", "tools", "toolweapon", "toolkit", "hardware" },
@@ -91,11 +103,26 @@ for kind, names in pairs(ItemPool.CATEGORY_KINDS) do
     for _, n in ipairs(names) do KIND_OF[n] = kind end
 end
 
+-- 등급별 가치
 ItemPool.GUN_VALUE = { 30, 40, 50, 65, 80 }
-ItemPool.TOOL_SMALL, ItemPool.TOOL_HEAVY = 0.3, 5          -- kg
-ItemPool.TOOL_VALUE = { small = 2, normal = 8, heavy = 20 }
-ItemPool.TOOL_NOT = { "Debug", "Mold", "Unfired", "Parts", "SeedPaste", "Tobacco" }   -- 이름에 들어가면 도구가 아님
 ItemPool.MELEE_VALUE = { 3, 4, 5, 8, 12 }
+ItemPool.FOOD_VALUE = { 0.5, 1, 1.5, 2.5, 4 }
+ItemPool.MEDICAL_VALUE = { 2, 4, 6 }
+ItemPool.TOOL_VALUE = { 2, 4, 8, 14, 20 }
+ItemPool.AMMO_BOX_VALUE = { 10, 13, 15, 20, 30 }   -- 상자 하나 (낱발 = 상자 / 상자 속 발 수, 카톤 = 상자 x 개수)
+ItemPool.AMMO_MAG_VALUE = { 3, 4, 5, 6, 8 }
+ItemPool.TOOL_UNKNOWN_TIER = 3       -- 루팅표를 모르는 모드 도구
+ItemPool.MEDICAL_UNKNOWN_TIER = 1    -- 표에 없는 의약품
+ItemPool.TOOL_NOT = { "Debug", "Mold", "Unfired", "Parts", "SeedPaste", "Tobacco" }   -- 이름에 들어가면 도구가 아님
+-- 손으로 만드는 도구·낡은 변형 (모드 도구에도 같은 이름 규칙): 거래·물자 지원에서 도구로 치지 않는다
+ItemPool.TOOL_HANDMADE = { "Forged", "Stone", "Bone", "Crude", "Carved", "Flint", "Improvised", "Crafted", "_Scrap",
+                           "Knapping", "_Wood", "_Old", "Old" }
+-- 근접 무기 실전 점수의 비중 (거래 핵심 표 편집기에서 정한 값)
+ItemPool.MELEE_WEIGHTS = { life = 1, speed = 0.5, hits = 0.5 }
+ItemPool.MELEE_MATERIAL_OK = { ["Base.Plank"] = true, ["Base.MetalPipe"] = true, ["Base.LeadPipe"] = true,
+                               ["Base.MetalBar"] = true, ["Base.Firewood"] = true }
+ItemPool.MELEE_OVERRIDE = {}         -- fullType -> 등급 (편집기 '직접 지정')
+ItemPool.meleeBounds = nil           -- 근접 무기 점수 경계 4개 (build 가 정함)
 
 -- ---------------------------------------------------------------- helpers
 
@@ -229,6 +256,45 @@ function ItemPool.meleeCandidate(dc)
     return ItemPool.categoryKind(dc) == "melee" or lower(dc) == "toolweapon"
 end
 
+-- 총의 사격 방식: auto (자동 사격 가능) | manual (볼트·레버·더블 배럴) | pump | semi (반자동·리볼버)
+function ItemPool.gunAction(item)
+    local action = "semi"
+    pcall(function()
+        local modes = tostring(item:getFireModePossibilities() or "") .. " " .. tostring(item:getFireMode() or "")
+        local reload = lower(item:getWeaponReloadType())
+        if string.find(lower(modes), "auto", 1, true) then
+            action = "auto"
+        elseif reload == "shotgun" then
+            action = "pump"      -- 펌프 산탄총은 등급을 바꾸지 않는다 (2026-10-04 사용자 결정)
+        elseif item:isRackAfterShoot() or ItemPool.MANUAL_RELOAD[reload] then
+            action = "manual"
+        end
+    end)
+    return action
+end
+
+-- 거래·보상에서 빼는 근접 무기: 맨손, 부서진 무기, 무기 재료(손잡이·쇠스랑 머리·막대 등, 많이 쓰는 다섯 개는 넣음)
+function ItemPool.meleeExcluded(fullType, dc)
+    local name = string.match(fullType, "%.(.+)$") or fullType
+    if name == "BareHands" or string.find(name, "Broken", 1, true) then return true end
+    return lower(dc) == "materialweapon" and not ItemPool.MELEE_MATERIAL_OK[fullType]
+end
+
+-- 실전 점수 = 평균 피해 x 속도^w x 수명^w x 타격 수^w (수명 = 최대 내구도 x 내구 감소 확률 분모)
+function ItemPool.meleeScore(item)
+    local w = ItemPool.MELEE_WEIGHTS
+    local score = 0
+    pcall(function()
+        local avg = ((item:getMinDamage() or 0) + (item:getMaxDamage() or 0)) / 2
+        local life = math.max(1, (item:getConditionMax() or 1) * math.max(1, item:getConditionLowerChance() or 1))
+        local speed = item:getBaseSpeed() or 1
+        if speed <= 0 then speed = 1 end
+        local hits = math.max(1, item:getMaxHitCount() or 1)
+        score = avg * speed ^ w.speed * life ^ w.life * hits ^ w.hits
+    end)
+    return score
+end
+
 local function add(cat, tier, fullType)
     ItemPool.pools[cat] = ItemPool.pools[cat] or {}
     local list = ItemPool.pools[cat][tier] or {}
@@ -260,16 +326,32 @@ local function foodInfo(script, fullType)
     local ok, bad = pcall(function() return item:isbDangerousUncooked() or item:isRotten() or item:isAlcoholic() end)
     if not ok then return nil, "check_error" end
     if bad then return nil, "unsafe" end
-    local cal = item:getCalories()
-    local hunger = math.abs(item:getHungerChange() or 0) * 100
-    if cal < ItemPool.MIN_CALORIES and hunger < 10 then
+    local hunger, thirst = ItemPool.foodRelief(item, fullType)
+    if hunger <= 0 and thirst <= 0 then return nil, "no_relief" end
+    if hunger < 5 and thirst >= 10 then
         -- 물·주스처럼 갈증만 채우는 것은 대가로는 받되 음식 보상 풀에는 넣지 않는다
-        local thirst = math.abs(item:getThirstChange() or 0) * 100
-        if thirst >= 10 then return { cat = "drink", tier = 1, value = 1 } end
-        return nil, "low_calories"
+        return { cat = "drink", tier = 1, value = ItemPool.FOOD_VALUE[1] }
     end
-    local tier = tierByBounds(math.max(cal, hunger * 20), ItemPool.FOOD_TIERS)
-    return { cat = "food", tier = tier, value = math.max(0.5, math.min(4, cal / 250)) }
+    local tier = tierByBounds(hunger + thirst, ItemPool.FOOD_TIERS)
+    return { cat = "food", tier = tier, value = ItemPool.FOOD_VALUE[tier] }
+end
+
+-- 음식 하나가 줄여 주는 배고픔·갈증 (0~100 단위, 갈증을 늘리면 0). 따기 전 통조림·상자처럼 수치가 없으면
+-- 안에 든 음식(ItemTiers.CONTENTS) x 개수
+function ItemPool.foodRelief(item, fullType, depth)
+    local h, t = 0, 0
+    pcall(function()
+        h = -(item:getHungerChange() or 0) * 100
+        t = -(item:getThirstChange() or 0) * 100
+    end)
+    h, t = math.max(0, h), math.max(0, t)
+    if h > 0 or t > 0 or (depth or 0) >= 2 then return h, t end
+    local inside = StoryEngine.ItemTiers.CONTENTS[fullType]
+    if not inside then return h, t end
+    local child = newInstance(inside[1])
+    if not child then return h, t end
+    local ch, ct = ItemPool.foodRelief(child, inside[1], (depth or 0) + 1)
+    return ch * inside[2], ct * inside[2]
 end
 
 -- 한 번만 전체를 훑는다
@@ -349,30 +431,37 @@ function ItemPool.build()
                     unknownAmmo[round] = (unknownAmmo[round] or 0) + 1
                     ammoTier = ItemPool.UNKNOWN_AMMO_TIER
                 end
-                local g = { fullType = fullType, round = round, tier = ammoTier }
+                local g = { fullType = fullType, round = round, ammoTier = ammoTier, tier = ammoTier, action = "semi" }
                 if item then
-                    -- 탄창·상자는 총 아이템에서만 알 수 있다. 20발 이상 탄창이면 자동화기로 5등급
+                    -- 탄창·상자·사격 방식은 총 아이템에서만 알 수 있다
                     g.box = resolve(item:getAmmoBox(), module)
                     g.mag = resolve(item:getMagazineType(), module)
-                    if g.mag and item:getMaxAmmo() >= ItemPool.AUTO_AMMO then g.tier = 5 end
+                    g.action = ItemPool.gunAction(item)
+                    g.tier = math.max(1, math.min(5, ammoTier + ItemPool.ACTION_MOD[g.action]))
                 else
                     g.box = resolve(round .. "Box", module)
                 end
                 guns[#guns + 1] = g
             elseif ItemPool.meleeCandidate(dc) then
                 local item = newInstance(fullType)
-                if item and instanceof(item, "HandWeapon") and item:getMaxDamage() > 0.3 then
-                    melee[#melee + 1] = { fullType = fullType, dmg = item:getMaxDamage() }
+                if item and instanceof(item, "HandWeapon") and item:getMaxDamage() > 0.3
+                    and not ItemPool.meleeExcluded(fullType, dc) then
+                    melee[#melee + 1] = { fullType = fullType, score = ItemPool.meleeScore(item),
+                                          tool = lower(dc) == "toolweapon" }
                 end
             end
         end)
         if not ok then StoryEngine.log("item pool skip:", tostring(err)) end
     end
 
-    -- 총 등급 (탄약 기준, 수집할 때 정함)
+    -- 총 등급 (탄약 + 사격 방식, 수집할 때 정함)
     for _, g in ipairs(guns) do
         local tier = g.tier
-        ItemPool.guns[g.fullType] = { tier = tier, round = g.round, box = g.box, mag = g.mag }
+        ItemPool.guns[g.fullType] = { tier = tier, round = g.round, box = g.box, mag = g.mag, ammoTier = g.ammoTier,
+                                      action = g.action }
+        ItemPool.ammoTier[g.round] = g.ammoTier
+        if g.box then ItemPool.ammoTier[g.box] = g.ammoTier end
+        if g.mag then ItemPool.ammoTier[g.mag] = g.ammoTier end
         ItemPool.info[g.fullType] = { cat = "firearm", tier = tier, value = ItemPool.GUN_VALUE[tier] }
         local list = ItemPool.gunsByTier[tier] or {}
         list[#list + 1] = g.fullType
@@ -384,11 +473,21 @@ function ItemPool.build()
         if g.mag then ItemPool.ammoRole[g.mag] = "mag" end
     end
 
-    -- 근접 무기 등급: 피해 순위 5분위
-    table.sort(melee, function(a, b) return a.dmg < b.dmg end)
-    for i, m in ipairs(melee) do
-        local tier = math.min(5, math.floor((i - 1) * 5 / #melee) + 1)
-        ItemPool.info[m.fullType] = { cat = "melee", tier = tier, value = ItemPool.MELEE_VALUE[tier] }
+    -- 근접 무기 등급: 실전 점수 5분위. 경계는 도구 겸 무기를 뺀 근접 무기로 정하고 도구 겸 무기도 그 경계로 나눈다
+    local ranked = {}
+    for _, m in ipairs(melee) do
+        if not m.tool then ranked[#ranked + 1] = m.score end
+    end
+    table.sort(ranked)
+    if #ranked >= 5 then
+        ItemPool.meleeBounds = {}
+        for q = 1, 4 do ItemPool.meleeBounds[q] = ranked[math.ceil(q * #ranked / 5) + 1] end
+    end
+    for _, m in ipairs(melee) do
+        local tier = ItemPool.MELEE_OVERRIDE[m.fullType]
+            or (ItemPool.meleeBounds and tierByBounds(m.score, ItemPool.meleeBounds)) or 3
+        ItemPool.info[m.fullType] = { cat = "melee", tier = tier, value = ItemPool.MELEE_VALUE[tier], score = m.score,
+                                      tool = m.tool }
         add("melee", tier, m.fullType)
     end
     counts.melee = #melee
@@ -397,7 +496,7 @@ function ItemPool.build()
         if findScript(inc.fullType) and (inc.cat == "food" or inc.cat == "melee") then
             local tier = math.max(1, math.min(5, math.floor(inc.tier)))
             ItemPool.info[inc.fullType] = { cat = inc.cat, tier = tier,
-                value = inc.cat == "food" and 1.5 or ItemPool.MELEE_VALUE[tier] }
+                value = inc.cat == "food" and ItemPool.FOOD_VALUE[tier] or ItemPool.MELEE_VALUE[tier] }
             add(inc.cat, tier, inc.fullType)
         end
     end
@@ -434,8 +533,17 @@ function ItemPool.roll()
     return ZombRand(100) < ItemPool.ratio()
 end
 
--- 대가 가치용 분류. { category, value }
-local AMMO_VALUE = { round = 0.5, box = 15, mag = 5 }
+-- 대가 가치용 분류. { category, value, tier }
+
+-- 탄약 아이템(낱발·상자·탄창·카톤)의 구경 등급. 모르면 nil, 빼는 탄이면 false
+function ItemPool.ammoTierOf(fullType)
+    local t = ItemPool.ammoTier[fullType]
+    if t then return t end
+    local inside = StoryEngine.ItemTiers.CONTENTS[fullType]    -- 카톤 -> 상자 -> 낱발
+    if inside then return ItemPool.ammoTierOf(inside[1]) end
+    local key = lower(string.match(fullType, "([^%.]+)$") or fullType)
+    return ItemPool.AMMO_TIERS[key]
+end
 
 -- 도구 분류와 가치 (도구가 아니면 nil)
 local function toolClass(script, fullType, dc)
@@ -444,11 +552,44 @@ local function toolClass(script, fullType, dc)
     for _, word in ipairs(ItemPool.TOOL_NOT) do
         if string.find(name, word, 1, true) then return { category = "misc", value = nil } end
     end
-    local w = tonumber(script:getActualWeight()) or 1
-    local value = ItemPool.TOOL_VALUE.normal
-    if w < ItemPool.TOOL_SMALL then value = ItemPool.TOOL_VALUE.small end
-    if w >= ItemPool.TOOL_HEAVY then value = ItemPool.TOOL_VALUE.heavy end
-    return { category = "tools", value = value }
+    local Tiers = StoryEngine.ItemTiers
+    if Tiers.TOOL_EXCLUDED[fullType] then return { category = "misc", value = nil } end
+    local tier = Tiers.TOOLS[fullType]
+    if not tier then
+        for _, word in ipairs(ItemPool.TOOL_HANDMADE) do
+            if string.find(name, word, 1, true) then return { category = "misc", value = nil } end
+        end
+        tier = ItemPool.TOOL_UNKNOWN_TIER
+    end
+    return { category = "tools", value = ItemPool.TOOL_VALUE[tier], tier = tier }
+end
+
+-- 의약품 등급과 가치. 의약품으로 치지 않는 것이면 misc
+local function medicalClass(fullType)
+    local Tiers = StoryEngine.ItemTiers
+    if Tiers.MEDICAL_NO_USE[fullType] then return { category = "misc", value = nil } end
+    local tier = Tiers.MEDICAL[fullType] or ItemPool.MEDICAL_UNKNOWN_TIER
+    return { category = "medical", value = ItemPool.MEDICAL_VALUE[tier], tier = tier }
+end
+
+-- 탄약 가치: 상자 = 등급 값, 탄창 = 등급 값, 낱발·카톤은 Value.ammoValue 가 상자에서 나눈다/곱한다
+local function ammoClass(fullType, role)
+    local tier = ItemPool.ammoTierOf(fullType)
+    if tier == false then return { category = "misc", value = nil } end
+    tier = tier or ItemPool.UNKNOWN_AMMO_TIER
+    local name = lower(fullType)
+    if not role then
+        if string.find(name, "box", 1, true) then role = "box"
+        elseif string.find(name, "clip", 1, true) or string.find(name, "mag", 1, true)
+            or string.find(name, "drum", 1, true) then role = "mag"
+        elseif string.find(name, "carton", 1, true) then role = "carton"
+        else role = "round" end
+    end
+    local value = ItemPool.AMMO_BOX_VALUE[tier]
+    if role == "mag" then value = ItemPool.AMMO_MAG_VALUE[tier] end
+    if role == "carton" then value = ItemPool.AMMO_BOX_VALUE[tier] * 12 end
+    if role == "round" then value = ItemPool.AMMO_BOX_VALUE[tier] / 20 end
+    return { category = "ammo", value = value, tier = tier, role = role }
 end
 
 function ItemPool.classify(fullType)
@@ -459,16 +600,16 @@ function ItemPool.classify(fullType)
     if tool then return tool end
     local info = ItemPool.info[fullType]
     if info then
-        if info.cat == "food" or info.cat == "drink" then return { category = "food", value = info.value } end
-        return { category = info.cat, value = info.value }
+        if info.cat == "food" or info.cat == "drink" then return { category = "food", value = info.value, tier = info.tier } end
+        return { category = info.cat, value = info.value, tier = info.tier }
     end
     local role = ItemPool.ammoRole[fullType]
-    if role then return { category = "ammo", value = AMMO_VALUE[role] } end
+    if role then return ammoClass(fullType, role) end
     local script = findScript(fullType)
     if not script then return { category = "misc", value = nil } end
     local dc = script:getDisplayCategory()
     if dc == "Food" then
-        -- 통조림 상자처럼 음식을 담은 묶음 (열면 여러 개)
+        -- 통조림 상자처럼 음식을 담은 묶음 (열면 여러 개). 안에 든 것을 알면 Value 가 개수만큼 곱한다
         local item = script:getDoubleClickRecipe() and newInstance(fullType) or nil
         if item and not instanceof(item, "Food") then
             return { category = "food", value = math.max(2, script:getActualWeight() * 2.5) }
@@ -476,18 +617,97 @@ function ItemPool.classify(fullType)
         return { category = "misc", value = nil }
     end
     local kind = ItemPool.categoryKind(dc)
-    if kind == "ammo" then
-        local name = lower(fullType)
-        if string.find(name, "carton", 1, true) then return { category = "ammo", value = 60 } end
-        if string.find(name, "box", 1, true) then return { category = "ammo", value = 15 } end
-        if string.find(name, "clip", 1, true) or string.find(name, "mag", 1, true) then return { category = "ammo", value = 5 } end
-        return { category = "ammo", value = 0.5 }
-    end
-    if isGun(script, dc) then return { category = "firearm", value = ItemPool.GUN_VALUE[3] } end
+    if kind == "ammo" then return ammoClass(fullType, nil) end
+    if isGun(script, dc) then return { category = "firearm", value = ItemPool.GUN_VALUE[3], tier = 3 } end
     if kind == "explosive" then return { category = "explosive", value = nil } end
-    if kind == "medical" then return { category = "medical", value = nil } end
-    if kind == "melee" then return { category = "melee", value = nil } end
+    if kind == "medical" then return medicalClass(fullType) end
+    if kind == "melee" then
+        -- 근접 무기 풀에 없는 것 (부서진 무기·재료·맨손, 피해가 아주 낮은 것)은 거래하지 않는다
+        return { category = "misc", value = nil }
+    end
+    -- 전자기기(케이시)·차량 부품(듀이): 대가 품목은 아니지만 파는 물건이라 등급 가치가 있다
+    local lt = StoryEngine.ItemTiers.ELECTRONICS[fullType] or StoryEngine.ItemTiers.VEHICLE[fullType]
+    if lt then return { category = "misc", value = ItemPool.TOOL_VALUE[lt], tier = lt } end
     return { category = "misc", value = nil }
+end
+
+-- ---------------------------------------------------------------- 거래 묶음용 (Trade.generate)
+
+local vanillaCache = {}
+-- 바닐라 아이템인가 (모드가 덮어쓴 바닐라 아이템도 바닐라). 모르면 Base 모듈이면 바닐라로 본다
+function ItemPool.isVanilla(fullType)
+    local hit = vanillaCache[fullType]
+    if hit ~= nil then return hit end
+    local yes = nil
+    local script = findScript(fullType)
+    if script then
+        local ok, v = pcall(function() return script:getExistsAsVanilla() end)
+        if ok and type(v) == "boolean" then yes = v end
+    end
+    if yes == nil then yes = string.sub(fullType, 1, 5) == "Base." end
+    vanillaCache[fullType] = yes
+    return yes
+end
+
+-- 목록에서 하나: 바닐라·모드 물건이 둘 다 있으면 샌드박스 '모드 아이템 비율' 확률로 모드 쪽에서
+function ItemPool.pickMixed(list)
+    if not list or #list == 0 then return nil end
+    local van, mod = {}, {}
+    for _, ft in ipairs(list) do
+        if ItemPool.isVanilla(ft) then van[#van + 1] = ft else mod[#mod + 1] = ft end
+    end
+    local from = van
+    if #van == 0 or (#mod > 0 and ItemPool.roll()) then from = mod end
+    return from[ZombRand(#from) + 1]
+end
+
+local tradePools = {}
+-- 거래에서 파는 물건 풀: tier -> { fullType, ... }
+--   food·melee(도구 겸 무기 제외)·firearm 은 build 결과, ammo 는 총이 쓰는 상자(없으면 낱발)의 구경 등급,
+--   medical·tools·electronics·vehicle 은 ItemTiers 표 (vehicle 에는 듀이의 정비 도구도)
+function ItemPool.tradePool(name)
+    ItemPool.build()
+    if tradePools[name] then return tradePools[name] end
+    local out = {}
+    local function put(tier, ft)
+        if not tier or not findScript(ft) then return end
+        out[tier] = out[tier] or {}
+        local list = out[tier]
+        for _, x in ipairs(list) do if x == ft then return end end
+        list[#list + 1] = ft
+    end
+    local Tiers = StoryEngine.ItemTiers
+    if name == "food" then
+        for t, list in pairs(ItemPool.pools.food or {}) do for _, ft in ipairs(list) do put(t, ft) end end
+    elseif name == "melee" then
+        for t, list in pairs(ItemPool.pools.melee or {}) do
+            for _, ft in ipairs(list) do
+                if not (ItemPool.info[ft] and ItemPool.info[ft].tool) then put(t, ft) end
+            end
+        end
+    elseif name == "firearm" then
+        for t, list in pairs(ItemPool.gunsByTier) do for _, ft in ipairs(list) do put(t, ft) end end
+    elseif name == "ammo" then
+        for _, g in pairs(ItemPool.guns) do put(g.ammoTier, g.box or g.round) end
+    elseif name == "medical" then
+        for ft, t in pairs(Tiers.MEDICAL) do put(t, ft) end
+    elseif name == "tools" then
+        for ft, t in pairs(Tiers.TOOLS) do put(t, ft) end
+    elseif name == "electronics" then
+        for ft, t in pairs(Tiers.ELECTRONICS) do put(t, ft) end
+    elseif name == "vehicle" then
+        for ft, t in pairs(Tiers.VEHICLE) do put(t, ft) end
+        local Value = StoryEngine.Value
+        for ft in pairs(Value and Value.VEHICLE_TOOLS or {}) do put(Tiers.TOOLS[ft], ft) end
+    end
+    for _, list in pairs(out) do table.sort(list) end
+    tradePools[name] = out
+    return out
+end
+
+-- 시험·디버그: 풀을 다시 만들게 한다
+function ItemPool.resetTradePools()
+    tradePools, vanillaCache = {}, {}
 end
 
 local function pickFrom(list)

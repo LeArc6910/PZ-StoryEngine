@@ -19,16 +19,9 @@ Value.BASE = {
     firearm = 50, explosive = 20, tools = 8, medical = 3, melee = 5, food = 1.5, misc = 0.2,
 }
 
--- 기본값과 다른 아이템
-Value.SPECIAL = {
-    ["Base.Antibiotics"] = 8, ["Base.SutureNeedle"] = 4, ["Base.Splint"] = 3, ["Base.Disinfectant"] = 4,
-    ["Base.Katana"] = 12, ["Base.Machete"] = 10, ["Base.Axe"] = 10,
-    ["Base.Sledgehammer"] = 20, ["Base.Sledgehammer2"] = 20, ["Base.PipeWrench"] = 20, ["Base.WoodAxe"] = 20,
-    ["Base.BlowTorch"] = 20, ["Base.Generator"] = 60, ["Base.CarBattery1"] = 15, ["Base.CarBattery2"] = 15,
-    ["Base.EngineParts"] = 3, ["Base.HamRadio1"] = 40, ["Base.HamRadio2"] = 40,
-    ["Base.WeldingMask"] = 20, ["Base.OilPress"] = 20, ["Base.SheepElectricShears"] = 20,
-    ["Base.HeavyChain"] = 8, ["Base.HeavyChain_Hook"] = 8, ["Base.CrudeBenchVise"] = 8,
-}
+-- 기본값과 다른 아이템. 지금은 없다: 음식·의약품·도구·근접 무기·총·탄약·전자기기·차량 부품은 등급이 가치를 정한다
+-- (2026-10-04, 예전 발전기 60·햄 라디오 40·차량 배터리 15 등은 등급 값으로)
+Value.SPECIAL = {}
 
 -- 폭발물 (2026-10-03 점검): 군용 수류탄만 가치 20, 직접 만드는 화염병·폭죽·트랩 류는 3
 Value.MILITARY_EXPLOSIVES = { ["Base.BombBig"] = true, ["Base.BombSmall"] = true }
@@ -50,15 +43,24 @@ local function lookup(fullType)
     if category == "medical" and (Value.NOT_MEDICAL[fullType] or string.find(fullType, "RippedSheets", 1, true)) then
         category, value = "misc", Value.BASE.misc
     end
-    if category == "ammo" then value = Value.ammoValue(fullType, value) end
-    hit = { category = category, value = value }
-    Value.cache[fullType] = hit
+    hit = { category = category, value = value, tier = c.tier }
+    Value.cache[fullType] = hit    -- 상자 안의 물건을 찾다가 같은 것을 다시 부르지 않게 먼저 넣는다
+    if category == "ammo" then
+        hit.value = Value.ammoValue(fullType, value)
+    elseif category ~= "misc" then
+        -- 상자·묶음은 안에 든 물건 x 개수 (붕대 상자 = 붕대 12개, 그래놀라 바 상자 = 5개)
+        local inside = StoryEngine.ItemTiers.CONTENTS[fullType]
+        if inside and inside[2] >= 2 and lookup(inside[1]).category == category then
+            hit.value = lookup(inside[1]).value * inside[2]
+            hit.tier = lookup(inside[1]).tier
+        end
+    end
     return hit
 end
 
--- 탄약 (2026-10-03 점검): 상자 하나 = AMMO_BOX_VALUE, 낱발 = 상자 가치 / 상자 속 발 수 (바닐라 상자 풀기 레시피의
--- 개수, 9mm 등 50발·소총탄 20발·산탄 25발). 상자를 풀든 다시 담든 가치가 같다. 개수를 모르는 탄약은 예전 값.
-Value.AMMO_BOX_VALUE = 15
+-- 탄약 (2026-10-03 점검, 2026-10-04 등급별): 상자 하나 = 구경 등급의 값 (ItemPool.AMMO_BOX_VALUE),
+-- 낱발 = 상자 가치 / 상자 속 발 수 (상자 풀기 레시피의 개수, 9mm 등 50발·소총탄 20발·산탄 25발), 카톤 = 상자 x 12.
+-- 상자를 풀든 다시 담든 가치가 같다. 개수를 모르는 낱발은 상자 / 20.
 local boxRounds = nil   -- 상자 fullType -> 발 수, 낱발 fullType -> 상자 하나의 발 수
 
 local function scanBoxes()
@@ -91,12 +93,33 @@ local function scanBoxes()
     return out
 end
 
+local function roundsPerBox()
+    if boxRounds then return boxRounds end
+    boxRounds = scanBoxes()
+    for box, inside in pairs(StoryEngine.ItemTiers.CONTENTS) do
+        if string.find(box, "Box", 1, true) then
+            boxRounds[box] = inside[2]
+            boxRounds[inside[1]] = boxRounds[inside[1]] or inside[2]
+        end
+    end
+    return boxRounds
+end
+
 function Value.ammoValue(fullType, default)
-    boxRounds = boxRounds or scanBoxes()
-    local n = boxRounds[fullType]
-    if not n then return default end
-    if string.find(fullType, "Box", 1, true) then return Value.AMMO_BOX_VALUE end
-    return Value.AMMO_BOX_VALUE / n
+    local IP = StoryEngine.ItemPool
+    local inside = StoryEngine.ItemTiers.CONTENTS[fullType]
+    if inside and not string.find(fullType, "Box", 1, true) then     -- 카톤: 상자 x 개수
+        return Value.of(inside[1]) * inside[2]
+    end
+    local name = string.lower(fullType)
+    if string.find(name, "box", 1, true) or string.find(name, "clip", 1, true) or string.find(name, "mag", 1, true)
+        or string.find(name, "drum", 1, true) then
+        return default
+    end
+    local n = roundsPerBox()[fullType]
+    local tier = IP.ammoTierOf(fullType)
+    if n and tier then return IP.AMMO_BOX_VALUE[tier] / n end
+    return default
 end
 
 function Value.categoryOf(fullType)

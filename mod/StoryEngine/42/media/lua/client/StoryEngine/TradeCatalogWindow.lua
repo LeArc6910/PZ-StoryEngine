@@ -129,6 +129,9 @@ function StoryEngineTradeCatalogWindow:render()
     local wants = {}
     for _, w in ipairs(d.wants or {}) do wants[#wants + 1] = catName(w) end
     local text = getText("IGUI_StoryEngine_Catalog_Header", StoryEngine.intToString(d.trust or 0), table.concat(wants, ", "))
+    if d.restockIn then
+        text = text .. "  |  " .. getText("IGUI_StoryEngine_Catalog_Restock", StoryEngine.intToString(d.restockIn))
+    end
     if d.reason == "open_deal" or d.reason == "negotiating" then
         text = text .. "  |  " .. getText("IGUI_StoryEngine_TradeAsk_OpenDeal")
     end
@@ -177,15 +180,18 @@ function StoryEngineTradeCatalogWindow:fillBundles()
     self.bundles:clear()
     self.bundle = nil
     local row = self.row
+    local first = nil
     for i, b in ipairs(row and row.bundles or {}) do
-        local price = b.price and getText("IGUI_StoryEngine_Catalog_Price", StoryEngine.intToString(b.price))
+        local price = b.sold and getText("IGUI_StoryEngine_Catalog_Sold")
+            or (b.price and getText("IGUI_StoryEngine_Catalog_Price", StoryEngine.intToString(b.price)))
             or getText("IGUI_StoryEngine_Catalog_NoPrice")
         self.bundles:addItem(tostring(i), { title = getText("IGUI_StoryEngine_Catalog_Bundle", StoryEngine.intToString(i))
-            .. "  -  " .. price, sub = bundleText(b.items), value = i })
+            .. "  -  " .. price, sub = bundleText(b.items), value = i, color = b.sold and COLOR_LOCKED or nil })
+        if not first and not b.sold then first = i end
     end
     if row and #row.bundles > 0 then
-        self.bundle = 1
-        self.bundles.selected = 1
+        self.bundle = first or 1
+        self.bundles.selected = self.bundle
     end
     self:showDetail()
 end
@@ -212,6 +218,10 @@ function StoryEngineTradeCatalogWindow:showDetail()
                 line(getText("IGUI_StoryEngine_Catalog_PriceLine", StoryEngine.intToString(b.price), table.concat(wants, ", ")))
             end
         end
+        if b and b.sold then
+            parts[#parts + 1] = " <LINE> <RGB:0.95,0.6,0.4> " .. UI.escape(getText("IGUI_StoryEngine_Catalog_SoldLine",
+                StoryEngine.intToString(d.restockIn or 0)))
+        end
         if not row.open then
             parts[#parts + 1] = " <LINE> <RGB:0.95,0.6,0.4> " .. UI.escape(getText("IGUI_StoryEngine_Catalog_Locked"))
         end
@@ -223,8 +233,13 @@ function StoryEngineTradeCatalogWindow:showDetail()
     self.detail:paginate()
     self.detail:setYScroll(0)
     local can = row ~= nil and row.open and d.allowed == true and d.reason ~= "open_deal" and d.reason ~= "negotiating"
-    self.askButton:setEnable(can and self.bundle ~= nil)
-    self.randomButton:setEnable(can)
+    local chosen = row and self.bundle and row.bundles[self.bundle] or nil
+    local anyLeft = false
+    for _, b in ipairs(row and row.bundles or {}) do
+        if not b.sold then anyLeft = true end
+    end
+    self.askButton:setEnable(can and chosen ~= nil and not chosen.sold)
+    self.randomButton:setEnable(can and anyLeft)
 end
 
 function StoryEngineTradeCatalogWindow:onTier(row)

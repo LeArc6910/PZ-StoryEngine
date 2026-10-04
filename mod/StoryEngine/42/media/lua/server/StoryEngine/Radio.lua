@@ -140,6 +140,35 @@ local function rateLimited(key)
     return nil
 end
 
+-- 말한 플레이어의 지금 몸 상태 (2026-10-04: NPC 가 이미 아는 것을 계속 캐묻지 않게 AI 에 사실로 넘긴다).
+-- 물린 상처는 넘기지 않는다: 감염을 숨길지 말할지는 플레이어의 몫
+function Radio.playerState(ps)
+    if not ps then return nil end
+    local player = nil
+    for _, p in ipairs(Sensor.players()) do
+        if Store.playerKey(p) == ps.key then player = p end
+    end
+    if not player then return nil end
+    local out = { wounds = {} }
+    pcall(function()
+        local bd = player:getBodyDamage()
+        out.hp = math.floor(bd:getOverallBodyHealth())
+        local parts = bd:getBodyParts()
+        for i = 0, parts:size() - 1 do
+            local bp = parts:get(i)
+            local kind = (bp:getFractureTime() > 0 and "fracture") or (bp:deepWounded() and "deep")
+                or (bp:isCut() and "cut") or (bp:scratched() and "scratched") or nil
+            if kind and #out.wounds < 8 then
+                local okB, bleeding = pcall(function() return bp:bleeding() end)
+                local okD, bandaged = pcall(function() return bp:bandaged() end)
+                out.wounds[#out.wounds + 1] = { part = tostring(bp:getType()), kind = kind,
+                                                bleeding = (okB and bleeding) or nil, bandaged = (okD and bandaged) or nil }
+            end
+        end
+    end)
+    return out
+end
+
 -- 이 오류면 AI 가 없는 것으로 보고 준비된 답장을 쓴다 (그 밖의 오류는 잡음)
 Radio.OFFLINE_ERRORS = { bridge_offline = true, timeout = true, write_failed = true }
 Radio.OFFLINE_HINT_MIN = 6 * 60     -- 버튼 안내 줄 간격 (채널마다, 게임 분)
@@ -210,7 +239,16 @@ function Radio.request(fid, lang, opts)
         if okN then newcomer = info end
     end
 
+    -- 말한 사람의 몸 상태, 이 NPC 의 특기를 지금 쓸 수 있는지 (특기는 거점 탭 버튼으로만)
+    local speakerState = speaker and Radio.playerState(speaker) or nil
+    local specialty = nil
+    if not mode and StoryEngine.Specialty then
+        local okSp, st = pcall(StoryEngine.Specialty.status, fid)
+        if okSp then specialty = st end
+    end
+
     Bridge.request("radio", {
+        speakerState = speakerState, specialty = specialty,
         story = story, life = life, newcomer = newcomer,
         faction = fid, lang = lang, trust = ch.trust, memory = ch.memory,
         day = Store.dayIndex(now.dayKey), date = now.date, clock = now.clock,
