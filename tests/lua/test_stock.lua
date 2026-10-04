@@ -120,10 +120,12 @@ end
 function T.credit_marks_the_bundle_sold_right_away()
     local p, ps = setup(70)
     local Trade = StoryEngine.Trade
-    H.ok(Trade.ask(p, "doc", "medical", 2, 2))
+    -- 가짜 환경의 의약품 풀은 작아서 같은 묶음이 겹치면 재고가 3개보다 적을 수 있다: 마지막 묶음으로
+    local idx = #Trade.stock("doc").cats.medical[2]
+    H.ok(Trade.ask(p, "doc", "medical", 2, idx))
     local q = StoryEngine.Quests.openTrade("doc")
     H.ok(StoryEngine.Work.choose(p, q.id, "credit"))
-    H.ok(Trade.stock("doc").cats.medical[2][2].sold, "goods already handed over")
+    H.ok(Trade.stock("doc").cats.medical[2][idx].sold, "goods already handed over")
 end
 
 return T
