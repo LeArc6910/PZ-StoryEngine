@@ -48,7 +48,7 @@ Social.NEWS_MAX = 6
 Social.NEWS_TTL_MIN = 3 * 24 * 60
 Social.NEAR_DIST = 600                   -- 이 거리 안에 다녀가면 그 NPC 가 소문을 듣는다
 Social.SILENT_MIN = 3 * 24 * 60
-Social.SCENE_LOG = 12
+Social.SCENE_LOG = 20      -- 장면에 보여 주는 최근 줄 (2026-10-04: 12 -> 20, 앞서 들은 대답이 너무 빨리 밀려났다)
 Social.MAX_SCENE_LINES = 6
 Social.SCENE_LINE_GAP = { 20, 40 }       -- 공용 주파수 장면은 한 줄씩 이 간격으로 (게임 분), 사이에 끼어들 수 있다
 Social.REPLY_LINE_GAP = { 8, 12 }        -- 플레이어에게 답하는 장면: 첫 줄은 바로, 나머지는 조금 빨리
@@ -668,7 +668,13 @@ function Social.scene(said, cut)
             end
         end
         local life = StoryEngine.Life and StoryEngine.Life.npc(fid).res or nil
-        parts[#parts + 1] = { id = fid, trust = Radio.channel(fid).trust, beat = ctx.beat, relations = rel, state = life }
+        local spec = nil
+        if said and StoryEngine.Specialty then
+            local okSp, st = pcall(StoryEngine.Specialty.status, fid)
+            if okSp then spec = st end
+        end
+        parts[#parts + 1] = { id = fid, trust = Radio.channel(fid).trust, beat = ctx.beat, relations = rel, state = life,
+                              specialty = spec }
     end
     local players = {}
     for _, p in ipairs(Sensor.players()) do players[#players + 1] = Store.characterName(p) end
@@ -686,7 +692,7 @@ function Social.scene(said, cut)
     end
     local payload = {
         lang = Radio.langFor(Social.OPEN), participants = parts, log = openLog(), players = players,
-        said = said and { name = said.name, text = said.text } or nil,
+        said = said and { name = said.name, text = said.text, state = Radio.playerState(speakerPs) } or nil,
         topic = (not said) and (queued or sceneTopic(ids)) or nil, interrupted = cut,
         day = Store.dayIndex(now.dayKey), clock = now.clock, market = market,
     }

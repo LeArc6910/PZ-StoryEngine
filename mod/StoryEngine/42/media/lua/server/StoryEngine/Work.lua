@@ -214,7 +214,7 @@ end
 function Work.bonusGoods(trade)
     local Trade = StoryEngine.Trade
     local fid = trade.origin and trade.origin.faction
-    local ok, extra = pcall(Trade.roll, trade.category, math.max(1, (trade.tier or 1) - 1), fid)
+    local ok, extra = pcall(Trade.rollFresh, trade.category, math.max(1, (trade.tier or 1) - 1), fid)
     return ok and extra or {}
 end
 
@@ -274,6 +274,7 @@ function Work.choose(player, qid, how)
         local days = Work.CREDIT_DAYS
         q.deadlineT = t.t + days * 24 * 60
         q.delivered = (deliver(q, player, ps, q.goods, t) or {}).id
+        StoryEngine.Trade.markSold(fid, q.stockRef)
         Radio.react(fid, "event", topic .. " They must pay " .. StoryEngine.intToString(q.price) .. " within "
             .. StoryEngine.intToString(days) .. " days.",
             Lines.fallback(fid, "work_credit", "Take it now. Pay me within a few days.", { { t = "num", v = days } }), ps)

@@ -1582,7 +1582,7 @@
     "IGUI_StoryEngine_Work_Error_tier": "This tier can't be paid with an easy job",
     "IGUI_StoryEngine_Work_Why_tier": "Easy jobs only for trades a tier below this category's best (tier %1 or lower)",
     "IGUI_StoryEngine_Catalog_Empty": "This contact has nothing to trade.",
-    "IGUI_StoryEngine_Catalog_Note": "The price is set again when you ask. With high trust they sometimes give it free; asking too often makes them suspicious. Accept or haggle the offer in the quest tab, or pay with [Other payment...].",
+    "IGUI_StoryEngine_Catalog_Note": "Stock changes every few days, and a bundle you trade for is sold out until the next restock. The price is set again when you ask. With high trust they sometimes give it free; asking too often makes them suspicious. Accept or haggle the offer in the quest tab, or pay with [Other payment...].",
     "IGUI_StoryEngine_Catalog_Locked": "Your trust or their situation doesn't allow this tier right now.",
     "IGUI_StoryEngine_Catalog_PriceLine": "Expected price: value %1 (paid in %2, whichever you have most of)",
     "IGUI_StoryEngine_Catalog_NoPrice": "not trading yet",
@@ -1705,5 +1705,9 @@
     "IGUI_StoryEngine_Diary_note_named": "Put a familiar face to rest for %1.",
     "IGUI_StoryEngine_Diary_note_recover": "Found what %1 left behind.",
     "IGUI_StoryEngine_Diary_note_memorial": "Read %1's notebook.",
-    "IGUI_StoryEngine_Diary_note_holiday": "It was %1. Everyone traded holiday wishes over the radio."
+    "IGUI_StoryEngine_Diary_note_holiday": "It was %1. Everyone traded holiday wishes over the radio.",
+    "IGUI_StoryEngine_Catalog_Restock": "New stock in %1 days",
+    "IGUI_StoryEngine_Catalog_Sold": "sold out",
+    "IGUI_StoryEngine_Catalog_SoldLine": "This bundle is gone. New stock arrives in %1 days.",
+    "IGUI_StoryEngine_Trade_SoldOut": "Tier %1 %2 is sold out for now (new stock in %3 days)"
 }

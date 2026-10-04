@@ -193,6 +193,8 @@ end
 function T.trade_scarcity_and_price()
     local p, ps = setup()
     local Life, Trade = StoryEngine.Life, StoryEngine.Trade
+    SandboxVars.StoryEngine.ModItemsRatio = 0       -- 재고를 채울 때 다른 모드 아이템 섞기는 가짜 환경에서 못 돌린다
+    Trade.JITTER = {}                               -- 값 계산을 보려고 재고 개수 흔들기는 끈다
     Life.npc("ray").res.food = 10
     local ctx = Trade.context("ray", ps)
     H.ok(ctx.allowed, "ray trades at trust 30")
@@ -206,8 +208,8 @@ function T.trade_scarcity_and_price()
     H.eq(info, nil, "no misleading trust line")
     local deal = Trade.fromReply("ray", ps, { action = "offer", category = "medical", tier = 1, pay_category = "food" })
     H.ok(deal, "medical offer made")
-    -- 붕대 3개(9) x 신뢰 20~39 배율 2.0 x 부족 1.3 = 23.4 -> 24
-    H.eq(deal.price, 24)
+    -- 묶음 가치 x 신뢰 20~39 배율 2.0 x 부족 1.3 (묶음은 실시간으로 만들어진다)
+    H.eq(deal.price, math.ceil(StoryEngine.Value.sum(deal.goods) * 2.0 * 1.3))
 end
 
 function T.needs_prefer_lowest_resource()

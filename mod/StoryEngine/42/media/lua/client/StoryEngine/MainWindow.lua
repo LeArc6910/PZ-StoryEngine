@@ -316,6 +316,9 @@ end
 -- 신뢰도 한도에 막힌 요청 안내 (Trade.blocked)
 local function blockedText(b)
     local tier = b.tier and StoryEngine.intToString(b.tier) or nil
+    if b.soldOut then
+        return getText("IGUI_StoryEngine_Trade_SoldOut", tier or "?", catName(b.category), StoryEngine.intToString(b.restock or 0))
+    end
     if b.never and tier then
         return getText("IGUI_StoryEngine_Trade_BlockedNeverTier", tier, catName(b.category))
     elseif b.never then

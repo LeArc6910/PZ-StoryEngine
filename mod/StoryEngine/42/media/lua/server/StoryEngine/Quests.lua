@@ -1199,7 +1199,7 @@ function Quests.proposeTrade(ps, fid, deal, now)
     local q = {
         id = "Q" .. StoryEngine.intToString(d.questSeq),
         kind = "trade", tier = deal.tier, category = deal.category, goods = deal.goods,
-        payCategory = deal.payCategory, price = deal.price, basePrice = deal.price, haggles = 0,
+        payCategory = deal.payCategory, price = deal.price, basePrice = deal.price, haggles = 0, stockRef = deal.stockRef,
         origin = { source = "radio", faction = fid, initiator = "player",
                    day = Store.dayIndex(now.dayKey), date = now.date, clock = now.clock },
         target = ps.key, targetName = ps.name,
@@ -1292,6 +1292,7 @@ function Quests.pickMarket(player, qid, index)
     local now = Sensor.now()
     local trade = Quests.proposeTrade(ps, opt.faction, {
         tier = opt.tier, category = opt.category, goods = opt.goods, payCategory = opt.payCategory, price = opt.price,
+        stockRef = opt.stockRef,
     }, now)
     trade.origin.source = "open"
     closeMarket(q, now, opt.faction, ps.name)

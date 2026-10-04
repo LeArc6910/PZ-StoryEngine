@@ -363,17 +363,135 @@ function Trade.poolFor(category, tier, fid)
     return (special and special[tier]) or (Trade.GOODS[category] and Trade.GOODS[category][tier]), special ~= nil
 end
 
--- index 가 있으면 그 묶음을 그대로 (거래 목록에서 고른 것, 다른 모드 물건 섞지 않음), 없으면 무작위
-function Trade.roll(category, tier, fid, index)
-    local pool, special = Trade.poolFor(category, tier, fid)
-    if not pool then return nil end
-    local out = {}
-    if index and pool[index] then
-        for _, entry in ipairs(pool[index]) do
-            for _ = 1, entry[2] do out[#out + 1] = entry[1] end
+-- ---------------------------------------------------------------- 실시간 묶음 (2026-10-04 사용자 결정)
+-- 묶음 = 그 등급 물건 1개(없으면 아래로 가장 높은 등급) + 남은 예산을 거래 등급 이하 물건으로 무작위로 채움.
+-- 가치는 Value (등급을 따름). 모드 물건은 샌드박스 '모드 아이템 비율' 확률로 (ItemPool.pickMixed).
+-- 총은 그 총 + 탄창 하나 + 남은 예산만큼 그 총의 탄약. 고정 표(Trade.GOODS·FACTION_GOODS)는 풀이 비었을 때만 쓴다.
+Trade.BUDGET = {
+    food = { 5, 10, 15, 25, 35 }, medical = { 6, 12, 20, 35, 60 }, tools = { 4, 8, 14, 24, 36 },
+    melee = { 5, 8, 10, 16, 24 }, ammo = { 10, 20, 30, 50, 90 }, firearm = { 45, 60, 75, 100, 140 },
+}
+-- 전문가는 예산 x1.3: 닥 의약품, 행크 총·근접·음식, 케이시 전자기기, 듀이 차량 부품
+Trade.SPECIALIST = { doc = { medical = 1.3 }, hunter = { firearm = 1.3, melee = 1.3, food = 1.3 },
+                     casey = { tools = 1.3 }, dewey = { tools = 1.3 } }
+-- 이 NPC 의 이 품목을 채우는 물건 풀 (ItemPool.tradePool 이름). 없으면 품목 이름 그대로
+Trade.POOL_OF = { casey = { tools = "electronics" }, dewey = { tools = "vehicle" } }
+Trade.FILL_MAX = 15          -- 고정 물건 말고 채우는 물건 최대 개수
+Trade.FILL_KINDS = 5         -- 한 묶음의 물건 가짓수 (고정 물건 포함). 다 차면 넣은 물건을 더 넣는다
+
+local fillCache = {}
+-- 풀 name 의 1~tier 등급 물건을 가치 순으로 (바닐라·모드 따로). { van = { {ft, v} }, mod = { {ft, v} } }
+local function fillList(name, tier)
+    local key = name .. ":" .. tier
+    if fillCache[key] then return fillCache[key] end
+    local IP = StoryEngine.ItemPool
+    local byTier = IP.tradePool(name) or {}
+    local out = { van = {}, mod = {} }
+    for t = 1, tier do
+        for _, ft in ipairs(byTier[t] or {}) do
+            local v = Value.of(ft)
+            if v and v > 0 then
+                local side = IP.isVanilla(ft) and out.van or out.mod
+                side[#side + 1] = { ft, v }
+            end
+        end
+    end
+    for _, side in pairs(out) do table.sort(side, function(a, b) return a[2] < b[2] end) end
+    fillCache[key] = out
+    return out
+end
+
+-- 남은 예산 left 안의 물건 하나 (없으면 nil)
+local function pickFill(lists, left)
+    local function under(side)
+        local n = 0
+        for i, e in ipairs(side) do
+            if e[2] > left then break end
+            n = i
+        end
+        return n
+    end
+    local nv, nm = under(lists.van), under(lists.mod)
+    if nv == 0 and nm == 0 then return nil end
+    local side, n = lists.van, nv
+    if nv == 0 or (nm > 0 and StoryEngine.ItemPool.roll()) then side, n = lists.mod, nm end
+    return side[ZombRand(n) + 1]
+end
+
+-- 시험·디버그: 채움 목록을 다시 만들게 한다
+function Trade.resetFill()
+    fillCache = {}
+end
+
+-- 묶음 하나를 실시간으로 만든다. 반환: 물건 fullType 목록 | nil (풀이 비었음)
+function Trade.generate(category, tier, fid)
+    local IP = StoryEngine.ItemPool
+    local name = (Trade.POOL_OF[fid] or {})[category] or category
+    local byTier = IP.tradePool(name)
+    if not byTier then return nil end
+    local top = nil
+    for t = tier, 1, -1 do
+        if byTier[t] and #byTier[t] > 0 then
+            top = t
+            break
+        end
+    end
+    if not top then return nil end
+    local budget = ((Trade.BUDGET[category] or Trade.BUDGET.tools)[tier] or 10)
+        * (((Trade.SPECIALIST[fid] or {})[category]) or 1)
+    local anchor = IP.pickMixed(byTier[top])
+    if not anchor then return nil end
+    local out, total = { anchor }, Value.of(anchor)
+    if category == "firearm" then
+        local g = IP.guns[anchor]
+        if g and g.mag then
+            out[#out + 1] = g.mag
+            total = total + Value.of(g.mag)
+        end
+        local ammo = g and (g.box or g.round)
+        if ammo then
+            local v, n = Value.of(ammo), 0
+            repeat
+                out[#out + 1] = ammo
+                total, n = total + v, n + 1
+            until v <= 0 or total + v > budget or n >= Trade.FILL_MAX
         end
         return out
     end
+    local lists = fillList(name, tier)
+    local kinds, seen = { { anchor, Value.of(anchor) } }, { [anchor] = true }
+    for _ = 1, Trade.FILL_MAX do
+        local left = budget - total
+        local e = nil
+        if #kinds >= Trade.FILL_KINDS then
+            -- 가짓수가 찼으면 이미 넣은 물건을 더 (통조림 15종보다 3~5종 여러 개가 묶음답다)
+            local fit = {}
+            for _, k in ipairs(kinds) do
+                if k[2] > 0 and k[2] <= left then fit[#fit + 1] = k end
+            end
+            if #fit > 0 then e = fit[ZombRand(#fit) + 1] end
+        else
+            e = pickFill(lists, left)
+        end
+        if not e then break end
+        out[#out + 1] = e[1]
+        total = total + e[2]
+        if not seen[e[1]] then
+            seen[e[1]] = true
+            kinds[#kinds + 1] = e
+        end
+    end
+    return out
+end
+
+-- 묶음 하나를 새로 만든다 (실시간 생성, 풀이 비었으면 예전 고정 표). 재고를 채울 때와 일로 갚은 덤에 쓴다
+function Trade.rollFresh(category, tier, fid)
+    local ok, made = pcall(Trade.generate, category, tier, fid)
+    if ok and made and #made > 0 then return made end
+    if not ok then log("trade generate failed:", fid, category, tier, tostring(made)) end
+    local pool, special = Trade.poolFor(category, tier, fid)
+    if not pool then return nil end
+    local out = {}
     local bundle = pool[ZombRand(#pool) + 1]
     if category == "firearm" and not special then
         StoryEngine.Loot.addGun(out, bundle, tier)
@@ -392,6 +510,149 @@ function Trade.roll(category, tier, fid, index)
         end
     end
     return out
+end
+
+-- ---------------------------------------------------------------- 재고 (2026-10-04)
+-- NPC 마다 품목·등급별로 묶음 Trade.STOCK_BUNDLES 개를 실시간으로 만들어 두고 Trade.STOCK_DAYS 일마다 새로 만든다.
+-- 거래가 끝난 묶음은 다음 입고까지 품절. (JITTER: 고정 표를 쓸 때 소모품 개수를 -1~+1, 지금은 끔)
+-- 거래 목록 창, 무작위 요청, AI 무전 거래, 흥정 중 교체, 공용 주파수 거래가 모두 이 재고에서 꺼낸다.
+-- 세력당 열린 거래는 하나라서(Quests.openTrade) 같은 묶음이 두 번 나가지 않는다. 상태 Radio.channel(fid).stock
+Trade.STOCK_DAYS = 3
+Trade.STOCK_BUNDLES = 3
+Trade.JITTER = {}
+
+local function group(list)
+    local out, at = {}, {}
+    for _, ft in ipairs(list or {}) do
+        if at[ft] then
+            out[at[ft]][2] = out[at[ft]][2] + 1
+        else
+            out[#out + 1] = { ft, 1 }
+            at[ft] = #out
+        end
+    end
+    return out
+end
+Trade.group = group
+
+local function expand(grouped)
+    local out = {}
+    for _, e in ipairs(grouped) do
+        for _ = 1, e[2] do out[#out + 1] = e[1] end
+    end
+    return out
+end
+
+local function sameGoods(a, b)
+    if #a ~= #b then return false end
+    local ca = {}
+    for _, ft in ipairs(a) do ca[ft] = (ca[ft] or 0) + 1 end
+    for _, ft in ipairs(b) do
+        ca[ft] = (ca[ft] or 0) - 1
+        if ca[ft] < 0 then return false end
+    end
+    return true
+end
+
+-- 소모품은 2개 이상인 것만 -1~+1
+local function jitter(category, goods)
+    if not Trade.JITTER[category] then return goods end
+    local g = group(goods)
+    for _, e in ipairs(g) do
+        if e[2] >= 2 then e[2] = math.max(1, e[2] + ZombRand(-1, 2)) end
+    end
+    return expand(g)
+end
+
+local STOCK_MIN = function() return Trade.STOCK_DAYS * 24 * 60 end
+
+-- 지금 재고 (없거나 입고일이 지났으면 새로 채운다)
+function Trade.stock(fid)
+    local rules = Trade.FACTIONS[fid]
+    if not rules then return nil end
+    local ch = Radio.channel(fid)
+    local now = Sensor.now().t
+    local st = ch.stock
+    if not st or not st.t or now >= st.t + STOCK_MIN() then
+        st = { t = now, seq = (st and st.seq or 0) + 1, cats = {} }
+        for cat, cap in pairs(rules.goods) do
+            st.cats[cat] = {}
+            for t = 1, cap do
+                local list, tries = {}, 0
+                while #list < Trade.STOCK_BUNDLES and tries < Trade.STOCK_BUNDLES * 4 do
+                    tries = tries + 1
+                    local goods = Trade.rollFresh(cat, t, fid)
+                    if goods and #goods > 0 then
+                        goods = jitter(cat, goods)
+                        local dup = false
+                        for _, b in ipairs(list) do
+                            if sameGoods(b.goods, goods) then dup = true end
+                        end
+                        if not dup then list[#list + 1] = { goods = goods } end
+                    end
+                end
+                st.cats[cat][t] = list
+            end
+        end
+        ch.stock = st
+        log("trade restock", fid, "seq", st.seq)
+    end
+    return st
+end
+
+-- 다음 입고까지 남은 날
+function Trade.restockIn(fid)
+    local st = Trade.stock(fid)
+    return st and math.max(1, math.ceil((st.t + STOCK_MIN() - Sensor.now().t) / (24 * 60))) or 0
+end
+
+-- 재고에서 묶음을 꺼낸다 (아직 팔린 것으로 치지 않음, 거래가 끝나면 Trade.markSold).
+-- index 가 있으면 그 묶음, 없으면 남은 것 중 무작위. 반환: 물건 목록, 표시 { seq, category, tier, index } | nil, "sold_out"
+function Trade.roll(category, tier, fid, index)
+    local st = fid and Trade.stock(fid)
+    local list = st and st.cats[category] and st.cats[category][tier]
+    if not list then
+        local fresh = Trade.rollFresh(category, tier, fid)
+        return fresh, nil
+    end
+    local pick = nil
+    if index then
+        local b = list[index]
+        if b and not b.sold then pick = index end
+    else
+        local open = {}
+        for i, b in ipairs(list) do
+            if not b.sold then open[#open + 1] = i end
+        end
+        if #open > 0 then pick = open[ZombRand(#open) + 1] end
+    end
+    if not pick then return nil, "sold_out" end
+    local out = {}
+    for _, ft in ipairs(list[pick].goods) do out[#out + 1] = ft end
+    return out, { seq = st.seq, category = category, tier = tier, index = pick }
+end
+
+-- 거래가 끝났다: 그 묶음은 다음 입고까지 품절 (입고가 지나 재고가 바뀌었으면 아무 일 없음)
+function Trade.markSold(fid, ref)
+    if type(ref) ~= "table" then return end
+    local st = Radio.channel(fid).stock
+    if not st or st.seq ~= ref.seq then return end
+    local b = st.cats[ref.category] and st.cats[ref.category][ref.tier] and st.cats[ref.category][ref.tier][ref.index]
+    if b then
+        b.sold = true
+        log("trade stock sold", fid, ref.category, ref.tier, ref.index)
+    end
+end
+
+-- 거래가 끝나면(대가를 냈거나 일로 갚았거나 빚으로 받음) 그 묶음은 품절
+Quests.hooks[#Quests.hooks + 1] = function(q, state)
+    if q.kind == "trade" and state == "completed" and q.stockRef and q.origin then
+        Trade.markSold(q.origin.faction, q.stockRef)
+    end
+end
+
+local function soldOut(fid, category, tier)
+    return { category = category, tier = tier, soldOut = true, restock = Trade.restockIn(fid) }
 end
 
 -- AI 답장의 trade 필드로 거래 제안(offer) 또는 무상 제공(gift)을 만든다. 반환: 퀘스트, "offer" | "gift" / 없으면 nil
@@ -427,16 +688,24 @@ function Trade.fromReply(fid, ps, trade, ctx)
             return nil
         end
         tier = math.min(tier, ctx.freeMaxTier)
-        local gifts = Trade.roll(trade.category, tier, fid, trade.bundle)
-        if not gifts then return nil end
+        local gifts, gref = Trade.roll(trade.category, tier, fid, trade.bundle)
+        if not gifts then
+            if gref == "sold_out" then return nil, "blocked", soldOut(fid, trade.category, tier) end
+            return nil
+        end
         local q = Quests.giftTrade(ps, fid, tier, gifts, Sensor.now())
+        if q then Trade.markSold(fid, gref) end
         return q, "gift"
     end
-    local goods = Trade.roll(trade.category, tier, fid, trade.bundle)
-    if not goods then return nil end
+    local goods, ref = Trade.roll(trade.category, tier, fid, trade.bundle)
+    if not goods then
+        if ref == "sold_out" then return nil, "blocked", soldOut(fid, trade.category, tier) end
+        return nil
+    end
     local price = math.ceil(Value.sum(goods) * priceMult(ctx, tier) * ((ctx.catMult or {})[trade.category] or 1))
     return Quests.proposeTrade(ps, fid, {
         tier = tier, category = trade.category, goods = goods, payCategory = payCategory, price = price,
+        stockRef = type(ref) == "table" and ref or nil,
     }, Sensor.now()), "offer"
 end
 
@@ -474,21 +743,19 @@ function Trade.options(fid, ps)
     out.allowed = ctx.allowed == true
     -- 등급마다 고를 수 있는 묶음과 지금 값 (거래 목록 창, 2026-10-04)
     local offer = ctx.allowed and ctx or Trade.offerContext(fid, ctx.trust or Radio.channel(fid).trust)
+    local st = Trade.stock(fid)
+    out.restockIn = Trade.restockIn(fid)
     for _, it in ipairs(out.items) do
         it.tiers = {}
         for t = 1, #(it.needs or {}) do
-            local pool = Trade.poolFor(it.category, t, fid) or {}
+            local stockList = st and st.cats[it.category] and st.cats[it.category][t] or {}
             local bundles = {}
-            for i, b in ipairs(pool) do
-                local list = {}
-                for _, entry in ipairs(b) do
-                    for _ = 1, entry[2] do list[#list + 1] = entry[1] end
-                end
+            for i, b in ipairs(stockList) do
                 local price = nil
                 if offer.allowed then
-                    price = math.ceil(Value.sum(list) * priceMult(offer, t) * ((offer.catMult or {})[it.category] or 1))
+                    price = math.ceil(Value.sum(b.goods) * priceMult(offer, t) * ((offer.catMult or {})[it.category] or 1))
                 end
-                bundles[i] = { items = b, price = price }
+                bundles[i] = { items = group(b.goods), price = price, sold = b.sold or nil }
             end
             it.tiers[t] = bundles
         end
@@ -605,10 +872,14 @@ function Trade.negotiate(fid, ps, trade)
             log("trade swap blocked:", q.id, tostring(category), tier, "max", tostring(maxForCat))
             return nil, "blocked", Trade.blocked(fid, category, tier)
         end
-        local goods = Trade.roll(category, tier, fid)
-        if not goods then return nil, "same" end
+        local goods, ref = Trade.roll(category, tier, fid)
+        if not goods then
+            if ref == "sold_out" then return nil, "blocked", soldOut(fid, category, tier) end
+            return nil, "same"
+        end
         local price = math.ceil(Value.sum(goods) * priceMult(ctx, tier) * ((ctx.catMult or {})[category] or 1))
         Quests.swapTrade(q, category, tier, goods, math.max(1, price), pay, now)
+        q.stockRef = type(ref) == "table" and ref or nil
         return q, "swap"
     end
 
@@ -725,11 +996,11 @@ function Trade.marketOffers(ps, offers, selling, player)
                 end
                 if sellCat then pay = sellCat end
                 local bonus = sellCat and sellBonus(fid, sellCat) or 1
-                local goods, price
+                local goods, price, ref
                 -- 판매: 플레이어가 가진 만큼만. 넘으면 등급을 하나씩 낮춰 다시 굴린다
                 local lastPrice = nil
                 while tier >= 1 do
-                    goods = Trade.roll(o.category, tier, fid)
+                    goods, ref = Trade.roll(o.category, tier, fid)
                     price = goods and math.max(1, math.ceil(Value.sum(goods) * priceMult(ctx, tier)
                         * ((ctx.catMult or {})[o.category] or 1) / bonus)) or nil
                     lastPrice = price or lastPrice
@@ -740,6 +1011,7 @@ function Trade.marketOffers(ps, offers, selling, player)
                 if goods and #goods > 0 then
                     seen[fid] = true
                     out[#out + 1] = { faction = fid, category = o.category, tier = tier, goods = goods,
+                                      stockRef = type(ref) == "table" and ref or nil,
                                       payCategory = pay, price = price, selling = sellCat and true or nil,
                                       bonus = bonus > 1 and bonus or nil }
                     -- 요청 횟수(의심)는 플레이어가 고른 NPC 에게만 센다 (Quests.pickMarket, 2026-10-03 점검)

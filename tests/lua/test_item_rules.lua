@@ -14,6 +14,7 @@ local SCRIPTS = {
     ["Base.TobaccoDried"] = { dc = "Tool", weight = 0.2 },
     ["Base.WeldingMask"] = { dc = "Tool", weight = 1 },
     ["Base.Axe"] = { dc = "ToolWeapon", weight = 3 },
+    ["Base.CrudeBenchVise"] = { dc = "Tool", weight = 3 },
     ["Base.Book_Art"] = { dc = "Literature", weight = 0.5 },
     ["Base.Magazine_Car"] = { dc = "Literature", weight = 0.2 },
     ["Base.BookCarpentry1"] = { dc = "SkillBook", weight = 0.8 },
@@ -78,16 +79,18 @@ local function install()
     StoryEngine.Value.cache = {}
 end
 
-function T.tools_by_weight_and_toolweapons_count_as_tools()
+-- 도구 가치는 루팅표 등급 (2026-10-04): 흔한 망치·바늘·집게 1등급, 소방도끼·용접 마스크 4, 대장간 모루 5
+function T.tools_by_loot_tier_and_toolweapons_count_as_tools()
     install()
     local V = StoryEngine.Value
     H.eq(V.categoryOf("Base.Hammer"), "tools", "hammer trades as a tool even though it is in the melee pool")
-    H.eq(V.of("Base.Hammer"), 8)
-    H.eq(V.of("Base.Needle"), 2, "small")
-    H.eq(V.of("Base.Pliers"), 8, "0.3kg is a normal tool")
-    H.eq(V.of("Base.BlacksmithAnvil"), 20, "heavy")
-    H.eq(V.of("Base.WeldingMask"), 20, "special")
-    H.eq(V.of("Base.Axe"), 10, "special value kept")
+    H.eq(V.of("Base.Hammer"), 2, "common")
+    H.eq(V.of("Base.Needle"), 2)
+    H.eq(V.of("Base.Pliers"), 2)
+    H.eq(V.of("Base.BlacksmithAnvil"), 20, "rare")
+    H.eq(V.of("Base.WeldingMask"), 14)
+    H.eq(V.of("Base.Axe"), 14)
+    H.eq(V.categoryOf("Base.CrudeBenchVise"), "misc", "hand-made tools are not traded")
     for _, ft in ipairs({ "Base.ClayCrudeBenchVisePartsMold", "Base.CrudeBenchViseParts", "Base.DebugFluid", "Base.Tobacco" }) do
         H.eq(V.categoryOf(ft), "misc", ft .. " is not a tool")
     end

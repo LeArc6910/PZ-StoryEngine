@@ -1582,7 +1582,7 @@
     "IGUI_StoryEngine_Work_Error_tier": "이 등급 거래는 쉬운 일로 갚을 수 없다",
     "IGUI_StoryEngine_Work_Why_tier": "쉬운 일은 이 품목의 최고 등급보다 한 등급 아래(%1등급 이하) 거래에서만",
     "IGUI_StoryEngine_Catalog_Empty": "이 상대가 다루는 품목이 없다.",
-    "IGUI_StoryEngine_Catalog_Note": "값은 요청할 때 다시 정해진다. 신뢰도가 높으면 가끔 공짜로 주기도 하고, 너무 자주 청하면 의심받는다. 받은 제안은 퀘스트 탭에서 수락·흥정하거나 [다른 대가로...]로 갚을 수 있다.",
+    "IGUI_StoryEngine_Catalog_Note": "재고는 며칠마다 바뀌고, 거래가 끝난 묶음은 다음 입고까지 품절이다. 값은 요청할 때 다시 정해진다. 신뢰도가 높으면 가끔 공짜로 주기도 하고, 너무 자주 청하면 의심받는다. 받은 제안은 퀘스트 탭에서 수락·흥정하거나 [다른 대가로...]로 갚을 수 있다.",
     "IGUI_StoryEngine_Catalog_Locked": "지금 신뢰도나 상대 형편으로는 이 등급을 거래할 수 없다.",
     "IGUI_StoryEngine_Catalog_PriceLine": "예상 값: 가치 %1 (대가 품목: %2 중 가진 것이 많은 것)",
     "IGUI_StoryEngine_Catalog_NoPrice": "아직 거래 전",
@@ -1705,5 +1705,9 @@
     "IGUI_StoryEngine_Diary_note_named": "%1의 부탁으로 변해 버린 아는 얼굴을 편히 보내 주었다.",
     "IGUI_StoryEngine_Diary_note_recover": "%1이(가) 남긴 짐을 찾았다.",
     "IGUI_StoryEngine_Diary_note_memorial": "%1의 수첩을 읽었다.",
-    "IGUI_StoryEngine_Diary_note_holiday": "%1을(를) 보냈다. 무전 너머로 다들 명절 인사를 나눴다."
+    "IGUI_StoryEngine_Diary_note_holiday": "%1을(를) 보냈다. 무전 너머로 다들 명절 인사를 나눴다.",
+    "IGUI_StoryEngine_Catalog_Restock": "새 재고까지 %1일",
+    "IGUI_StoryEngine_Catalog_Sold": "품절",
+    "IGUI_StoryEngine_Catalog_SoldLine": "이 묶음은 다 나갔다. %1일 뒤 새 재고가 들어온다.",
+    "IGUI_StoryEngine_Trade_SoldOut": "%1등급 %2은(는) 이번 재고가 다 나갔다 (%3일 뒤 새 재고)"
 }
