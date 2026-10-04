@@ -6,6 +6,7 @@ local ITEMS = {
     ["Base.Bandage"] = { "medical", 1, 2, true }, ["Base.AlcoholWipes"] = { "medical", 1, 2, true },
     ["Base.Pills"] = { "medical", 2, 4, true }, ["Base.Antibiotics"] = { "medical", 2, 4, true },
     ["Base.SutureNeedle"] = { "medical", 3, 6, true }, ["Base.Splint"] = { "medical", 3, 6, true },
+    ["Base.Tweezers"] = { "medical", 3, 6, true },
     ["Base.TinnedBeans"] = { "food", 3, 1.5, true }, ["Base.Crisps"] = { "food", 1, 0.5, true },
     ["VFX.Granola"] = { "food", 3, 1.5, false }, ["VFX.Chips"] = { "food", 1, 0.5, false },
     ["Base.Pistol"] = { "firearm", 1, 30, true }, ["Base.9mmClip"] = { "ammo", 1, 3, true },
@@ -144,6 +145,50 @@ function T.quest_rewards_are_generated()
         end
     end
     H.ok(sawGun, "a pistol shows up now and then")
+    restore()
+end
+
+local function tradeSetup(trust)
+    local p = H.addPlayer("tester", "Gerald", "Kar")
+    local ps = StoryEngine.Store.player(p)
+    ps.lang = "EN"
+    StoryEngine.Life.daily()
+    StoryEngine.Trade.FREE_CHANCE = 0
+    StoryEngine.Radio.channel("doc").trust = trust
+    return p, ps
+end
+
+function T.requested_item_leads_the_deal()
+    install()
+    local _, ps = tradeSetup(65)
+    local q, how = StoryEngine.Trade.fromReply("doc", ps,
+        { action = "offer", category = "medical", tier = 1, pay_category = "food", item = "tweezers", item_said = "핀셋" })
+    H.eq(how, "offer")
+    H.eq(q.goods[1], "Base.Tweezers", "the asked-for item comes first")
+    H.eq(q.tier, 3, "the deal takes the item's tier")
+    H.eq(q.stockRef, nil, "made to order, not from the stock")
+    restore()
+end
+
+function T.item_they_do_not_carry_makes_no_offer()
+    install()
+    local _, ps = tradeSetup(65)
+    local q, how, info = StoryEngine.Trade.fromReply("doc", ps,
+        { action = "offer", category = "medical", tier = 2, pay_category = "food", item = "chainsaw", item_said = "전기톱" })
+    H.eq(q, nil)
+    H.eq(how, "blocked")
+    H.ok(info.notCarried and info.item == "전기톱", "they are told it is not carried")
+    restore()
+end
+
+function T.item_above_trust_is_blocked_with_the_trust_needed()
+    install()
+    local _, ps = tradeSetup(25)
+    local q, how, info = StoryEngine.Trade.fromReply("doc", ps,
+        { action = "offer", category = "medical", tier = 1, pay_category = "food", item = "splint", item_said = "" })
+    H.eq(q, nil)
+    H.eq(how, "blocked")
+    H.eq(info.tier, 3, "blocked at the splint's tier")
     restore()
 end
 

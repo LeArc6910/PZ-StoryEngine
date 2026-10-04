@@ -174,12 +174,50 @@ local function listText(list)
 end
 Quests.listText = listText
 
--- 부탁 물건 목록을 사람이 읽는 문장으로 ("진통제 x2, 붕대 x3")
+-- ---------------------------------------------------------------- 품목 점수 부탁 (2026-10-04 사용자 결정)
+-- 음식처럼 종류가 아주 많은 품목은 특정 물건을 갖고 있기 어려워서, 부탁을 만들 때 그 품목의 물건들을
+-- "그 품목 가치 N점" 하나로 합친다. 부탁 항목 { "cat:food", N }: 그 품목(Value.categoryOf)의 물건 아무거나 가치 합 N 이상.
+-- 음료(캔 음료·물 통조림)도 음식 품목이라 같이 합쳐진다. 근접 무기·총기도 종류가 많아 점수로 (같은 날 추가).
+-- 의약품·도구·탄약 등은 그대로 특정 물건 (탄약은 총에 맞는 구경이 중요해서).
+Quests.POINT_CATS = { food = true, melee = true, firearm = true }
+Quests.POINT_PREFIX = "cat:"
+
+-- 부탁 항목이 품목 점수면 그 품목 이름, 아니면 nil
+function Quests.pointCat(entry)
+    local s = type(entry) == "table" and entry[1] or entry
+    if type(s) ~= "string" or string.sub(s, 1, 4) ~= Quests.POINT_PREFIX then return nil end
+    return string.sub(s, 5)
+end
+
+-- 부탁 물건 목록에서 POINT_CATS 품목의 물건을 가치 합으로 바꾼다 (올림)
+function Quests.pointsNeed(items)
+    local out, sums, order = {}, {}, {}
+    for _, n in ipairs(items or {}) do
+        local cat = not Quests.pointCat(n) and StoryEngine.Value.categoryOf(n[1]) or nil
+        if cat and Quests.POINT_CATS[cat] then
+            if not sums[cat] then order[#order + 1] = cat end
+            sums[cat] = (sums[cat] or 0) + (StoryEngine.Value.of(n[1]) or 0) * (n[2] or 1)
+        else
+            out[#out + 1] = { n[1], n[2] }
+        end
+    end
+    for _, cat in ipairs(order) do
+        out[#out + 1] = { Quests.POINT_PREFIX .. cat, math.max(1, math.ceil(sums[cat])) }
+    end
+    return out
+end
+
+-- 부탁 물건 목록을 사람이 읽는 문장으로 ("진통제 x2, 붕대 x3", 품목 점수는 "any food worth 5 points")
 function Quests.needText(q)
     local parts = {}
     for _, n in ipairs(q.need or {}) do
-        local name = itemName(n[1])
-        parts[#parts + 1] = n[2] > 1 and (name .. " x" .. StoryEngine.intToString(n[2])) or name
+        local cat = Quests.pointCat(n)
+        if cat then
+            parts[#parts + 1] = "some " .. cat .. " of any kind (worth about " .. StoryEngine.intToString(n[2]) .. " value points)"
+        else
+            local name = itemName(n[1])
+            parts[#parts + 1] = n[2] > 1 and (name .. " x" .. StoryEngine.intToString(n[2])) or name
+        end
     end
     return table.concat(parts, ", ")
 end
@@ -971,8 +1009,7 @@ function Quests.propose(player, ps, fid, tier, now, opts)
     if not need then return nil, "no_need" end
     local d = Store.data()
     d.questSeq = d.questSeq + 1
-    local items = {}
-    for i, n in ipairs(need.items) do items[i] = { n[1], n[2] } end
+    local items = Quests.pointsNeed(need.items)
     local q = {
         id = "Q" .. StoryEngine.intToString(d.questSeq),
         kind = "deliver", tier = need.tier, need = items, why = need.why, urgent = opts.urgent or nil,
@@ -1017,8 +1054,7 @@ function Quests.proposeCustom(player, ps, fid, spec, now, extra)
     extra = extra or {}
     local d = Store.data()
     d.questSeq = d.questSeq + 1
-    local items = {}
-    for i, n in ipairs(spec.items or {}) do items[i] = { n[1], n[2] } end
+    local items = Quests.pointsNeed(spec.items)
     if #items == 0 then return nil end
     local q = {
         id = "Q" .. StoryEngine.intToString(d.questSeq),
@@ -1048,7 +1084,7 @@ function Quests.proposeChoice(player, ps, crisis, now)
     d.questSeq = d.questSeq + 1
     local options, top = {}, 1
     for i, o in ipairs(crisis.options) do
-        options[i] = { faction = o.faction, ask = o.ask, tier = o.tier, items = o.items }
+        options[i] = { faction = o.faction, ask = o.ask, tier = o.tier, items = Quests.pointsNeed(o.items) }
         top = math.max(top, o.tier or 1)
     end
     local q = {
@@ -1099,8 +1135,7 @@ function Quests.demand(player, ps, fid, tier, now)
     if not need then return nil, "no_need" end
     local d = Store.data()
     d.questSeq = d.questSeq + 1
-    local items = {}
-    for i, n in ipairs(need.items) do items[i] = { n[1], n[2] } end
+    local items = Quests.pointsNeed(need.items)
     local q = {
         id = "Q" .. StoryEngine.intToString(d.questSeq),
         kind = "extort", tier = need.tier, need = items, why = need.why,
@@ -1533,29 +1568,67 @@ function Quests.respond(player, qid, accept)
     return true
 end
 
--- 부탁 물건을 인벤토리에서 꺼낸다. 장착하지 않은 것부터 쓴다. 모자라면 아무것도 꺼내지 않고 false
-local function takeNeed(player, need)
-    local inv = player:getInventory()
-    local plan = {}
-    for _, n in ipairs(need) do
-        local list = inv:getAllTypeRecurse(n[1])
-        local free, equipped = {}, {}
-        for i = 0, list:size() - 1 do
-            local it = list:get(i)
-            local mod = it:getModData()
-            local tagged = mod and mod.storyQuest and all()[mod.storyQuest]
-            if not (tagged and Quests.isActive(tagged)) then
-                if player:isEquipped(it) then equipped[#equipped + 1] = it else free[#free + 1] = it end
-            end
+-- 품목 점수 항목에 낼 물건: chosen(플레이어가 고른 아이템 id 목록)이 있으면 그것만, 없으면 싼 것부터 자동으로.
+-- 그 품목이고 낼 수 있는 물건(Value.payable: 퀘스트 물건·채집 재료·상한 것·입은 것 제외)만. 가치가 모자라면 nil
+local function pointItems(player, cat, points, chosen, used)
+    local V = StoryEngine.Value
+    local list = {}
+    if chosen and #chosen > 0 then
+        local inv = player:getInventory()
+        for _, id in ipairs(chosen) do
+            local it = inv:getItemWithIDRecursiv(tonumber(id) or -1)
+            if it and not used[it] and V.payable(player, it, cat) then list[#list + 1] = it end
         end
-        if #free + #equipped < n[2] then return false end
-        local chosen = {}
-        for _, it in ipairs(free) do if #chosen < n[2] then chosen[#chosen + 1] = it end end
-        for _, it in ipairs(equipped) do if #chosen < n[2] then chosen[#chosen + 1] = it end end
-        plan[#plan + 1] = chosen
+    else
+        for _, it in ipairs(V.payableItems(player, cat)) do
+            if not used[it] and not player:isEquipped(it) then list[#list + 1] = it end
+        end
+        table.sort(list, function(a, b) return V.itemValue(a) < V.itemValue(b) end)
     end
-    for _, chosen in ipairs(plan) do
-        for _, it in ipairs(chosen) do
+    local out, total = {}, 0
+    for _, it in ipairs(list) do
+        if total >= points then break end
+        out[#out + 1] = it
+        total = total + V.itemValue(it)
+    end
+    if total + 0.001 < points then return nil end
+    return out
+end
+
+-- 부탁 물건을 인벤토리에서 꺼낸다. 장착하지 않은 것부터 쓴다. 모자라면 아무것도 꺼내지 않고 false
+-- 품목 점수 항목("cat:food")은 chosen(고른 아이템 id) 또는 자동으로 그 품목 물건을 가치 합만큼
+local function takeNeed(player, need, chosen)
+    local inv = player:getInventory()
+    local plan, used = {}, {}
+    for _, n in ipairs(need) do
+        if Quests.pointCat(n) then
+            local picked = pointItems(player, Quests.pointCat(n), n[2], chosen, used)
+            if not picked then return false end
+            for _, it in ipairs(picked) do used[it] = true end
+            plan[#plan + 1] = picked
+        end
+    end
+    for _, n in ipairs(need) do
+        if not Quests.pointCat(n) then
+            local list = inv:getAllTypeRecurse(n[1])
+            local free, equipped = {}, {}
+            for i = 0, list:size() - 1 do
+                local it = list:get(i)
+                local mod = it:getModData()
+                local tagged = mod and mod.storyQuest and all()[mod.storyQuest]
+                if not used[it] and not (tagged and Quests.isActive(tagged)) then
+                    if player:isEquipped(it) then equipped[#equipped + 1] = it else free[#free + 1] = it end
+                end
+            end
+            if #free + #equipped < n[2] then return false end
+            local picked = {}
+            for _, it in ipairs(free) do if #picked < n[2] then picked[#picked + 1] = it end end
+            for _, it in ipairs(equipped) do if #picked < n[2] then picked[#picked + 1] = it end end
+            plan[#plan + 1] = picked
+        end
+    end
+    for _, picked in ipairs(plan) do
+        for _, it in ipairs(picked) do
             StoryEngine.Items.remove(it, player)
         end
     end
@@ -1614,7 +1687,8 @@ function Quests.contribute(player, q)
     return true
 end
 
-function Quests.submit(player, qid)
+-- itemIds: 품목 점수 부탁에 낼 물건으로 플레이어가 고른 아이템 id (없으면 싼 것부터 자동)
+function Quests.submit(player, qid, itemIds)
     local q = all()[qid]
     if q and q.kind == "collect" then return Quests.contribute(player, q) end
     if not q or (q.kind ~= "fetch" and q.kind ~= "deliver" and q.kind ~= "extort" and q.kind ~= "named") then
@@ -1623,7 +1697,7 @@ function Quests.submit(player, qid)
     if q.kind == "deliver" or q.kind == "extort" then
         if q.state ~= "accepted" then return false, "not_active" end
         if not Factions.canTalk(player) then return false, "no_radio" end
-        if not takeNeed(player, q.need) then return false, "missing_items" end
+        if not takeNeed(player, q.need, type(itemIds) == "table" and itemIds or nil) then return false, "missing_items" end
         local now = Sensor.now()
         local ps = Store.player(player)
         Quests.addHelper(q, Store.player(player))

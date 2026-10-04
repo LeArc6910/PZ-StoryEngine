@@ -122,7 +122,7 @@ function StoryEngineTradePayWindow:onSend()
     end
     local player = getSpecificPlayer(0)
     if player and #ids > 0 then
-        StoryEngine.Net.toServer(player, "tradePay", { id = self.quest.id, items = ids })
+        StoryEngine.Net.toServer(player, self.quest.command or "tradePay", { id = self.quest.id, items = ids })
     end
     self:close()
 end
@@ -151,7 +151,7 @@ function StoryEngineTradePayWindow:new(x, y, w, h, quest)
     setmetatable(o, self)
     self.__index = self
     o.quest = quest
-    o.title = getText("IGUI_StoryEngine_Trade_PayTitle",
+    o.title = getText(quest.titleKey or "IGUI_StoryEngine_Trade_PayTitle",
         getText("IGUI_StoryEngine_Cat_" .. tostring(quest.payCategory)))
     o.resizable = true
     o.minimumWidth = 360

@@ -1709,5 +1709,14 @@
     "IGUI_StoryEngine_Catalog_Restock": "New stock in %1 days",
     "IGUI_StoryEngine_Catalog_Sold": "sold out",
     "IGUI_StoryEngine_Catalog_SoldLine": "This bundle is gone. New stock arrives in %1 days.",
-    "IGUI_StoryEngine_Trade_SoldOut": "Tier %1 %2 is sold out for now (new stock in %3 days)"
+    "IGUI_StoryEngine_Trade_SoldOut": "Tier %1 %2 is sold out for now (new stock in %3 days)",
+    "IGUI_StoryEngine_Trade_NotCarried": "They have no '%1' to trade right now (no offer)",
+    "IGUI_StoryEngine_Need_Points": "any %1 worth %2",
+    "IGUI_StoryEngine_Quest_NeedPoints": "Needed: any %1 worth %2 (you have %3)",
+    "IGUI_StoryEngine_Need_PickTitle": "Items to send for the request: %1",
+    "IGUI_StoryEngine_QGroup_proposed": "Waiting (%1)",
+    "IGUI_StoryEngine_QGroup_active": "In progress (%1)",
+    "IGUI_StoryEngine_QGroup_failed": "Failed (%1)",
+    "IGUI_StoryEngine_QGroup_completed": "Done (%1)",
+    "IGUI_StoryEngine_Quest_EmptyGroup": "No quests here. Pick another group with the buttons above."
 }

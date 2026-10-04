@@ -40,6 +40,9 @@ local function setup()
     local ps = StoryEngine.Store.player(p)
     ps.lang = "EN"
     H.clockMin = 30 * 1440 + 9 * 60
+    -- 가짜 환경에서 값을 모르는 물건은 총기로 분류되므로 부탁에 쓰는 의약품은 정해 둔다 (품목 점수로 바뀌지 않게)
+    H.defineItem("Base.Antibiotics", "medical", 4)
+    H.defineItem("Base.Bandage", "medical", 2)
     return p, ps
 end
 
