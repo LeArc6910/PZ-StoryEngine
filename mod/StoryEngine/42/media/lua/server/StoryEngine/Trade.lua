@@ -424,7 +424,8 @@ function Trade.resetFill()
 end
 
 -- 묶음 하나를 실시간으로 만든다. 반환: 물건 fullType 목록 | nil (풀이 비었음)
-function Trade.generate(category, tier, fid)
+-- budget 을 주면 그 예산으로 (퀘스트 보상 Loot 가 쓴다), 아니면 거래 예산 x 전문가 배율
+function Trade.generate(category, tier, fid, budget)
     local IP = StoryEngine.ItemPool
     local name = (Trade.POOL_OF[fid] or {})[category] or category
     local byTier = IP.tradePool(name)
@@ -437,9 +438,16 @@ function Trade.generate(category, tier, fid)
         end
     end
     if not top then return nil end
-    local budget = ((Trade.BUDGET[category] or Trade.BUDGET.tools)[tier] or 10)
+    budget = budget or ((Trade.BUDGET[category] or Trade.BUDGET.tools)[tier] or 10)
         * (((Trade.SPECIALIST[fid] or {})[category]) or 1)
-    local anchor = IP.pickMixed(byTier[top])
+    -- 첫 물건도 예산 안의 것으로 (붕대 상자처럼 비싼 묶음이 1등급 보상을 넘지 않게). 없으면 그 등급에서 가장 싼 것
+    local fits, cheapest, cheapV = {}, nil, nil
+    for _, ft in ipairs(byTier[top]) do
+        local v = Value.of(ft) or 0
+        if v <= budget then fits[#fits + 1] = ft end
+        if not cheapV or v < cheapV then cheapest, cheapV = ft, v end
+    end
+    local anchor = #fits > 0 and IP.pickMixed(fits) or cheapest
     if not anchor then return nil end
     local out, total = { anchor }, Value.of(anchor)
     if category == "firearm" then

@@ -2,7 +2,7 @@
 -- 이름은 번역 파일(IGUI_StoryEngine_Faction_<id>), 성격·말투는 브릿지(modules.py FACTIONS)에 있다.
 -- 초기 신뢰도는 성향에 따라 0~30 (거래는 20부터 열린다, Trade.LIMITS). 이미 만들어진 채널은 세이브의 값을 쓴다.
 -- threat = true 인 세력은 신뢰도가 아주 낮으면 협박한다 (Director extortion). 목사·간호사 같은 인물은 하지 않는다.
--- 전문 분야 보상은 Loot.SPECIALTY, 전문 거래 품목은 Trade.FACTION_GOODS, 부탁은 Needs.TABLE.
+-- 전문 분야 보상은 Loot.SPECIALTY_CAT (실시간 생성, 고정 표 Loot.SPECIALTY 는 대비용), 전문 거래 품목은 Trade.FACTION_GOODS, 부탁은 Needs.TABLE.
 
 require "StoryEngine/Core"
 

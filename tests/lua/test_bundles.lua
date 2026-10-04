@@ -114,6 +114,39 @@ function T.casey_sells_electronics_as_her_tools()
     restore()
 end
 
+function T.quest_rewards_are_generated()
+    install()
+    local Loot, V = StoryEngine.Loot, StoryEngine.Value
+    for _ = 1, 20 do
+        local out = Loot.roll(2, "doc")
+        local med, has2 = 0, false
+        for _, ft in ipairs(out) do
+            local d = ITEMS[ft]
+            if d and d[1] == "medical" then
+                med = med + d[3]
+                if d[2] == 2 then has2 = true end
+            end
+        end
+        H.ok(has2, "a tier 2 medical item leads the medical part")
+        -- 의약품 보상 예산 8 + 닥 전문 묶음(거래 예산 12의 절반)
+        H.ok(med <= Loot.BUDGET.medical[2] + StoryEngine.Trade.BUDGET.medical[2] * Loot.SPECIALTY_SHARE, "within the budgets")
+    end
+    -- 1등급은 도구·근접 무기·총 중 하나만이고, 총이면 탄창·탄약과 함께
+    SandboxVars.StoryEngine.ModItemsRatio = 0
+    local sawGun = false
+    for _ = 1, 60 do
+        local out = Loot.roll(1)
+        for i, ft in ipairs(out) do
+            if ft == "Base.Pistol" then
+                sawGun = true
+                H.eq(out[i + 1], "Base.9mmClip")
+            end
+        end
+    end
+    H.ok(sawGun, "a pistol shows up now and then")
+    restore()
+end
+
 function T.stock_uses_generated_bundles()
     install()
     local p = H.addPlayer("tester", "Gerald", "Kar")

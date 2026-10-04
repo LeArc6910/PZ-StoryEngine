@@ -1,4 +1,5 @@
 -- 보상 보급품 구성표 (서버 측 전용). 등급 1~5.
+-- 2026-10-04부터 물건은 실시간으로 고른다 (아래 "실시간 보상", Trade.generate). 아래 고정 표는 아이템 풀이 비었을 때만 쓴다.
 --
 -- 모든 등급에 같은 종류(음식·물, 의약품, 도구, 근접 무기, 총기)가 나오되 품질과 양이 다르다.
 --   1 (근처)       : 음식 조금, 붕대, 흔한 도구·근접 무기·권총(낱발) 중 하나
@@ -211,10 +212,50 @@ Loot.SPECIALTY = {
     },
 }
 
+-- ---------------------------------------------------------------- 실시간 보상 (2026-10-04 사용자 결정)
+-- 거래 묶음과 같은 생성기(Trade.generate): 품목마다 그 등급 물건 1개 + 남은 예산을 그 등급 이하 물건으로 무작위로.
+-- 구성(음식·음료·의약품, 등급별 확률로 도구·근접 무기·총)과 확률(Loot.CHANCE)은 예전 그대로이고, 물건만 실시간으로 고른다.
+-- 예산은 예전 고정 보상의 가치에 맞췄다. 샌드박스 보상 배율(RewardMult)은 음식·의약품·전문 묶음 예산에 곱한다.
+-- 전문 보상은 그 세력의 전문 품목(Loot.SPECIALTY_CAT, 케이시·듀이는 전자기기·차량 부품 풀)을 거래 예산의 절반으로.
+-- 생성기가 물건을 못 고르면(아이템 풀이 비었을 때) 아래 예전 고정 표를 쓴다.
+Loot.BUDGET = {
+    food = { 3, 8, 11, 16, 22 }, medical = { 4, 8, 12, 18, 40 }, tools = { 2, 4, 8, 14, 40 },
+    melee = { 3, 4, 5, 8, 12 }, firearm = { 35, 57, 70, 110, 220 },
+}
+Loot.SPECIALTY_CAT = { ray = "food", casey = "tools", doc = "medical", pike = "food", dewey = "tools",
+                       guard = "ammo", rats = "tools", hunter = "melee" }
+Loot.SPECIALTY_SHARE = 0.5
+
+local function rewardMult()
+    return StoryEngine.Tuning and StoryEngine.Tuning.num("RewardMult") or 1
+end
+
+-- 생성기로 한 품목 (실패하면 nil)
+local function gen(category, tier, fid, budget)
+    local Trade = StoryEngine.Trade
+    if not Trade or not Trade.generate then return nil end
+    local ok, goods = pcall(Trade.generate, category, tier, fid, budget)
+    if ok and goods and #goods > 0 then return goods end
+    if not ok then StoryEngine.log("loot generate failed:", category, tier, tostring(goods)) end
+    return nil
+end
+
+local function append(out, list)
+    for _, ft in ipairs(list) do out[#out + 1] = ft end
+end
+
 -- 등급(1~5)에 맞는 보상 목록 (전체 타입 이름 배열). fid 를 주면 그 세력의 전문 보상을 더한다.
 function Loot.roll(tier, fid)
     tier = math.max(1, math.min(Loot.MAX_TIER, math.floor(tier or 1)))
     local out = Loot.rollBase(tier)
+    local cat = fid and Loot.SPECIALTY_CAT[fid]
+    local Trade = StoryEngine.Trade
+    local made = cat and Trade and Trade.BUDGET and Trade.BUDGET[cat]
+        and gen(cat, tier, fid, Trade.BUDGET[cat][tier] * Loot.SPECIALTY_SHARE * rewardMult()) or nil
+    if made then
+        append(out, made)
+        return out
+    end
     local special = fid and Loot.SPECIALTY[fid] and Loot.SPECIALTY[fid][tier]
     if special then
         for _, entry in ipairs(special) do add(out, entry[1], scaled(entry[2] or 1)) end
@@ -222,37 +263,44 @@ function Loot.roll(tier, fid)
     return out
 end
 
+-- 한 품목: 생성기로, 못 하면 fallback() (예전 고정 표)
+local function part(out, category, tier, scale, fallback)
+    local made = gen(category, tier, nil, Loot.BUDGET[category][tier] * (scale and rewardMult() or 1))
+    if made then append(out, made) else fallback() end
+end
+
 function Loot.rollBase(tier)
     local out = {}
-    for _ = 1, scaled(Loot.FOOD_COUNT[tier]) do addMixed(out, pick(Loot.FOOD[tier])) end
+    part(out, "food", tier, true, function()
+        for _ = 1, scaled(Loot.FOOD_COUNT[tier]) do addMixed(out, pick(Loot.FOOD[tier])) end
+    end)
     for _ = 1, scaled(Loot.DRINK_COUNT[tier]) do add(out, pick(Loot.DRINK[tier])) end
     if tier >= Loot.TIN_OPENER_FROM then add(out, "Base.TinOpener") end
-    for _, entry in ipairs(Loot.MEDICAL[tier]) do add(out, entry[1], scaled(entry[2] or 1)) end
+    part(out, "medical", tier, true, function()
+        for _, entry in ipairs(Loot.MEDICAL[tier]) do add(out, entry[1], scaled(entry[2] or 1)) end
+    end)
 
+    local tool = function() part(out, "tools", tier, false, function() add(out, pick(Loot.TOOL[tier])) end) end
+    local melee = function() part(out, "melee", tier, false, function() addMixed(out, pick(Loot.MELEE[tier])) end) end
+    local gun = function() part(out, "firearm", tier, false, function() addGun(out, pick(Loot.GUN[tier]), tier) end) end
     local c = Loot.CHANCE[tier]
     if tier == 1 then
         -- 가까운 보급은 도구·근접 무기·권총 중 하나만
         local roll = ZombRand(100)
-        if roll < c.gun then
-            addGun(out, pick(Loot.GUN[1]), 1)
-        elseif roll < c.gun + c.melee then
-            addMixed(out, pick(Loot.MELEE[1]))
-        elseif roll < c.gun + c.melee + c.tool then
-            add(out, pick(Loot.TOOL[1]))
-        end
+        if roll < c.gun then gun()
+        elseif roll < c.gun + c.melee then melee()
+        elseif roll < c.gun + c.melee + c.tool then tool() end
         return out
     end
-
-    for _ = 1, Loot.TOOL_COUNT[tier] do
-        if chance(c.tool) then add(out, pick(Loot.TOOL[tier])) end
-    end
+    -- 도구는 한 묶음 (5등급 예산이면 둘)
+    if chance(c.tool) then tool() end
     if tier == 2 then
         -- 같은 동네 보급은 근접 무기와 총 중 하나
-        if chance(c.gun) then addGun(out, pick(Loot.GUN[2]), 2) else addMixed(out, pick(Loot.MELEE[2])) end
+        if chance(c.gun) then gun() else melee() end
         return out
     end
-    if chance(c.gun) then addGun(out, pick(Loot.GUN[tier]), tier) end
-    if chance(c.melee) then addMixed(out, pick(Loot.MELEE[tier])) end
+    if chance(c.gun) then gun() end
+    if chance(c.melee) then melee() end
     return out
 end
 
