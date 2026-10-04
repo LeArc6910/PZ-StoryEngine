@@ -425,29 +425,32 @@ end
 
 -- 묶음 하나를 실시간으로 만든다. 반환: 물건 fullType 목록 | nil (풀이 비었음)
 -- budget 을 주면 그 예산으로 (퀘스트 보상 Loot 가 쓴다), 아니면 거래 예산 x 전문가 배율
-function Trade.generate(category, tier, fid, budget)
+-- anchor 를 주면 그 물건을 첫 물건으로 (플레이어가 청한 물건, Trade.findItem)
+function Trade.generate(category, tier, fid, budget, anchor)
     local IP = StoryEngine.ItemPool
     local name = (Trade.POOL_OF[fid] or {})[category] or category
     local byTier = IP.tradePool(name)
     if not byTier then return nil end
-    local top = nil
-    for t = tier, 1, -1 do
-        if byTier[t] and #byTier[t] > 0 then
-            top = t
-            break
-        end
-    end
-    if not top then return nil end
     budget = budget or ((Trade.BUDGET[category] or Trade.BUDGET.tools)[tier] or 10)
         * (((Trade.SPECIALIST[fid] or {})[category]) or 1)
-    -- 첫 물건도 예산 안의 것으로 (붕대 상자처럼 비싼 묶음이 1등급 보상을 넘지 않게). 없으면 그 등급에서 가장 싼 것
-    local fits, cheapest, cheapV = {}, nil, nil
-    for _, ft in ipairs(byTier[top]) do
-        local v = Value.of(ft) or 0
-        if v <= budget then fits[#fits + 1] = ft end
-        if not cheapV or v < cheapV then cheapest, cheapV = ft, v end
+    if not anchor then
+        local top = nil
+        for t = tier, 1, -1 do
+            if byTier[t] and #byTier[t] > 0 then
+                top = t
+                break
+            end
+        end
+        if not top then return nil end
+        -- 첫 물건도 예산 안의 것으로 (붕대 상자처럼 비싼 묶음이 1등급 보상을 넘지 않게). 없으면 그 등급에서 가장 싼 것
+        local fits, cheapest, cheapV = {}, nil, nil
+        for _, ft in ipairs(byTier[top]) do
+            local v = Value.of(ft) or 0
+            if v <= budget then fits[#fits + 1] = ft end
+            if not cheapV or v < cheapV then cheapest, cheapV = ft, v end
+        end
+        anchor = #fits > 0 and IP.pickMixed(fits) or cheapest
     end
-    local anchor = #fits > 0 and IP.pickMixed(fits) or cheapest
     if not anchor then return nil end
     local out, total = { anchor }, Value.of(anchor)
     if category == "firearm" then
@@ -490,6 +493,81 @@ function Trade.generate(category, tier, fid, budget)
         end
     end
     return out
+end
+
+-- ---------------------------------------------------------------- 청한 물건 (2026-10-04)
+-- 플레이어가 특정 물건을 청하면 AI 가 영어 이름(item)과 플레이어가 쓴 말(item_said)을 준다. 이 NPC 가 취급하는 품목의
+-- 물건 풀에서 아이템 이름(모듈 뺀 것)과 서버 언어의 표시 이름으로 찾고, 찾으면 그 물건을 묶음의 첫 물건으로 넣는다.
+-- 못 찾으면 제안하지 않고 "그 물건은 없다" 줄을 남긴다 (AI 가 약속한 물건과 실제 묶음이 어긋나지 않게).
+local function normName(s)
+    s = string.lower(tostring(s or ""))
+    return (string.gsub(s, "[%s%p]", ""))
+end
+
+local nameKeys = {}
+local function keysOf(ft)
+    local hit = nameKeys[ft]
+    if hit then return hit end
+    local keys = { normName(string.match(ft, "%.(.+)$") or ft) }
+    local ok, shown = pcall(getItemNameFromFullType, ft)
+    if ok and shown then keys[#keys + 1] = normName(shown) end
+    nameKeys[ft] = keys
+    return keys
+end
+
+-- 3 같음, 2 앞부분이 같음, 1 들어 있음, 0 아님 (3바이트보다 짧은 말은 맞추지 않는다)
+local function nameScore(ft, want)
+    if not want or string.len(want) < 3 then return 0 end
+    local best = 0
+    for _, k in ipairs(keysOf(ft)) do
+        if string.len(k) >= 3 then
+            if k == want then return 3 end
+            if string.find(k, want, 1, true) == 1 or string.find(want, k, 1, true) == 1 then
+                best = math.max(best, 2)
+            elseif string.find(k, want, 1, true) or string.find(want, k, 1, true) then
+                best = math.max(best, 1)
+            end
+        end
+    end
+    return best
+end
+
+-- 반환: { ft, category, tier(그 물건의 등급), maxTier(지금 줄 수 있는 최고 등급, 0 이면 못 줌) } | nil
+-- goods = offerContext 의 goods (지금 줄 수 있는 품목과 최고 등급), prefer = AI 가 말한 품목
+function Trade.findItem(fid, goods, prefer, item, said)
+    local wants = { normName(item), normName(said) }
+    if wants[1] == "" and wants[2] == "" then return nil end
+    local rules = Trade.FACTIONS[fid] or { goods = {} }
+    local maxOf = {}
+    for _, g in ipairs(goods or {}) do maxOf[g.category] = g.maxTier end
+    local IP = StoryEngine.ItemPool
+    local best, bestKey = nil, nil
+    for cat in pairs(rules.goods or {}) do
+        local byTier = IP.tradePool((Trade.POOL_OF[fid] or {})[cat] or cat) or {}
+        for t = 1, 5 do
+            for _, ft in ipairs(byTier[t] or {}) do
+                local s = math.max(nameScore(ft, wants[1]), nameScore(ft, wants[2]))
+                if s > 0 then
+                    -- 점수 > AI 가 말한 품목 > 낮은 등급 > 짧은 이름
+                    local key = s * 1000 + (cat == prefer and 100 or 0) + (10 - t) * 5 - math.min(20, string.len(ft) / 4)
+                    if not bestKey or key > bestKey then
+                        best, bestKey = { ft = ft, category = cat, tier = t, maxTier = maxOf[cat] or 0 }, key
+                    end
+                end
+            end
+        end
+    end
+    return best
+end
+
+local function notCarried(trade)
+    local said = type(trade.item_said) == "string" and trade.item_said ~= "" and trade.item_said or trade.item
+    return { notCarried = true, item = tostring(said or ""), category = trade.category }
+end
+
+local function wantsItem(t)
+    return type(t) == "table" and ((type(t.item) == "string" and t.item ~= "")
+        or (type(t.item_said) == "string" and t.item_said ~= ""))
 end
 
 -- 묶음 하나를 새로 만든다 (실시간 생성, 풀이 비었으면 예전 고정 표). 재고를 채울 때와 일로 갚은 덤에 쓴다
@@ -673,6 +751,21 @@ function Trade.fromReply(fid, ps, trade, ctx)
         if ctx.reason == "low_trust" then return nil, "blocked", Trade.blocked(fid, trade.category, trade.tier) end
         return nil
     end
+    -- 청한 물건이 있으면 그것을 첫 물건으로 (그 물건의 품목·등급으로 맞춘다)
+    local wanted = nil
+    if wantsItem(trade) then
+        wanted = Trade.findItem(fid, ctx.goods, trade.category, trade.item, trade.item_said)
+        if not wanted then
+            log("trade item not carried:", fid, tostring(trade.item), tostring(trade.item_said))
+            return nil, "blocked", notCarried(trade)
+        end
+        trade = { action = trade.action, category = wanted.category, pay_category = trade.pay_category,
+                  tier = math.max(wanted.tier, math.min(math.floor(tonumber(trade.tier) or 1), wanted.maxTier)) }
+        if wanted.tier > wanted.maxTier then
+            log("trade item blocked:", fid, wanted.ft, "tier", wanted.tier, "max", wanted.maxTier)
+            return nil, "blocked", Trade.blocked(fid, wanted.category, wanted.tier)
+        end
+    end
     local maxForCat = nil
     for _, g in ipairs(ctx.goods) do
         if g.category == trade.category then maxForCat = g.maxTier end
@@ -695,17 +788,30 @@ function Trade.fromReply(fid, ps, trade, ctx)
             log("trade gift ignored: not allowed", fid)
             return nil
         end
-        tier = math.min(tier, ctx.freeMaxTier)
-        local gifts, gref = Trade.roll(trade.category, tier, fid, trade.bundle)
-        if not gifts then
-            if gref == "sold_out" then return nil, "blocked", soldOut(fid, trade.category, tier) end
-            return nil
+        if not wanted or wanted.tier <= ctx.freeMaxTier then
+            tier = math.min(tier, ctx.freeMaxTier)
+            local gifts, gref
+            if wanted then
+                gifts = Trade.generate(trade.category, tier, fid, nil, wanted.ft)
+            else
+                gifts, gref = Trade.roll(trade.category, tier, fid, trade.bundle)
+            end
+            if not gifts then
+                if gref == "sold_out" then return nil, "blocked", soldOut(fid, trade.category, tier) end
+                return nil
+            end
+            local q = Quests.giftTrade(ps, fid, tier, gifts, Sensor.now())
+            if q then Trade.markSold(fid, gref) end
+            return q, "gift"
         end
-        local q = Quests.giftTrade(ps, fid, tier, gifts, Sensor.now())
-        if q then Trade.markSold(fid, gref) end
-        return q, "gift"
+        -- 청한 물건이 공짜로 주기엔 크면 보통 제안으로
     end
-    local goods, ref = Trade.roll(trade.category, tier, fid, trade.bundle)
+    local goods, ref
+    if wanted then
+        goods = Trade.generate(trade.category, tier, fid, nil, wanted.ft)
+    else
+        goods, ref = Trade.roll(trade.category, tier, fid, trade.bundle)
+    end
     if not goods then
         if ref == "sold_out" then return nil, "blocked", soldOut(fid, trade.category, tier) end
         return nil
@@ -866,8 +972,20 @@ function Trade.negotiate(fid, ps, trade)
 
     local category = trade.category
     local tier = math.floor(tonumber(trade.tier) or 0)
-    local swap = type(category) == "string" and category ~= "" and category ~= "none"
-        and (category ~= q.category or (tier > 0 and tier ~= q.tier))
+    -- 흥정 중에 특정 물건을 청하면 그 물건이 든 묶음으로 바꾼다
+    local wanted = nil
+    if wantsItem(trade) then
+        local octx = Trade.offerContext(fid, trust)
+        wanted = Trade.findItem(fid, octx.allowed and octx.goods or {}, category, trade.item, trade.item_said)
+        if not wanted then
+            log("trade swap item not carried:", q.id, tostring(trade.item), tostring(trade.item_said))
+            return nil, "blocked", notCarried(trade)
+        end
+        category = wanted.category
+        tier = math.max(wanted.tier, math.min(tier, wanted.maxTier))
+    end
+    local swap = wanted ~= nil or (type(category) == "string" and category ~= "" and category ~= "none"
+        and (category ~= q.category or (tier > 0 and tier ~= q.tier)))
     if swap then
         if tier <= 0 then tier = q.tier end
         tier = math.max(1, math.min(5, tier))
@@ -880,7 +998,12 @@ function Trade.negotiate(fid, ps, trade)
             log("trade swap blocked:", q.id, tostring(category), tier, "max", tostring(maxForCat))
             return nil, "blocked", Trade.blocked(fid, category, tier)
         end
-        local goods, ref = Trade.roll(category, tier, fid)
+        local goods, ref
+        if wanted then
+            goods = Trade.generate(category, tier, fid, nil, wanted.ft)
+        else
+            goods, ref = Trade.roll(category, tier, fid)
+        end
         if not goods then
             if ref == "sold_out" then return nil, "blocked", soldOut(fid, category, tier) end
             return nil, "same"
@@ -988,6 +1111,19 @@ function Trade.marketOffers(ps, offers, selling, player)
                 if g.category == o.category then maxForCat = g.maxTier end
             end
             local tier = math.max(1, math.min(5, math.floor(tonumber(o.tier) or 1)))
+            -- 청한 물건: 이 NPC 에게 있고 지금 줄 수 있는 등급이면 그 물건이 든 묶음, 아니면 이 제안은 버린다
+            local wanted = nil
+            if wantsItem(o) and not sellCat then
+                wanted = Trade.findItem(fid, ctx.allowed and ctx.goods or {}, o.category, o.item, o.item_said)
+                if wanted and wanted.tier <= wanted.maxTier then
+                    o = { faction = fid, category = wanted.category, pay_category = o.pay_category }
+                    maxForCat = wanted.maxTier
+                    tier = math.max(wanted.tier, math.min(tier, wanted.maxTier))
+                else
+                    log("market offer dropped:", fid, "no", tostring(o.item), tostring(o.item_said))
+                    maxForCat, wanted = nil, false
+                end
+            end
             local accepts = not sellCat
             for _, w in ipairs(ctx.wants or {}) do
                 if w == sellCat then accepts = true end
@@ -1008,7 +1144,11 @@ function Trade.marketOffers(ps, offers, selling, player)
                 -- 판매: 플레이어가 가진 만큼만. 넘으면 등급을 하나씩 낮춰 다시 굴린다
                 local lastPrice = nil
                 while tier >= 1 do
-                    goods, ref = Trade.roll(o.category, tier, fid)
+                    if wanted then
+                        goods, ref = Trade.generate(o.category, tier, fid, nil, wanted.ft), nil
+                    else
+                        goods, ref = Trade.roll(o.category, tier, fid)
+                    end
                     price = goods and math.max(1, math.ceil(Value.sum(goods) * priceMult(ctx, tier)
                         * ((ctx.catMult or {})[o.category] or 1) / bonus)) or nil
                     lastPrice = price or lastPrice

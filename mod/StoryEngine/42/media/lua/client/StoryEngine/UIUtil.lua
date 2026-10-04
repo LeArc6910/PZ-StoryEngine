@@ -59,6 +59,21 @@ function UI.itemList(fullTypes)
 end
 
 -- 가지고 있는 개수 (가방 속까지, 퀘스트 태그가 붙은 것은 빼고)
+-- 품목 점수 부탁 항목 ("cat:food", 점수) 이면 품목 이름, 아니면 nil (서버 Quests.pointCat 와 같음)
+function UI.pointCat(entry)
+    local s = type(entry) == "table" and entry[1] or entry
+    if type(s) ~= "string" or string.sub(s, 1, 4) ~= "cat:" then return nil end
+    return string.sub(s, 5)
+end
+
+-- 그 품목으로 낼 수 있는 물건의 가치 합 (Value.payable)
+function UI.pointsHeld(player, cat)
+    if not player or not StoryEngine.Value then return 0 end
+    local total = 0
+    for _, it in ipairs(StoryEngine.Value.payableItems(player, cat)) do total = total + StoryEngine.Value.itemValue(it) end
+    return total
+end
+
 function UI.countHeld(player, fullType)
     if not player then return 0 end
     local list = player:getInventory():getAllTypeRecurse(fullType)
@@ -74,8 +89,14 @@ end
 function UI.needText(need)
     local parts = {}
     for _, n in ipairs(need or {}) do
-        local name = getItemNameFromFullType(n[1]) or n[1]
-        parts[#parts + 1] = (n[2] or 1) > 1 and (name .. " x" .. StoryEngine.intToString(n[2])) or name
+        local cat = UI.pointCat(n)
+        if cat then
+            parts[#parts + 1] = getText("IGUI_StoryEngine_Need_Points", getText("IGUI_StoryEngine_Cat_" .. cat),
+                StoryEngine.intToString(n[2] or 1))
+        else
+            local name = getItemNameFromFullType(n[1]) or n[1]
+            parts[#parts + 1] = (n[2] or 1) > 1 and (name .. " x" .. StoryEngine.intToString(n[2])) or name
+        end
     end
     return table.concat(parts, ", ")
 end

@@ -1709,5 +1709,14 @@
     "IGUI_StoryEngine_Catalog_Restock": "새 재고까지 %1일",
     "IGUI_StoryEngine_Catalog_Sold": "품절",
     "IGUI_StoryEngine_Catalog_SoldLine": "이 묶음은 다 나갔다. %1일 뒤 새 재고가 들어온다.",
-    "IGUI_StoryEngine_Trade_SoldOut": "%1등급 %2은(는) 이번 재고가 다 나갔다 (%3일 뒤 새 재고)"
+    "IGUI_StoryEngine_Trade_SoldOut": "%1등급 %2은(는) 이번 재고가 다 나갔다 (%3일 뒤 새 재고)",
+    "IGUI_StoryEngine_Trade_NotCarried": "'%1'은(는) 지금 이 상대에게 없다 (거래 제안 없음)",
+    "IGUI_StoryEngine_Need_Points": "%1 아무거나 가치 %2",
+    "IGUI_StoryEngine_Quest_NeedPoints": "필요한 물건: %1 아무거나 가치 %2 (가진 것 가치 %3)",
+    "IGUI_StoryEngine_Need_PickTitle": "부탁에 보낼 물건: %1",
+    "IGUI_StoryEngine_QGroup_proposed": "수락 대기 (%1)",
+    "IGUI_StoryEngine_QGroup_active": "진행 중 (%1)",
+    "IGUI_StoryEngine_QGroup_failed": "실패·거절 (%1)",
+    "IGUI_StoryEngine_QGroup_completed": "완료 (%1)",
+    "IGUI_StoryEngine_Quest_EmptyGroup": "이 묶음에는 퀘스트가 없다. 위 버튼으로 다른 묶음을 고를 수 있다."
 }

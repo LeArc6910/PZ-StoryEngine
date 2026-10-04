@@ -319,6 +319,9 @@ local function blockedText(b)
     if b.soldOut then
         return getText("IGUI_StoryEngine_Trade_SoldOut", tier or "?", catName(b.category), StoryEngine.intToString(b.restock or 0))
     end
+    if b.notCarried then
+        return getText("IGUI_StoryEngine_Trade_NotCarried", tostring(b.item or "?"))
+    end
     if b.never and tier then
         return getText("IGUI_StoryEngine_Trade_BlockedNeverTier", tier, catName(b.category))
     elseif b.never then
@@ -458,9 +461,33 @@ local namedDetail
 
 StoryEngineQuestPanel = derivePanel("StoryEngineQuestPanel")
 
+-- 퀘스트 묶음 (2026-10-04 사용자 요청): 목록 위 버튼으로 수락 대기 / 진행 중 / 실패·거절 / 완료를 나눠 본다
+local QUEST_GROUPS = { "proposed", "active", "failed", "completed" }
+
+local function questGroup(q)
+    if q.state == "proposed" then return "proposed" end
+    if ACTIVE[q.state] then return "active" end
+    if q.state == "completed" then return "completed" end
+    return "failed"      -- failed, declined (거절·무응답·취소·철회)
+end
+
 function StoryEngineQuestPanel:createChildren()
     local h = self.height
-    self.list = newList(PAD, PAD, LIST_W, h - PAD * 2, self, StoryEngineQuestPanel.onSelect)
+    -- 묶음 버튼 2줄 x 2개
+    self.groupButtons = {}
+    local gw = math.floor((LIST_W - PAD) / 2)
+    for i, g in ipairs(QUEST_GROUPS) do
+        local col, row = (i - 1) % 2, math.floor((i - 1) / 2)
+        local b = ISButton:new(PAD + col * (gw + PAD), PAD + row * (BUTTON_H + 4), gw, BUTTON_H, "", self, function(panel)
+            Cache.questGroup = g
+            panel:refresh()
+        end)
+        b:initialise()
+        self:addChild(b)
+        self.groupButtons[g] = b
+    end
+    local top = PAD + 2 * BUTTON_H + 4 + PAD
+    self.list = newList(PAD, top, LIST_W, h - top - PAD, self, StoryEngineQuestPanel.onSelect)
     self.list:setAnchorBottom(true)
     self:addChild(self.list)
 
@@ -515,7 +542,12 @@ local function holdsQuestItem(q)
     if not p then return false end
     if q.kind == "deliver" or q.kind == "extort" then
         for _, n in ipairs(q.need or {}) do
-            if UI.countHeld(p, n[1]) < (n[2] or 1) then return false end
+            local cat = UI.pointCat(n)
+            if cat then
+                if UI.pointsHeld(p, cat) + 0.001 < (n[2] or 1) then return false end
+            elseif UI.countHeld(p, n[1]) < (n[2] or 1) then
+                return false
+            end
         end
         return true
     end
@@ -579,9 +611,20 @@ function StoryEngineQuestPanel:onSubmit()
     if not q then return end
     if q.kind == "trade" then
         StoryEngineTradePayWindow.open(q)
-    else
-        request("questSubmit", { id = q.id })
+        return
     end
+    -- 품목 점수 부탁: 낼 물건을 고르는 창 (거래 대가 창과 같은 것, 고른 물건 id 를 questSubmit 으로)
+    if q.kind == "deliver" or q.kind == "extort" then
+        for _, n in ipairs(q.need or {}) do
+            local cat = UI.pointCat(n)
+            if cat then
+                StoryEngineTradePayWindow.open({ id = q.id, payCategory = cat, price = n[2] or 1,
+                                                 command = "questSubmit", titleKey = "IGUI_StoryEngine_Need_PickTitle" })
+                return
+            end
+        end
+    end
+    request("questSubmit", { id = q.id })
 end
 
 -- 복구 작전 이름과 막 이름
@@ -714,9 +757,15 @@ local function deliverDetail(q)
     parts[#parts + 1] = " <LINE> "
     local p = player()
     for _, n in ipairs(q.need or {}) do
-        local name = getItemNameFromFullType(n[1]) or n[1]
-        line(getText("IGUI_StoryEngine_Quest_NeedHave", name, StoryEngine.intToString(n[2] or 1),
-            StoryEngine.intToString(UI.countHeld(p, n[1]))))
+        local cat = UI.pointCat(n)
+        if cat then
+            line(getText("IGUI_StoryEngine_Quest_NeedPoints", getText("IGUI_StoryEngine_Cat_" .. cat),
+                StoryEngine.intToString(n[2] or 1), StoryEngine.intToString(math.floor(UI.pointsHeld(p, cat)))))
+        else
+            local name = getItemNameFromFullType(n[1]) or n[1]
+            line(getText("IGUI_StoryEngine_Quest_NeedHave", name, StoryEngine.intToString(n[2] or 1),
+                StoryEngine.intToString(UI.countHeld(p, n[1]))))
+        end
     end
     local rewardTier = q.kind == "extort" and 1 or (q.tier or 1)
     line(getText("IGUI_StoryEngine_Quest_Reward", getText("IGUI_StoryEngine_Quest_Tier_" .. tostring(rewardTier))))
@@ -1126,20 +1175,45 @@ end
 
 function StoryEngineQuestPanel:refresh()
     self.list:clear()
+    -- 묶음별 개수. 처음 열면 진행 중 > 수락 대기 > 완료 > 실패 순으로 퀘스트가 있는 묶음
+    local counts = {}
+    for _, q in ipairs(Cache.quests) do
+        local g = questGroup(q)
+        counts[g] = (counts[g] or 0) + 1
+    end
+    if not Cache.questGroup then
+        for _, g in ipairs({ "active", "proposed", "completed", "failed" }) do
+            if not Cache.questGroup and (counts[g] or 0) > 0 then Cache.questGroup = g end
+        end
+        Cache.questGroup = Cache.questGroup or "active"
+    end
+    for g, b in pairs(self.groupButtons or {}) do
+        b:setTitle(getText("IGUI_StoryEngine_QGroup_" .. g, StoryEngine.intToString(counts[g] or 0)))
+        if g == Cache.questGroup then
+            b.backgroundColor = { r = 0.25, g = 0.4, b = 0.25, a = 1 }
+        else
+            b.backgroundColor = { r = 0, g = 0, b = 0, a = 1 }
+        end
+    end
+    local shown = {}
+    for _, q in ipairs(Cache.quests) do
+        if questGroup(q) == Cache.questGroup then shown[#shown + 1] = q end
+    end
     local selected, selectedIndex = nil, nil
-    for i, q in ipairs(Cache.quests) do
+    for i, q in ipairs(shown) do
         self.list:addItem(questTitle(q), { title = questTitle(q), sub = questSub(q), color = questColor(q), value = q })
         if q.id == Cache.questId then selected, selectedIndex = q, i end
     end
-    if not selected and #Cache.quests > 0 then
-        selected, selectedIndex = Cache.quests[1], 1
+    if not selected and #shown > 0 then
+        selected, selectedIndex = shown[1], 1
         Cache.questId = selected.id
     end
     self.list.selected = selectedIndex or 0
     if selected then
         self.detail:setText(questDetail(selected))
     else
-        self.detail:setText(" <TEXT> " .. UI.escape(getText("IGUI_StoryEngine_Quest_Empty")))
+        self.detail:setText(" <TEXT> " .. UI.escape(getText(#Cache.quests > 0 and "IGUI_StoryEngine_Quest_EmptyGroup"
+            or "IGUI_StoryEngine_Quest_Empty")))
     end
     self.detail:paginate()
     self.detail:setYScroll(0)

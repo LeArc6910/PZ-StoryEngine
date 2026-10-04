@@ -151,7 +151,13 @@ function Life.resourceOfItems(items)
     for _, e in ipairs(items or {}) do
         local ft = type(e) == "table" and e[1] or e
         local n = type(e) == "table" and (e[2] or 1) or 1
-        local res, value = Value.resourceOf(ft)
+        local res, value
+        local pc = type(ft) == "string" and string.sub(ft, 1, 4) == "cat:" and string.sub(ft, 5) or nil
+        if pc then
+            res, value = Value.RESOURCE_OF[pc], 1      -- 품목 점수 부탁 ("cat:food", 점수)
+        else
+            res, value = Value.resourceOf(ft)
+        end
         if res then sum[res] = (sum[res] or 0) + (value or 1) * n end
     end
     local best, top = nil, -1

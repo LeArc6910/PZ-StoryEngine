@@ -607,7 +607,7 @@ function Commands.tradePay(player, args)
 end
 
 function Commands.questSubmit(player, args)
-    local ok, why = StoryEngine.Quests.submit(player, tostring(args.id or ""))
+    local ok, why = StoryEngine.Quests.submit(player, tostring(args.id or ""), type(args.items) == "table" and args.items or nil)
     reply(player, "questSubmitResult", { ok = ok, error = not ok and why or nil })
 end
 
