@@ -1,8 +1,8 @@
 -- 설치된 모든 아이템(바닐라 + 다른 모드)을 훑어 분류·등급을 매긴다. 서버(보상·거래)와 클라이언트(대가 가치)가 같이 쓴다.
 --
 -- 이름이 아니라 아이템 속성으로 판단한다 (모드마다 이름 규칙이 달라서).
---   food    : 먹을 수 있고 상하지 않는(또는 밀봉된) 음식. 향신료·재료(minoringredient)·상하는 음식·위험한 날것은 뺀다.
---             통조림 상자처럼 음식을 담은 묶음은 foodBox (대가로만 받는다)
+--   food    : 먹을 수 있고 상하지 않는(또는 밀봉된) 음식과 조리 재료. 상하는 음식·위험한 날것·술은 뺀다.
+--             따기 전 통조림·포장(통조림 상자, 과자 상자)은 열면 나오는 음식의 배고픔+갈증 합계로 등급 (2026-10-05)
 --   firearm : 원거리 무기 + 등록된 탄약(AmmoType).
 --   ammo    : 총이 가리키는 낱발(AmmoType)·상자(AmmoBox)·탄창(MagazineType)
 --   melee   : 근접 무기 (DisplayCategory Weapon)
@@ -12,8 +12,13 @@
 --
 -- 등급 기준 (2026-10-04 사용자 결정, 가치도 등급을 따른다. 게임 밖에서만 알 수 있는 값은 ItemTiers.lua 표):
 --   음식    : 배고픔 + 갈증이 줄어드는 양 (따기 전 통조림·상자는 안에 든 음식 x 개수). 10 미만 / 10~14 / 15~24 / 25~39 / 40+
---   의약품  : 1 덮기·소독 / 2 먹는 약 / 3 큰 상처 처치 (ItemTiers.MEDICAL). 휴지·청진기·설압자는 의약품 아님
---   도구    : 바닐라 루팅표 등장 가중치 (ItemTiers.TOOLS, 흔할수록 낮음). 손으로 만드는 도구·낡은 변형은 거래 안 함
+--   조리 재료: 주식(말린 콩·쌀·파스타·라면·밀가루)은 음식과 같은 기준, 양념(향신료·소스·기름·버터·설탕·소금)은
+--             배고픔 등급과 양념끼리의 루팅 희귀도 등급의 평균. 배고픔이 0 인 것(이스트 등)은 빠진다
+--   의약품  : 1 덮기·소독 / 2 먹는 약 / 3 큰 상처 처치 (ItemTiers.MEDICAL, 표에 없는 모드 의약품은 이름으로).
+--             휴지·청진기·설압자는 의약품 아님
+--   도구    : 루팅표 등장 가중치 (ItemTiers.TOOLS, 흔할수록 낮음. 표에 없는 모드 도구는 실행 중 루팅표 가중치를
+--             ItemTiers.TOOL_BOUNDS 에 대어). 손으로 만드는 도구·낡은 변형은 거래 안 함
+--   전자기기·차량 부품: 도구처럼 루팅 가중치 (ItemTiers.ELECTRONICS/VEHICLE + 실행 중 *_BOUNDS). 대가 품목은 아님
 --   근접 무기: 실전 점수 = 평균 피해 x 속도^0.5 x 수명^1 x 타격 수^0.5 (수명 = 최대 내구도 x 내구 감소 확률 분모)의
 --             5분위 (도구 겸 무기는 빼고 나눈 경계로). 부서진 무기·재료(손잡이·쇠스랑 머리 등)·맨손은 빼고,
 --             판자·금속 파이프·납 파이프·강철 봉·장작은 넣는다
@@ -26,7 +31,7 @@
 --   include <food|melee> <등급> <아이템>   예) include food 3 VFX.CannedBeefRavioli
 --   ammo <1-5|exclude> <낱발 아이템>       예) ammo 2 Base.CrossbowBolt   (그 탄약을 쓰는 총의 등급)
 --   category <분류 이름> <종류>            예) category MyModMeds medical   (모드가 쓰는 DisplayCategory 를 종류로)
---       종류: tools | medical | explosive | melee | ammo | literature (기호품 읽을거리) | vehicle | none
+--       종류: tools | medical | explosive | melee | ammo | literature (기호품 읽을거리) | vehicle | electronics | food | none
 -- 분류 이름은 바닐라 이름 말고도 모드가 흔히 쓰는 이름(Tools, Medical, Medicine, Explosive, Melee, Book, CarParts ...)을
 -- 대소문자 없이 받는다 (ItemPool.CATEGORY_KINDS, 2026-09-30). 모드 아이템 중 어디에도 안 맞는 분류 이름은
 -- 로그와 itempool.txt 에 모아 보여 준다 (ItemPool.unmapped).
@@ -80,6 +85,9 @@ ItemPool.MANUAL_RELOAD = { boltactionnomag = true, leveraction = true, doublebar
                            doublebarrelshotgunsawn = true }
 -- 분류 이름(DisplayCategory, 소문자) -> 종류
 ItemPool.CATEGORY_KINDS = {
+    -- 음식 (2026-10-05): 바닐라 Food + 모드가 흔히 쓰는 이름. 판정은 그대로 배고픔·갈증 (게임의 Food 아이템이어야 한다)
+    food = { "food", "foods", "snack", "snacks", "drink", "drinks", "beverage", "beverages", "meal", "meals",
+             "canned", "cannedfood", "groceries" },
     tools = { "tool", "tools", "toolweapon", "toolkit", "hardware" },
     medical = { "firstaid", "firstaidweapon", "bandage", "medical", "medicine", "medic", "medkit", "pharmacy",
                 "health", "healthcare" },
@@ -92,10 +100,10 @@ ItemPool.CATEGORY_KINDS = {
                 "autoparts" },
 }
 ItemPool.KIND_NAMES = { tools = true, medical = true, explosive = true, melee = true, ammo = true, literature = true,
-                        vehicle = true, none = true, comfort = true }
+                        vehicle = true, none = true, comfort = true, electronics = true, food = true }
 -- 모드 아이템이 이 분류면 "모르는 분류"로 알리지 않는다 (거래·지원과 상관없는 바닐라 분류)
 ItemPool.KNOWN_OTHER = {
-    food = true, clothing = true, material = true, accessory = true, furniture = true, protectivegear = true,
+    clothing = true, material = true, accessory = true, furniture = true, protectivegear = true,
     memento = true, container = true, reciperesource = true, skillbook = true, gardening = true, junk = true, bag = true,
     zeddmg = true, animalpart = true, wound = true, cooking = true, camping = true, electronics = true,
     appearance = true, household = true, watercontainer = true, lightsource = true, paint = true, fishing = true,
@@ -188,6 +196,151 @@ local function newInstance(fullType)
     return item, nil
 end
 
+-- ---------------------------------------------------------------- 실행 중 분류 (2026-10-05)
+-- 미리 만든 표(ItemTiers, 바닐라·VFE·MFS)에 없는 다른 모드 물건도 게임이 시작할 때 직접 분류한다.
+--   루팅표 가중치: ProceduralDistributions·SuburbsDistributions·VehicleDistributions 를 훑어 이름마다 합 (모드가 넣은 것 포함)
+--   도구·전자기기·차량 부품: 그 가중치를 ItemTiers.*_BOUNDS(표를 만들 때의 등급 경계)에 대어 1~5등급, 루팅표에 없으면 팔지 않음
+--   의약품: 이름으로 3(봉합·핀셋·겸자·메스·부목) / 2(먹는 약) / 1(나머지), 치료 효과 없는 것 제외
+--   상자·통조림 속 물건: 따기·풀기 레시피(소모 재료 하나 -> 결과 하나 x 개수)를 읽는다
+ItemPool.ELECTRONICS_KINDS = { electronics = true, communications = true, lightsource = true, electronic = true }
+ItemPool.MEDICAL_WORDS = {
+    { 3, { "Suture", "Tweezer", "Forceps", "Scalpel", "Splint" } },
+    { 2, { "Pill", "Antibiotic", "Tablet", "Capsule", "Medicine", "Painkiller", "Vitamin", "Aspirin", "Ibuprofen",
+           "Antidep" } },
+}
+ItemPool.MEDICAL_NO_USE_WORDS = { "Tissue", "Stethoscope", "TongueDepressor", "Dirty" }
+ItemPool.PACK_WORDS = { "Box", "Carton", "Pack", "Crate", "Case", "Bundle" }
+ItemPool.runtime = { tools = {}, medical = {}, electronics = {}, vehicle = {} }   -- 표에 없고 루팅표에 나오는 것 -> 등급
+
+local function shortName(ft) return string.match(ft or "", "%.(.+)$") or ft or "" end
+
+local function hasWord(name, words)
+    for _, w in ipairs(words) do
+        if string.find(name, w, 1, true) then return true end
+    end
+    return false
+end
+
+-- 가중치가 경계 이상인 첫 등급 (흔할수록 낮은 등급), 모두 아래면 5
+local function lootTier(w, bounds)
+    for i, b in ipairs(bounds or {}) do
+        if w >= b then return i end
+    end
+    return 5
+end
+
+local lootCache = nil
+-- 루팅표 등장 가중치 합: fullType -> 합 (모듈 없는 이름은 Base). 표가 없으면(시험 환경 등) 빈 표
+function ItemPool.lootWeights()
+    if lootCache then return lootCache end
+    local w, seen = {}, {}
+    local function walk(t, depth)
+        if type(t) ~= "table" or seen[t] or depth > 12 then return end
+        seen[t] = true
+        local n = #t
+        for i = 1, n - 1 do
+            local a, b = t[i], t[i + 1]
+            if type(a) == "string" and type(b) == "number" then
+                local ft = string.find(a, ".", 1, true) and a or ("Base." .. a)
+                w[ft] = (w[ft] or 0) + b
+            end
+        end
+        for _, v in pairs(t) do
+            if type(v) == "table" then walk(v, depth + 1) end
+        end
+    end
+    local roots = { ProceduralDistributions, SuburbsDistributions, VehicleDistributions }
+    for _, root in ipairs(roots) do
+        if type(root) == "table" then pcall(walk, root, 0) end
+    end
+    lootCache = w
+    return w
+end
+
+local contentsCache = nil
+-- 따기·풀기 레시피: 소모하는 물건 -> { 결과, 개수 } (소모 재료가 하나·한 개이고 결과 아이템이 하나인 레시피)
+function ItemPool.contentsAll()
+    if contentsCache then return contentsCache end
+    local out = {}
+    local ok, recipes = pcall(function() return getScriptManager():getAllCraftRecipes() end)
+    local okN, count = false, 0
+    if ok and recipes then okN, count = pcall(function() return recipes:size() end) end
+    if not okN or type(count) ~= "number" then count = 0 end
+    for i = 0, count - 1 do
+        pcall(function()
+            local recipe = recipes:get(i)
+            local inputs, outputs = recipe:getInputs(), recipe:getOutputs()
+            local used = nil
+            for j = 0, inputs:size() - 1 do
+                local input = inputs:get(j)
+                if input:getResourceType() == ResourceType.Item and not input:isTool() and not input:isKeep() then
+                    if used ~= nil then return end
+                    used = input
+                end
+            end
+            if not used or used:getIntAmount() ~= 1 then return end
+            local itemOut = nil
+            for j = 0, outputs:size() - 1 do
+                local o = outputs:get(j)
+                if o:getResourceType() == ResourceType.Item then
+                    if itemOut ~= nil then return end
+                    itemOut = o
+                end
+            end
+            if not itemOut then return end
+            local n = itemOut:getIntAmount()
+            local results = itemOut:getPossibleResultItems()
+            local ins = used:getPossibleInputItems()
+            if not n or n < 1 or not results or not ins or results:size() == 0 then return end
+            local function put(inFt, outFt)
+                if inFt ~= outFt and not out[inFt] then out[inFt] = { outFt, n } end
+            end
+            if results:size() == 1 then
+                local r = results:get(0):getFullName()
+                for k = 0, ins:size() - 1 do put(ins:get(k):getFullName(), r) end
+                return
+            end
+            -- 여러 결과(통조림 따기처럼 itemMapper): 결과마다 그 결과를 내는 재료 이름
+            local mapper = itemOut:getOutputMapper()
+            if not mapper then return end
+            local byName = {}
+            for k = 0, ins:size() - 1 do
+                local ft = ins:get(k):getFullName()
+                byName[ft], byName[shortName(ft)] = ft, ft
+            end
+            for r = 0, results:size() - 1 do
+                local res = results:get(r)
+                local pats = mapper:getPatternForResult(res)
+                for k = 0, (pats and pats:size() or 0) - 1 do
+                    local p = tostring(pats:get(k))
+                    local inFt = byName[p] or byName[shortName(p)]
+                    if inFt then put(inFt, res:getFullName()) end
+                end
+            end
+        end)
+    end
+    contentsCache = out
+    return out
+end
+
+-- 이 물건 안에 든 것 { 물건, 개수 }. ItemTiers.CONTENTS 를 먼저 보고, 없으면 레시피에서.
+-- any = 이름과 개수를 가리지 않는다 (따기 전 통조림처럼 수치가 없는 음식). 아니면 상자·카톤·팩 이름이고 2개 이상일 때만
+function ItemPool.contentsOf(fullType, any)
+    local hit = StoryEngine.ItemTiers.CONTENTS[fullType]
+    if hit then return hit end
+    local c = ItemPool.contentsAll()[fullType]
+    if not c then return nil end
+    if any then return c end
+    if c[2] >= 2 and hasWord(shortName(fullType), ItemPool.PACK_WORDS) then return c end
+    return nil
+end
+
+-- 시험·디버그: 다시 읽게 한다
+function ItemPool.resetRuntime()
+    lootCache, contentsCache = nil, nil
+    ItemPool.runtime = { tools = {}, medical = {}, electronics = {}, vehicle = {} }
+end
+
 -- ---------------------------------------------------------------- overrides file
 
 local function readOverrides()
@@ -238,7 +391,7 @@ local function writeTemplate()
         w:write("#   exclude <Prefix>*         exclude every item starting with it (e.g. exclude VFX.Frozen*)\n")
         w:write("#   include <food|melee> <tier 1-5> <FullType>   add an item the automatic rules skipped\n")
         w:write("#   ammo <tier 1-5|exclude> <RoundFullType>   gun tier for guns using this round (e.g. ammo 2 Base.CrossbowBolt)\n")
-        w:write("#   category <DisplayCategory> <tools|medical|explosive|melee|ammo|literature|vehicle|none>   treat a mod's item category as this kind\n")
+        w:write("#   category <DisplayCategory> <tools|medical|explosive|melee|ammo|literature|vehicle|electronics|food|none>   treat a mod's item category as this kind\n")
         w:write("# Changes apply after a restart. The debug menu 'StoryEngine: item pool' writes the result to itempool.txt.\n")
         w:close()
     end)
@@ -255,13 +408,101 @@ local function isGun(script, dc)
     return (d == "weapon" or d == "firearm") and script:getAmmoType() ~= nil
 end
 
--- 분류 이름의 종류 (tools | medical | explosive | melee | ammo | literature | vehicle | nil)
+-- 분류 이름의 종류 (food | tools | medical | explosive | melee | ammo | literature | vehicle | electronics | nil)
+-- 음식 분류 이름인가 (Food, 모드의 Snacks·Drinks 등, items.txt 의 category <이름> food, 자동 등록)
+function ItemPool.isFoodCategory(dc)
+    return ItemPool.categoryKind(dc) == "food"
+end
+
+-- ---------------------------------------------------------------- 분류 이름 자동 등록 (2026-10-05 사용자 결정)
+-- 처음 보는 분류 이름(바닐라 분류·기본 목록·items.txt 지정이 아닌 것)의 아이템을 속성으로 보고 그 분류의 종류를 정한다.
+--   food        : 게임의 Food 이고 배고픔이나 갈증을 채우는 아이템이 하나라도 있으면
+--   melee       : 근접 무기(HandWeapon, 원거리 아님, 피해 0.3 초과)가 그 분류의 절반 이상이면
+--   medical     : 붕대처럼 감을 수 있음·소독력·감염 억제·핀셋류 태그·약 이름이 절반 이상이면
+--   electronics : 라디오·무전기(Radio 아이템)·불빛을 내는 것이 절반 이상이면
+--   vehicle     : 차량 부품 종류(MechanicType)가 있는 것이 절반 이상이면
+-- 바닐라 분류(씨앗 Gardening, 약초 FirstAid, 미끼 Fishing, 쥐왕 Memento ...)는 건드리지 않고, items.txt 의
+-- category <이름> none 으로 막을 수 있다. 결과 ItemPool.autoKind[소문자 이름] = { name, kind, n, total }
+ItemPool.autoKind = {}
+ItemPool.AUTO_SHARE = 0.5
+ItemPool.MEDICAL_TAGS = { "REMOVE_BULLET", "REMOVE_GLASS", "TWEEZERS" }     -- ItemTag 상수 이름
+
+local function propertyKinds(script, fullType)
+    local item = newInstance(fullType)
+    if not item then return {} end
+    local out = {}
+    pcall(function()
+        if instanceof(item, "Food") then
+            local h, t = ItemPool.foodRelief(item, fullType)
+            if h > 0 or t > 0 then out.food = true end
+        end
+    end)
+    pcall(function()
+        if instanceof(item, "HandWeapon") and not item:isRanged() and item:getMaxDamage() > 0.3 then out.melee = true end
+    end)
+    pcall(function()
+        if item:isCanBandage() == true or item:getAlcoholPower() > 0 or item:getReduceInfectionPower() > 0 then
+            out.medical = true
+        end
+    end)
+    pcall(function()
+        for _, tag in ipairs(ItemPool.MEDICAL_TAGS) do
+            if hasTag(script, tag) == true then out.medical = true end
+        end
+    end)
+    for _, row in ipairs(ItemPool.MEDICAL_WORDS) do
+        if hasWord(shortName(fullType), row[2]) then out.medical = true end
+    end
+    pcall(function()
+        if instanceof(item, "Radio") or item:getLightStrength() > 0 or item:isTorchCone() == true then
+            out.electronics = true
+        end
+    end)
+    pcall(function()
+        if item:getMechanicType() > 0 then out.vehicle = true end
+    end)
+    return out
+end
+
+local function registerAutoKinds(all)
+    ItemPool.autoKind = {}
+    local seen = {}
+    for i = 0, all:size() - 1 do
+        pcall(function()
+            local script = all:get(i)
+            local dc = script:getDisplayCategory()
+            if not dc or dc == "" then return end
+            local key = lower(dc)
+            if KIND_OF[key] or ItemPool.KNOWN_OTHER[key] or ItemPool.categoryOverrides[key] then return end
+            if script:getObsolete() or script:isHidden() then return end
+            local fullType = script:getFullName()
+            if excluded(fullType) or isGun(script, dc) then return end
+            local s = seen[key] or { name = dc, total = 0, kinds = {} }
+            seen[key] = s
+            s.total = s.total + 1
+            for k, _ in pairs(propertyKinds(script, fullType)) do s.kinds[k] = (s.kinds[k] or 0) + 1 end
+        end)
+    end
+    for key, s in pairs(seen) do
+        local best, bestN = nil, 0
+        for _, k in ipairs({ "melee", "medical", "electronics", "vehicle" }) do
+            local n = s.kinds[k] or 0
+            if n > bestN and n >= s.total * ItemPool.AUTO_SHARE then best, bestN = k, n end
+        end
+        if not best and (s.kinds.food or 0) > 0 then best, bestN = "food", s.kinds.food end
+        if best then ItemPool.autoKind[key] = { name = s.name, kind = best, n = bestN, total = s.total } end
+    end
+end
+
 function ItemPool.categoryKind(dc)
     if not dc or dc == "" then return nil end
     local key = lower(dc)
     local o = ItemPool.categoryOverrides[key]
     if o then return o ~= "none" and o or nil end
-    return KIND_OF[key]
+    local k = KIND_OF[key]
+    if k then return k end
+    local auto = ItemPool.autoKind[key]
+    return auto and auto.kind or nil
 end
 
 -- 근접 무기 풀에 넣는 분류 (근접 무기 종류 + 무기 겸 도구. 조리도구·의료도구·낚싯대는 뺀다)
@@ -316,37 +557,50 @@ local function add(cat, tier, fullType)
 end
 
 -- 반환: info | nil, 거른 이유 (로그 집계용)
-local function foodInfo(script, fullType)
-    -- 요리 재료, 말린 곡물·콩(조리 필요). 향신료는 인스턴스로 본다
+local function foodInfo(script, fullType, depth)
+    -- 조리 재료 (2026-10-05 사용자 결정): 말린 콩·쌀·파스타·라면·밀가루(주식 재료)는 일반 음식과 같은 배고픔+갈증 기준,
+    -- 양념(향신료·소스·기름·버터·설탕·소금 = 인스턴스 isSpice 또는 MINOR_INGREDIENT 태그, 밀가루 같은 Thickener 제외)은
+    -- 배고픔 등급과 루팅표 희귀도 등급의 평균 (build 가 양념끼리 루팅 가중치 5분위를 낸 뒤 정한다, info.condiment)
     -- (스크립트의 Item:isSpice 는 향신료 여부가 아니라 음식·소모품 종류면 참이다 — 42.20.4 바이트코드 확인)
-    if hasTag(script, "MINOR_INGREDIENT") or hasTag(script, "DRIED_FOOD") then
-        return nil, "ingredient"
-    end
     local fresh = script:getDaysFresh()
     if fresh > 0 and fresh < ItemPool.FRESH_DAYS then return nil, "perishable" end
     -- 냄비·그릇·병 등 조리 도구에 담긴 음식 (먹으면 도구가 남는 것)
     local rep = findScript(resolve(script:getReplaceOnUse(), script:getModuleName()))
     if rep and string.sub(tostring(rep:getDisplayCategory()), 1, 7) == "Cooking" then return nil, "cookware" end
-    -- 통조림 상자처럼 Food 가 아닌 묶음은 여기서 빠진다 (대가 가치는 classify 가 따로 매김)
     local item = newInstance(fullType)
-    if not item or not instanceof(item, "Food") then return nil, "not_food" end
-    if item:isSpice() then return nil, "spice" end
-    -- 바로 먹을 수 없는 것은 밀봉 통조림(금속)과 과자·사탕 상자만 받는다 (믹스·재료 제외)
-    if script:isCantEat() == true and not hasTag(script, "HAS_METAL") then
-        local ft = tostring(item:getFoodType())
-        if ft ~= "Snack" and ft ~= "Candy" then return nil, "cant_eat" end
+    -- 포장(통조림 상자·과자 상자처럼 Food 가 아닌 묶음): 열면 나오는 음식의 배고픔+갈증 합계로 등급, 가치는 안에 든 것 x 개수
+    if item and not instanceof(item, "Food") then
+        local inside = (depth or 0) < 2 and ItemPool.contentsOf(fullType) or nil
+        local childScript = inside and findScript(inside[1]) or nil
+        if not childScript then return nil, "not_food" end
+        local child = foodInfo(childScript, inside[1], (depth or 0) + 1)
+        if not child or not child.relief then return nil, "not_food" end
+        local total = child.relief * inside[2]
+        local tier = tierByBounds(total, ItemPool.FOOD_TIERS)
+        return { cat = child.cat == "drink" and "drink" or "food", tier = tier, value = child.value * inside[2],
+                 relief = total, pack = true }
+    end
+    if not item then return nil, "not_food" end
+    local ftype = tostring(item:getFoodType())
+    local thickener = ftype == "Thickener"
+    local condiment = (item:isSpice() or hasTag(script, "MINOR_INGREDIENT")) and not thickener
+    local staple = thickener or hasTag(script, "DRIED_FOOD")
+    -- 바로 먹을 수 없는 것은 밀봉 통조림(금속)·과자·사탕 상자·조리 재료만 받는다
+    if script:isCantEat() == true and not hasTag(script, "HAS_METAL") and not staple and not condiment then
+        if ftype ~= "Snack" and ftype ~= "Candy" then return nil, "cant_eat" end
     end
     local ok, bad = pcall(function() return item:isbDangerousUncooked() or item:isRotten() or item:isAlcoholic() end)
     if not ok then return nil, "check_error" end
     if bad then return nil, "unsafe" end
     local hunger, thirst = ItemPool.foodRelief(item, fullType)
     if hunger <= 0 and thirst <= 0 then return nil, "no_relief" end
-    if hunger < 5 and thirst >= 10 then
+    if hunger < 5 and thirst >= 10 and not condiment then
         -- 물·주스처럼 갈증만 채우는 것은 대가로는 받되 음식 보상 풀에는 넣지 않는다
-        return { cat = "drink", tier = 1, value = ItemPool.FOOD_VALUE[1] }
+        return { cat = "drink", tier = 1, value = ItemPool.FOOD_VALUE[1], relief = hunger + thirst }
     end
     local tier = tierByBounds(hunger + thirst, ItemPool.FOOD_TIERS)
-    return { cat = "food", tier = tier, value = ItemPool.FOOD_VALUE[tier] }
+    return { cat = "food", tier = tier, value = ItemPool.FOOD_VALUE[tier], relief = hunger + thirst,
+             condiment = condiment or nil, staple = staple or nil }
 end
 
 -- 음식 하나가 줄여 주는 배고픔·갈증 (0~100 단위, 갈증을 늘리면 0). 따기 전 통조림·상자처럼 수치가 없으면
@@ -359,7 +613,7 @@ function ItemPool.foodRelief(item, fullType, depth)
     end)
     h, t = math.max(0, h), math.max(0, t)
     if h > 0 or t > 0 or (depth or 0) >= 2 then return h, t end
-    local inside = StoryEngine.ItemTiers.CONTENTS[fullType]
+    local inside = ItemPool.contentsOf(fullType, true)
     if not inside then return h, t end
     local child = newInstance(inside[1])
     if not child then return h, t end
@@ -375,8 +629,9 @@ function ItemPool.build()
     if not hasFile and not isClient() then writeTemplate() end
 
     local all = getScriptManager():getAllItems()
-    local guns, melee, unknownAmmo = {}, {}, {}
-    local counts = { scanned = 0, food = 0, firearm = 0, melee = 0, excluded = 0 }
+    registerAutoKinds(all)
+    local guns, melee, unknownAmmo, condiments = {}, {}, {}, {}
+    local counts = { scanned = 0, food = 0, firearm = 0, melee = 0, excluded = 0, runtime = 0, condiments = 0 }
     local rejected, gunRejected = {}, {}
     for i = 0, all:size() - 1 do
         local script = all:get(i)
@@ -397,10 +652,15 @@ function ItemPool.build()
                 u.n = u.n + 1
                 ItemPool.unmapped[dc] = u
             end
-            if dc == "Food" then
+            -- 표에 없는 모드 도구·의약품·전자기기·차량 부품 기록 (기록만 하고 아래 총·근접 무기 판정은 그대로)
+            local isFood = ItemPool.isFoodCategory(dc)
+            if not isFood and ItemPool.runtimeClass(script, fullType, dc) then counts.runtime = counts.runtime + 1 end
+            if isFood then
                 local info, why = foodInfo(script, fullType)
                 if why then rejected[why] = (rejected[why] or 0) + 1 end
-                if info then
+                if info and info.condiment then
+                    condiments[#condiments + 1] = { fullType = fullType, info = info }
+                elseif info then
                     ItemPool.info[fullType] = info
                     if info.cat == "food" then
                         add("food", info.tier, fullType)
@@ -521,6 +781,24 @@ function ItemPool.build()
             add(inc.cat, tier, inc.fullType)
         end
     end
+    -- 양념: 배고픔 등급과 루팅표 희귀도 등급(양념끼리 5분위, 흔할수록 낮음, 루팅표에 없으면 3)의 평균
+    local lw = ItemPool.lootWeights()
+    local seenLoot = {}
+    for _, c in ipairs(condiments) do
+        if (lw[c.fullType] or 0) > 0 then seenLoot[#seenLoot + 1] = c end
+    end
+    table.sort(seenLoot, function(a, b) return lw[a.fullType] > lw[b.fullType] end)
+    local lootRank = {}
+    for i, c in ipairs(seenLoot) do lootRank[c.fullType] = math.min(5, math.floor((i - 1) * 5 / #seenLoot) + 1) end
+    for _, c in ipairs(condiments) do
+        local tier = math.max(1, math.min(5, math.floor((c.info.tier + (lootRank[c.fullType] or 3)) / 2 + 0.5)))
+        c.info.tier, c.info.value, c.info.lootTier = tier, ItemPool.FOOD_VALUE[tier], lootRank[c.fullType] or 3
+        ItemPool.info[c.fullType] = c.info
+        add("food", tier, c.fullType)
+        counts.food = counts.food + 1
+    end
+    counts.condiments = #condiments
+
     ItemPool.stats = counts
     local function tally(t)
         local out = {}
@@ -528,9 +806,18 @@ function ItemPool.build()
         table.sort(out)
         return table.concat(out, " ")
     end
-    StoryEngine.log("item pool built: scanned", counts.scanned, "food", counts.food, "firearm", counts.firearm,
-        "melee", counts.melee, "excluded", counts.excluded, "| food skipped:", tally(rejected),
+    StoryEngine.log("item pool built: scanned", counts.scanned, "food", counts.food, "(condiments", counts.condiments
+        .. ")", "firearm", counts.firearm, "melee", counts.melee, "excluded", counts.excluded,
+        "| runtime-tiered mod items:", counts.runtime, "| food skipped:", tally(rejected),
         "| guns skipped:", tally(gunRejected), "| unknown ammo (tier " .. ItemPool.UNKNOWN_AMMO_TIER .. "):", tally(unknownAmmo))
+    local auto = {}
+    for _, a in pairs(ItemPool.autoKind) do
+        auto[#auto + 1] = a.name .. "=" .. a.kind .. " (" .. tostring(a.n) .. "/" .. tostring(a.total) .. ")"
+    end
+    table.sort(auto)
+    if #auto > 0 then
+        StoryEngine.log("item pool: mod categories registered by their items:", table.concat(auto, ", "))
+    end
     local unmapped = {}
     for dc, u in pairs(ItemPool.unmapped) do unmapped[#unmapped + 1] = dc .. "=" .. tostring(u.n) .. " (" .. u.example .. ")" end
     table.sort(unmapped)
@@ -560,7 +847,7 @@ end
 function ItemPool.ammoTierOf(fullType)
     local t = ItemPool.ammoTier[fullType]
     if t then return t end
-    local inside = StoryEngine.ItemTiers.CONTENTS[fullType]    -- 카톤 -> 상자 -> 낱발
+    local inside = ItemPool.contentsOf(fullType)    -- 카톤 -> 상자 -> 낱발
     if inside then return ItemPool.ammoTierOf(inside[1]) end
     local key = lower(string.match(fullType, "([^%.]+)$") or fullType)
     return ItemPool.AMMO_TIERS[key]
@@ -580,7 +867,9 @@ local function toolClass(script, fullType, dc)
         for _, word in ipairs(ItemPool.TOOL_HANDMADE) do
             if string.find(name, word, 1, true) then return { category = "misc", value = nil } end
         end
-        tier = ItemPool.TOOL_UNKNOWN_TIER
+        -- 표에 없는 모드 도구: 루팅표에 나오면 그 희귀도로, 아니면 3등급 (대가로는 받되 팔지는 않음)
+        local w = ItemPool.lootWeights()[fullType] or 0
+        tier = w > 0 and lootTier(w, Tiers.TOOL_BOUNDS) or ItemPool.TOOL_UNKNOWN_TIER
     end
     return { category = "tools", value = ItemPool.TOOL_VALUE[tier], tier = tier }
 end
@@ -589,8 +878,63 @@ end
 local function medicalClass(fullType)
     local Tiers = StoryEngine.ItemTiers
     if Tiers.MEDICAL_NO_USE[fullType] then return { category = "misc", value = nil } end
-    local tier = Tiers.MEDICAL[fullType] or ItemPool.MEDICAL_UNKNOWN_TIER
+    local tier = Tiers.MEDICAL[fullType]
+    if not tier then
+        -- 표에 없는 모드 의약품: 이름으로 (봉합·핀셋·겸자·메스·부목 3, 먹는 약 2, 나머지 1)
+        local name = shortName(fullType)
+        if hasWord(name, ItemPool.MEDICAL_NO_USE_WORDS) then return { category = "misc", value = nil } end
+        tier = ItemPool.MEDICAL_UNKNOWN_TIER
+        for _, row in ipairs(ItemPool.MEDICAL_WORDS) do
+            if tier == ItemPool.MEDICAL_UNKNOWN_TIER and hasWord(name, row[2]) then tier = row[1] end
+        end
+    end
     return { category = "medical", value = ItemPool.MEDICAL_VALUE[tier], tier = tier }
+end
+
+-- 전자기기·차량 부품의 등급 (표 또는 루팅 희귀도). 루팅표에 없거나 손으로 만드는 것·장식용 색 전구는 nil
+local function lootTiered(fullType, kind)
+    local Tiers = StoryEngine.ItemTiers
+    local fixed = (kind == "electronics" and Tiers.ELECTRONICS or Tiers.VEHICLE)[fullType]
+    if fixed then return fixed end
+    local hit = ItemPool.runtime[kind][fullType]
+    if hit then return hit end
+    return nil
+end
+
+-- 전자기기·차량 부품 등급 (표 또는 실행 중 분류). kind = "electronics" | "vehicle". 아니면 nil
+-- (실행 중 분류는 시작할 때 build 가 채운다)
+function ItemPool.lootTierOf(fullType, kind)
+    return lootTiered(fullType, kind)
+end
+
+-- 실행 중 분류 (build 가 아이템마다 부른다): 표에 없는 모드 도구·의약품·전자기기·차량 부품 중 루팅표에 나오는 것을
+-- ItemPool.runtime 에 넣어 NPC 가 팔 수 있게 한다. 새로 기록했으면 true
+function ItemPool.runtimeClass(script, fullType, dc)
+    local kind = ItemPool.categoryKind(dc)
+    if ItemPool.ELECTRONICS_KINDS[lower(dc)] and not kind then kind = "electronics" end
+    if kind ~= "tools" and kind ~= "medical" and kind ~= "vehicle" and kind ~= "electronics" then return false end
+    local Tiers = StoryEngine.ItemTiers
+    local w = ItemPool.lootWeights()[fullType] or 0
+    if w <= 0 then return false end
+    local name = shortName(fullType)
+    if kind == "tools" then
+        if Tiers.TOOLS[fullType] or Tiers.TOOL_EXCLUDED[fullType] then return false end
+        local c = toolClass(script, fullType, dc)
+        if not c or c.category ~= "tools" then return false end
+        ItemPool.runtime.tools[fullType] = c.tier
+    elseif kind == "medical" then
+        if Tiers.MEDICAL[fullType] or Tiers.MEDICAL_NO_USE[fullType] then return false end
+        local c = medicalClass(fullType)
+        if c.category ~= "medical" then return false end
+        ItemPool.runtime.medical[fullType] = c.tier
+    else
+        local fixed = kind == "electronics" and Tiers.ELECTRONICS or Tiers.VEHICLE
+        if fixed[fullType] then return false end
+        if hasWord(name, ItemPool.TOOL_HANDMADE) or string.match(name, "^LightBulb.+") then return false end
+        ItemPool.runtime[kind][fullType] = lootTier(w, kind == "electronics" and Tiers.ELECTRONICS_BOUNDS
+            or Tiers.VEHICLE_BOUNDS)
+    end
+    return true
 end
 
 -- 탄약 가치: 상자 = 등급 값, 탄창 = 등급 값, 낱발·카톤은 Value.ammoValue 가 상자에서 나눈다/곱한다
@@ -631,7 +975,7 @@ function ItemPool.classify(fullType)
     local script = findScript(fullType)
     if not script then return { category = "misc", value = nil } end
     local dc = script:getDisplayCategory()
-    if dc == "Food" then
+    if ItemPool.isFoodCategory(dc) then
         -- 통조림 상자처럼 음식을 담은 묶음 (열면 여러 개). 안에 든 것을 알면 Value 가 개수만큼 곱한다
         local item = script:getDoubleClickRecipe() and newInstance(fullType) or nil
         if item and not instanceof(item, "Food") then
@@ -649,7 +993,7 @@ function ItemPool.classify(fullType)
         return { category = "misc", value = nil }
     end
     -- 전자기기(케이시)·차량 부품(듀이): 대가 품목은 아니지만 파는 물건이라 등급 가치가 있다
-    local lt = StoryEngine.ItemTiers.ELECTRONICS[fullType] or StoryEngine.ItemTiers.VEHICLE[fullType]
+    local lt = lootTiered(fullType, "electronics") or lootTiered(fullType, "vehicle")
     if lt then return { category = "misc", value = ItemPool.TOOL_VALUE[lt], tier = lt } end
     return { category = "misc", value = nil }
 end
@@ -692,8 +1036,11 @@ function ItemPool.tradePool(name)
     ItemPool.build()
     if tradePools[name] then return tradePools[name] end
     local out = {}
+    local Value = StoryEngine.Value
     local function put(tier, ft)
         if not tier or not findScript(ft) then return end
+        -- 채집·벌목 재료와 그것만으로 만드는 1차 가공품은 어느 품목이든 팔거나 보상으로 주지 않는다
+        if Value and Value.isRaw(ft) then return end
         out[tier] = out[tier] or {}
         local list = out[tier]
         for _, x in ipairs(list) do if x == ft then return end end
@@ -714,13 +1061,16 @@ function ItemPool.tradePool(name)
         for _, g in pairs(ItemPool.guns) do put(g.ammoTier, g.box or g.round) end
     elseif name == "medical" then
         for ft, t in pairs(Tiers.MEDICAL) do put(t, ft) end
+        for ft, t in pairs(ItemPool.runtime.medical) do put(t, ft) end
     elseif name == "tools" then
         for ft, t in pairs(Tiers.TOOLS) do put(t, ft) end
+        for ft, t in pairs(ItemPool.runtime.tools) do put(t, ft) end
     elseif name == "electronics" then
         for ft, t in pairs(Tiers.ELECTRONICS) do put(t, ft) end
+        for ft, t in pairs(ItemPool.runtime.electronics) do put(t, ft) end
     elseif name == "vehicle" then
         for ft, t in pairs(Tiers.VEHICLE) do put(t, ft) end
-        local Value = StoryEngine.Value
+        for ft, t in pairs(ItemPool.runtime.vehicle) do put(t, ft) end
         for ft in pairs(Value and Value.VEHICLE_TOOLS or {}) do put(Tiers.TOOLS[ft], ft) end
     end
     for _, list in pairs(out) do table.sort(list) end
@@ -735,7 +1085,13 @@ end
 
 local function pickFrom(list)
     if not list or #list == 0 then return nil end
-    return list[ZombRand(#list) + 1]
+    local Value = StoryEngine.Value
+    local ok = {}
+    for _, ft in ipairs(list) do
+        if not (Value and Value.isRaw(ft)) then ok[#ok + 1] = ft end     -- 채집물·1차 가공품은 보상으로 주지 않는다
+    end
+    if #ok == 0 then return nil end
+    return ok[ZombRand(#ok) + 1]
 end
 
 -- cat 의 tier 근처에서 하나. 없으면 nil
@@ -800,10 +1156,18 @@ function ItemPool.dump()
     for dc, u in pairs(ItemPool.unmapped) do unmapped[#unmapped + 1] = { dc = dc, n = u.n, example = u.example } end
     table.sort(unmapped, function(a, b) return a.n > b.n end)
     w:write("[mod categories not used] " .. tostring(#unmapped)
-        .. "  (map one with a line in items.txt: category <name> <tools|medical|explosive|melee|ammo|literature|vehicle|none>)\n")
+        .. "  (map one with a line in items.txt: category <name> <tools|medical|explosive|melee|ammo|literature|vehicle|electronics|food|none>)\n")
     for _, u in ipairs(unmapped) do
         w:write("  " .. u.dc .. "  x" .. tostring(u.n) .. "  e.g. " .. u.example .. "\n")
     end
+    local auto = {}
+    for _, a in pairs(ItemPool.autoKind) do
+        auto[#auto + 1] = a.name .. " -> " .. a.kind .. " (" .. tostring(a.n) .. " of " .. tostring(a.total) .. ")"
+    end
+    table.sort(auto)
+    w:write("[mod categories registered by their items] " .. tostring(#auto)
+        .. "  (change one with a line in items.txt: category <name> <kind|none>)\n")
+    if #auto > 0 then w:write("  " .. table.concat(auto, ", ") .. "\n") end
     w:write("\n")
     for _, cat in ipairs({ "food", "melee" }) do
         for tier = 1, 5 do
@@ -823,6 +1187,24 @@ function ItemPool.dump()
                 .. " rounds=" .. tostring(g.rounds) .. " cap=+" .. tostring(g.capMod or 0) .. " " .. tostring(g.action) .. "\n")
         end
     end
+    -- 표에 없어 실행 중 분류한 모드 물건 (루팅표에 나와 NPC 가 판다)
+    w:write("\n")
+    for _, kind in ipairs({ "tools", "medical", "electronics", "vehicle" }) do
+        local rows = {}
+        for ft, t in pairs(ItemPool.runtime[kind]) do rows[#rows + 1] = ft .. "=" .. tostring(t) end
+        table.sort(rows)
+        w:write("[runtime " .. kind .. "] " .. tostring(#rows) .. "\n  " .. table.concat(rows, ", ") .. "\n")
+    end
+    -- 양념 (배고픔 등급과 루팅 희귀도의 평균) / 포장
+    local cond, packs = {}, {}
+    for ft, info in pairs(ItemPool.info) do
+        if info.condiment then cond[#cond + 1] = ft .. "=" .. tostring(info.tier) .. "(loot " .. tostring(info.lootTier) .. ")" end
+        if info.pack then packs[#packs + 1] = ft .. "=" .. tostring(info.tier) end
+    end
+    table.sort(cond)
+    table.sort(packs)
+    w:write("[condiments] " .. tostring(#cond) .. "\n  " .. table.concat(cond, ", ") .. "\n")
+    w:write("[food packages] " .. tostring(#packs) .. "\n  " .. table.concat(packs, ", ") .. "\n")
     w:close()
     return true
 end

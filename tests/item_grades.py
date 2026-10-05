@@ -474,6 +474,8 @@ def write_lua(path=TIERS_LUA):
              "--   CONTENTS: sealed food / box / carton -> { item inside, count } (from the opening and unpacking recipes)",
              "--   MEDICAL: medical tier (1 dressing/cleaning, 2 taken by mouth, 3 serious wound care)",
              "--   ELECTRONICS, VEHICLE: tier from vanilla loot tables like tools (Casey and Dewey sell these)",
+             "--   *_BOUNDS: loot-weight cut-offs of those tiers, so the game can tier items from other mods at runtime",
+             "--             (weight >= BOUNDS[1] -> tier 1, >= BOUNDS[2] -> 2, ... below BOUNDS[4] -> 5)",
              "local ItemTiers = {}", "StoryEngine = StoryEngine or {}", "StoryEngine.ItemTiers = ItemTiers", ""]
     lines.append("ItemTiers.TOOLS = {")
     for e in sorted(tools_ok, key=lambda e: e["ft"]):
@@ -502,6 +504,15 @@ def write_lua(path=TIERS_LUA):
         for e in sorted(LOOT_TIERED[cat], key=lambda e: e["ft"]):
             lines.append("    [%s] = %d," % (lua_str(e["ft"]), e["nt"]))
         lines.append("}")
+    def bounds(entries):
+        cut = {}
+        for e in entries:
+            lo = cut.get(e["nt"])
+            cut[e["nt"]] = e["loot"] if lo is None else min(lo, e["loot"])
+        return [cut.get(t, 0) for t in (1, 2, 3, 4)]
+    for name, entries in (("TOOL_BOUNDS", tools_ok), ("ELECTRONICS_BOUNDS", LOOT_TIERED["electronics"]),
+                          ("VEHICLE_BOUNDS", LOOT_TIERED["vehicle"])):
+        lines.append("ItemTiers.%s = { %s }" % (name, ", ".join(repr(round(b, 4)) for b in bounds(entries))))
     lines += ["", "return ItemTiers"]
     path.write_text("\n".join(lines) + "\n", encoding="ascii", newline="\r\n")
 
