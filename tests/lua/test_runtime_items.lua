@@ -45,6 +45,19 @@ local SCRIPTS = {
     ["MyMod.Notebook"] = { dc = "Stationery", props = {} },
     ["MyMod.Pillow"] = { dc = "Stationery", props = {} },
     ["MyMod.Pen"] = { dc = "Stationery", props = {} },
+    -- 다른 총기 모드: 자기 이름의 탄약. 구경 표로 맞추고, 못 맞추면 총 피해로
+    ["Gun.Pistol22"] = { dc = "Weapon", gun = { round = "Gun.Ammo22LR", dmg = 0.8 } },
+    ["Gun.AK"] = { dc = "Weapon", gun = { round = "Gun.Ammo762x39", dmg = 1.5 } },
+    ["Gun.Magnum"] = { dc = "Weapon", gun = { round = "Gun.Ammo357", dmg = 1.8 } },
+    ["Gun.Shotty"] = { dc = "Weapon", gun = { round = "Gun.ShellsTwelveGauge", dmg = 2.0 } },
+    ["Gun.Lapua"] = { dc = "Weapon", gun = { round = "Gun.Ammo338", dmg = 2.8 } },
+    ["Gun.Plasma"] = { dc = "Weapon", gun = { round = "Gun.PlasmaCell", dmg = 3.0 } },
+    ["Gun.BBGun"] = { dc = "Weapon", gun = { round = "Gun.BB", dmg = 0.2 } },
+    ["Gun.Launcher"] = { dc = "Weapon", gun = { round = "Gun.GrenadeShell", dmg = 5 } },
+    ["Gun.Ammo22LR"] = { dc = "Ammo" }, ["Gun.Ammo762x39"] = { dc = "Ammo" }, ["Gun.Ammo357"] = { dc = "Ammo" },
+    ["Gun.ShellsTwelveGauge"] = { dc = "Ammo" }, ["Gun.Ammo338"] = { dc = "Ammo" },
+    ["Gun.PlasmaCell"] = { dc = "Ammo", name = "Plasma Cell" }, ["Gun.BB"] = { dc = "Ammo", name = "BB" },
+    ["Gun.GrenadeShell"] = { dc = "Ammo" },
 }
 local LOOT = {
     ["MyMod.Gauze2"] = 60, ["MyMod.Pills2"] = 40, ["MyMod.Scanner"] = 300, ["MyMod.Lamp"] = 300, ["MyMod.Hood"] = 80,
@@ -83,8 +96,10 @@ local function install()
             getReplaceOnUse = function() return nil end,
             isCantEat = function() return f.cantEat == true end,
             hasTag = function(_, tag) return (f.tags or {})[tag] == true end,
-            isRanged = function() return false end,
+            isRanged = function() return s.gun ~= nil end,
             getAmmoType = function() return nil end,
+            getDisplayName = function() return s.name or "" end,
+            getMaxDamage = function() return s.gun and s.gun.dmg or 0 end,
         }
     end
     local all = {}
@@ -132,11 +147,16 @@ local function install()
         local classes = isFood and { "Food" } or {}
         if s.melee then classes = { "HandWeapon" } end
         if s.props and s.props.radio then classes = { "Radio" } end
+        if s.gun then classes = { "HandWeapon" } end
         local it = H.newItem(ft, { classes = classes })
         local f = s.food or {}
         local m, pr = s.melee or {}, s.props or {}
-        function it:isRanged() return false end
-        function it:getMaxDamage() return m.dmg or 0 end
+        function it:isRanged() return s.gun ~= nil end
+        function it:getMaxDamage() return s.gun and s.gun.dmg or m.dmg or 0 end
+        function it:getAmmoType() return s.gun and { getItemKey = function() return s.gun.round end } or nil end
+        function it:getAmmoBox() return nil end
+        function it:getMagazineType() return nil end
+        function it:getMaxAmmo() return 6 end
         function it:getMinDamage() return (m.dmg or 0) / 2 end
         function it:getConditionMax() return 10 end
         function it:getConditionLowerChance() return 10 end
@@ -296,6 +316,40 @@ function T.forage_made_items_are_never_traded()
     local item = H.give(p, "MyMod.WoodSword")
     H.ok(not V.payable(p, item, "melee"), "and never taken as payment")
     H.eq(V.donatable(p, item), nil, "or as a donation")
+end
+
+function T.mod_ammo_is_tiered_by_caliber_or_gun_damage()
+    local IP = install()
+    local function tier(round) return IP.ammoInfo[round] and IP.ammoInfo[round].tier end
+    H.eq(tier("Gun.Ammo22LR"), 1, ".22 LR")
+    H.eq(tier("Gun.Ammo762x39"), 3, "7.62x39 is an intermediate round, not .308")
+    H.eq(tier("Gun.Ammo357"), 2)
+    H.eq(tier("Gun.ShellsTwelveGauge"), 4)
+    H.eq(tier("Gun.Ammo338"), 5)
+    H.eq(IP.ammoInfo["Gun.Ammo762x39"].how, "caliber")
+    H.eq(IP.ammoInfo["Gun.Ammo762x39"].caliber, "7.62x39")
+    H.eq(tier("Gun.PlasmaCell"), 5, "unknown round on the hardest-hitting gun")
+    H.eq(tier("Gun.BB"), 1, "unknown round on the weakest gun")
+    H.eq(IP.ammoInfo["Gun.PlasmaCell"].how, "damage")
+    H.eq(IP.guns["Gun.Plasma"].tier, 5, "the gun follows its ammo tier")
+    H.eq(IP.guns["Gun.Launcher"], nil, "grenades are not traded")
+    H.eq(IP.ammoTierOf("Gun.Ammo545x39Box"), 3, "loose mod ammo without a gun still gets its caliber")
+end
+
+function T.caliber_patterns_prefer_specific_names()
+    local IP = StoryEngine.ItemPool
+    local function t(name) return (IP.caliberOf({ string.lower(name) })) end
+    H.eq(t("ammo762x39"), 3)
+    H.eq(t("bullets762x54r"), 4)
+    H.eq(t("bullets545x39"), 3, "545 before 45")
+    H.eq(t("bullets338lapua"), 5, "338 before 38")
+    H.eq(t("ammo380acp"), 1)
+    H.eq(t("ammo223rem"), 3, "223 before 22")
+    H.eq(t("bullets50ae"), 2, ".50 AE is a pistol round")
+    H.eq(t("bullets50bmg"), false)
+    H.eq(t("boombolt"), false)
+    H.eq(t("crossbowbolt"), 1)
+    H.eq(t("plasmacell"), nil)
 end
 
 return T
