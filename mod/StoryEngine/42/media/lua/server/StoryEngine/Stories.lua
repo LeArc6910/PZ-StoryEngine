@@ -285,7 +285,7 @@ Stories.TALKATIVE = { casey = 3, ray = 3, pike = 2, doc = 2, dewey = 2, rats = 1
 -- trigger = true: 무작위로는 나오지 않고 사건이 일어날 때만 (NpcEvents: clash)
 Stories.CRISES = {
     -- 큰 사건 "군 헬기 추락"(Saga.lua)의 고비에서만. 추락 현장 상자에 서류·탄약·의약품이 함께 들어 있다
-    { id = "heli_crash", trigger = true,
+    { id = "heli_crash", trigger = true, plain = true,     -- plain: 현장 상자 물건으로 채우게 (부탁 점수 난이도 없음)
       situation = "A military helicopter came down in the county. Its cargo (sealed papers, ammunition and medical supplies) is in a crate at the wreck, and the dead are drawn to it.",
       options = {
           { faction = "guard", ask = "bring the sealed military papers from the wreck to the camp before anyone else reads them",

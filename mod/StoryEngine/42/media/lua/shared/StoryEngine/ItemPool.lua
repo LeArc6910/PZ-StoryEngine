@@ -61,8 +61,21 @@ ItemPool.AMMO_TIERS = {
     bullets86 = 5,
     bullets50 = false, bullets145 = false, grenadeammo = false, flamefuel = false,
 }
--- 총 등급 = 탄약 등급 + 사격 방식 (1~5로 자름)
+-- 총 등급 = 탄약 등급 + 사격 방식 + 기본 탄창 용량 (1~5로 자름)
 ItemPool.ACTION_MOD = { auto = 2, manual = -2, pump = 0, semi = 0 }
+-- 탄창 용량 (2026-10-05 사용자 요청: 많이 들어가는 탄창은 희귀). 총에 끼워져 나오는 탄창(또는 총의 장탄수)이
+-- 이 발 수 이상이면 등급 +1/+2/+3. 9mm 권총 17발 0, 30발 연장 탄창 +1, 50발 드럼 +2, 100발 드럼 +3.
+-- 같은 탄창을 따로 볼 때(대가 가치)도 탄창 값을 그만큼 높인다 (ItemPool.magBonus)
+ItemPool.CAPACITY_MOD = { { 60, 3 }, { 36, 2 }, { 21, 1 } }
+ItemPool.magBonus = {}     -- 탄창 fullType -> 용량 보정
+
+function ItemPool.capacityMod(rounds)
+    rounds = tonumber(rounds) or 0
+    for _, row in ipairs(ItemPool.CAPACITY_MOD) do
+        if rounds >= row[1] then return row[2] end
+    end
+    return 0
+end
 ItemPool.MANUAL_RELOAD = { boltactionnomag = true, leveraction = true, doublebarrelshotgun = true,
                            doublebarrelshotgunsawn = true }
 -- 분류 이름(DisplayCategory, 소문자) -> 종류
@@ -437,7 +450,14 @@ function ItemPool.build()
                     g.box = resolve(item:getAmmoBox(), module)
                     g.mag = resolve(item:getMagazineType(), module)
                     g.action = ItemPool.gunAction(item)
-                    g.tier = math.max(1, math.min(5, ammoTier + ItemPool.ACTION_MOD[g.action]))
+                    -- 장탄수: 탄창이 있으면 그 탄창, 없으면 총 (리볼버 실린더·관형 탄창)
+                    local rounds = 0
+                    local magItem = g.mag and newInstance(g.mag) or nil
+                    if magItem then pcall(function() rounds = magItem:getMaxAmmo() end) end
+                    if (tonumber(rounds) or 0) <= 0 then pcall(function() rounds = item:getMaxAmmo() end) end
+                    g.rounds = tonumber(rounds) or 0
+                    g.capMod = ItemPool.capacityMod(g.rounds)
+                    g.tier = math.max(1, math.min(5, ammoTier + ItemPool.ACTION_MOD[g.action] + g.capMod))
                 else
                     g.box = resolve(round .. "Box", module)
                 end
@@ -458,7 +478,8 @@ function ItemPool.build()
     for _, g in ipairs(guns) do
         local tier = g.tier
         ItemPool.guns[g.fullType] = { tier = tier, round = g.round, box = g.box, mag = g.mag, ammoTier = g.ammoTier,
-                                      action = g.action }
+                                      action = g.action, rounds = g.rounds, capMod = g.capMod }
+        if g.mag and g.capMod and g.capMod > 0 then ItemPool.magBonus[g.mag] = g.capMod end
         ItemPool.ammoTier[g.round] = g.ammoTier
         if g.box then ItemPool.ammoTier[g.box] = g.ammoTier end
         if g.mag then ItemPool.ammoTier[g.mag] = g.ammoTier end
@@ -586,7 +607,9 @@ local function ammoClass(fullType, role)
         else role = "round" end
     end
     local value = ItemPool.AMMO_BOX_VALUE[tier]
-    if role == "mag" then value = ItemPool.AMMO_MAG_VALUE[tier] end
+    if role == "mag" then
+        value = ItemPool.AMMO_MAG_VALUE[math.min(#ItemPool.AMMO_MAG_VALUE, tier + (ItemPool.magBonus[fullType] or 0))]
+    end
     if role == "carton" then value = ItemPool.AMMO_BOX_VALUE[tier] * 12 end
     if role == "round" then value = ItemPool.AMMO_BOX_VALUE[tier] / 20 end
     return { category = "ammo", value = value, tier = tier, role = role }
@@ -796,7 +819,8 @@ function ItemPool.dump()
         w:write("[firearm " .. tier .. "] " .. tostring(#list) .. "\n")
         for _, ft in ipairs(list) do
             local g = ItemPool.guns[ft]
-            w:write("  " .. ft .. "  round=" .. tostring(g.round) .. " box=" .. tostring(g.box) .. " mag=" .. tostring(g.mag) .. "\n")
+            w:write("  " .. ft .. "  round=" .. tostring(g.round) .. " box=" .. tostring(g.box) .. " mag=" .. tostring(g.mag)
+                .. " rounds=" .. tostring(g.rounds) .. " cap=+" .. tostring(g.capMod or 0) .. " " .. tostring(g.action) .. "\n")
         end
     end
     w:close()

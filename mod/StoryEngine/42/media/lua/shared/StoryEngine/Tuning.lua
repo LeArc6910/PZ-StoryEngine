@@ -17,6 +17,12 @@ Tuning.DEFAULTS = {
     TrustStart = 0, TrustGainMult = 1, TrustLossMult = 1, SuspiciousRequests = 3, Spillover = true,
     RequestGapDays = 4, RequestServerGapDays = 2, QuestTimeMult = 1, RewardMult = 1,
     StageMidDay = 31, StageLateDay = 91, PriceMult = 1, GiftChance = 35,
+    RequestPointsMult = 1.5, RequestMinTier = 3,
+    -- 특기 대기 (2026-10-05): 범위 1 서버 전체 / 2 개인별 / 3 둘 다, 일수
+    SpecialtyScope_ray = 1, SpecialtyScope_casey = 2, SpecialtyScope_doc = 2, SpecialtyScope_pike = 2,
+    SpecialtyScope_dewey = 2, SpecialtyScope_guard = 2, SpecialtyScope_rats = 2, SpecialtyScope_hunter = 2,
+    SpecialtyDays_ray = 7, SpecialtyDays_casey = 3, SpecialtyDays_doc = 7, SpecialtyDays_pike = 3,
+    SpecialtyDays_dewey = 7, SpecialtyDays_guard = 7, SpecialtyDays_rats = 1, SpecialtyDays_hunter = 3,
     ZombieMult = 1, HuntSizeMult = 1, Extortion = true, StayHorde = true, StayHordeDays = 4, HeliGapDays = 5, RaidSizeMult = 1,
     LifeDrift = 5, LifeLossMult = 1, StarveDays = 3, NpcFateCause = 1,
     ProjectGoal = 1000, ProjectDonateCap = 100, DonateGapDays = 3,
@@ -33,6 +39,7 @@ Tuning.PRESETS = {
     QuestTimeMult = { 1.5, 1, 0.75 },
     RewardMult = { 1.3, 1, 0.75 },
     PriceMult = { 0.75, 1, 1.3 },
+    RequestPointsMult = { 1.2, 1.5, 2 },
     HuntSizeMult = { 0.6, 1, 1.5 },
     RaidSizeMult = { 0.7, 1, 1.4 },
     LifeDrift = { 8, 5, 3 },
@@ -129,7 +136,12 @@ function Tuning.apply()
         BASE.tiers = BASE.tiers or copy(S.Specialty.TIER_MIN)
         local m = Tuning.num("SpecialtyCooldownMult")
         local cd = {}
-        for fid, days in pairs(BASE.cooldown) do cd[fid] = math.max(0, days * m) end
+        -- 특기마다 대기 일수 (SpecialtyDays_<fid>, 기본 = 예전 고정값) x 배율
+        for fid, days in pairs(BASE.cooldown) do
+            local own = Tuning.get("SpecialtyDays_" .. fid)
+            if own == nil then own = days end
+            cd[fid] = math.max(0, (tonumber(own) or days) * m)
+        end
         S.Specialty.COOLDOWN_DAYS = cd
         local off = Tuning.num("SpecialtyTrustOffset")
         local tiers = {}

@@ -204,6 +204,25 @@ NAME_CAL = [
 ]
 ACTION_MOD = {"auto": 2, "manual": -2, "semi": 0, "pump": 0}
 ACTION_TEXT = {"auto": "+2 (자동)", "manual": "-2 (수동 장전)", "semi": "(반자동·리볼버)", "pump": "(펌프, 그대로)"}
+# 기본 탄창 용량 (ItemPool.CAPACITY_MOD 와 같음): 21발 이상 +1, 36발 이상 +2, 60발 이상 +3
+CAPACITY_MOD = [(60, 3), (36, 2), (21, 1)]
+
+
+def capacity_mod(rounds):
+    for at, mod in CAPACITY_MOD:
+        if rounds >= at:
+            return mod
+    return 0
+
+
+def gun_rounds(r):
+    mag = (r.get("magazinetype") or "").strip()
+    if mag:
+        ft = mag if "." in mag else "Base." + mag
+        n = num(raw(ft), "maxammo")
+        if n > 0:
+            return int(n)
+    return int(num(r, "maxammo"))
 VALUE = {"food": [0.5, 1, 1.5, 2.5, 4], "medical": [2, 4, 6], "tools": [2, 4, 8, 14, 20],
          "melee": [3, 4, 5, 8, 12], "firearm": [30, 40, 50, 65, 80],
          "ammo_box": [10, 13, 15, 20, 30], "ammo_mag": [3, 4, 5, 6, 8]}
@@ -360,8 +379,12 @@ for e in ITEMS:
             e["ex"] = "탄약 모름"
         else:
             base = CAL[cal][0]
-            e["cal"], e["nt"] = cal, max(1, min(5, base + ACTION_MOD[act]))
+            rounds = gun_rounds(r)
+            cap = capacity_mod(rounds)
+            e["cal"], e["nt"] = cal, max(1, min(5, base + ACTION_MOD[act] + cap))
             e["why"] = "%s %d등급 %s" % (CAL[cal][1], base, ACTION_TEXT[act])
+            if cap:
+                e["why"] += " +%d (탄창 %d발)" % (cap, rounds)
 
 # 근접 무기: 실전 점수 5분위
 melee_ok.sort(key=lambda e: e["mscore"])

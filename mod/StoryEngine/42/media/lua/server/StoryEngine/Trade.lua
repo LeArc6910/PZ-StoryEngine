@@ -284,7 +284,7 @@ local function haggleContext(fid, q, trust, offer)
         deal = { category = q.category, tier = q.tier, price = q.price, basePrice = base, payCategory = q.payCategory },
         floor = Trade.haggleFloor(fid, trust, base),
         haggles = haggles, haggleLeft = math.max(0, Trade.MAX_HAGGLES - haggles),
-        wants = rules.wants,
+        wants = Value.wantsOf(fid),
         goods = offer and offer.allowed and offer.goods or nil,
         catalog = offer and offer.catalog or nil,
     }
@@ -342,7 +342,7 @@ function Trade.offerContext(fid, trust)
             and Trade.FREE_MAX_TIER or 0,
         allowed = true, trust = trust, maxTier = limit.maxTier,
         mult = limit.mult * (rules.priceMult or 1) * (StoryEngine.Tuning and StoryEngine.Tuning.num("PriceMult") or 1),
-        stretchMult = (not tradingPost) and rules.stretchMult or nil, goods = goods, catalog = catalog, wants = rules.wants, catMult = catMult,
+        stretchMult = (not tradingPost) and rules.stretchMult or nil, goods = goods, catalog = catalog, wants = Value.wantsOf(fid), catMult = catMult,
     }
 end
 
@@ -650,7 +650,21 @@ local function jitter(category, goods)
     return expand(g)
 end
 
-local STOCK_MIN = function() return Trade.STOCK_DAYS * 24 * 60 end
+-- 빅 교역소(장기 프로젝트 완성, 2026-10-05): 묶음 5개, 2일마다 입고, 일주일마다 암시장 물건 하나
+Trade.POST_BUNDLES = 5
+Trade.POST_DAYS = 2
+Trade.BLACK_DAYS = 7
+Trade.BLACK_CATS = { "firearm", "tools" }
+Trade.BLACK_MULT = 1.25           -- 암시장 값: 물건 가치 x 이 배율 x 샌드박스 가격 배율 (신뢰도 구간 배율 없음)
+
+local function tradingPost(fid)
+    return fid == "rats" and StoryEngine.Projects ~= nil and StoryEngine.Projects.done("rats")
+end
+Trade.tradingPost = tradingPost
+Value.anyWantsFn = tradingPost      -- 교역소: 어떤 품목이든 대가로 받는다
+
+local function stockBundles(fid) return tradingPost(fid) and Trade.POST_BUNDLES or Trade.STOCK_BUNDLES end
+local STOCK_MIN = function(fid) return (tradingPost(fid) and Trade.POST_DAYS or Trade.STOCK_DAYS) * 24 * 60 end
 
 -- 지금 재고 (없거나 입고일이 지났으면 새로 채운다)
 function Trade.stock(fid)
@@ -659,13 +673,13 @@ function Trade.stock(fid)
     local ch = Radio.channel(fid)
     local now = Sensor.now().t
     local st = ch.stock
-    if not st or not st.t or now >= st.t + STOCK_MIN() then
+    if not st or not st.t or now >= st.t + STOCK_MIN(fid) then
         st = { t = now, seq = (st and st.seq or 0) + 1, cats = {} }
         for cat, cap in pairs(rules.goods) do
             st.cats[cat] = {}
             for t = 1, cap do
                 local list, tries = {}, 0
-                while #list < Trade.STOCK_BUNDLES and tries < Trade.STOCK_BUNDLES * 4 do
+                while #list < stockBundles(fid) and tries < stockBundles(fid) * 4 do
                     tries = tries + 1
                     local goods = Trade.rollFresh(cat, t, fid)
                     if goods and #goods > 0 then
@@ -689,7 +703,7 @@ end
 -- 다음 입고까지 남은 날
 function Trade.restockIn(fid)
     local st = Trade.stock(fid)
-    return st and math.max(1, math.ceil((st.t + STOCK_MIN() - Sensor.now().t) / (24 * 60))) or 0
+    return st and math.max(1, math.ceil((st.t + STOCK_MIN(fid) - Sensor.now().t) / (24 * 60))) or 0
 end
 
 -- 재고에서 묶음을 꺼낸다 (아직 팔린 것으로 치지 않음, 거래가 끝나면 Trade.markSold).
@@ -718,9 +732,47 @@ function Trade.roll(category, tier, fid, index)
     return out, { seq = st.seq, category = category, tier = tier, index = pick }
 end
 
+-- 암시장 물건 (빅 교역소): 일주일마다 5등급 총 또는 도구 묶음 하나. 신뢰도와 상관없이 살 수 있다. 상태 Radio.channel(fid).black
+function Trade.black(fid)
+    if not tradingPost(fid) then return nil end
+    local ch = Radio.channel(fid)
+    local now = Sensor.now().t
+    local b = ch.black
+    if not b or not b.t or now >= b.t + Trade.BLACK_DAYS * 24 * 60 then
+        local cat = Trade.BLACK_CATS[ZombRand(#Trade.BLACK_CATS) + 1]
+        local goods = Trade.rollFresh(cat, 5, fid)
+        if not goods or #goods == 0 then return nil end
+        b = { t = now, seq = (b and b.seq or 0) + 1, category = cat, tier = 5, goods = goods }
+        ch.black = b
+        log("trade black market", fid, cat, #goods, "items")
+    end
+    return b
+end
+
+function Trade.blackPrice(fid, b)
+    local tune = StoryEngine.Tuning and StoryEngine.Tuning.num("PriceMult") or 1
+    return math.ceil(Value.sum(b.goods) * Trade.BLACK_MULT * tune)
+end
+
+-- 거래 목록 창에 보여 줄 암시장 줄
+function Trade.blackInfo(fid)
+    local b = Trade.black(fid)
+    if not b then return nil end
+    return { category = b.category, tier = b.tier, items = group(b.goods), price = Trade.blackPrice(fid, b),
+             sold = b.sold or nil, daysLeft = math.max(1, math.ceil((b.t + Trade.BLACK_DAYS * 24 * 60 - Sensor.now().t) / (24 * 60))) }
+end
+
 -- 거래가 끝났다: 그 묶음은 다음 입고까지 품절 (입고가 지나 재고가 바뀌었으면 아무 일 없음)
 function Trade.markSold(fid, ref)
     if type(ref) ~= "table" then return end
+    if ref.black then
+        local b = Radio.channel(fid).black
+        if b and b.seq == ref.black then
+            b.sold = true
+            log("trade black market sold", fid)
+        end
+        return
+    end
     local st = Radio.channel(fid).stock
     if not st or st.seq ~= ref.seq then return end
     local b = st.cats[ref.category] and st.cats[ref.category][ref.tier] and st.cats[ref.category][ref.tier][ref.index]
@@ -874,7 +926,8 @@ function Trade.options(fid, ps)
             it.tiers[t] = bundles
         end
     end
-    out.wants = (Trade.FACTIONS[fid] or {}).wants
+    out.wants = Value.wantsOf(fid)
+    out.black = Trade.blackInfo(fid, offer)
     return out
 end
 
@@ -912,7 +965,20 @@ function Trade.ask(player, fid, category, tier, bundle)
     local Lines = StoryEngine.Lines
     local catText = category .. " (tier " .. StoryEngine.intToString(tier) .. ")"
     local deal, how, info = nil, nil, nil
-    if ctx.allowed then
+    local black = bundle == "black" and Trade.black(fid) or nil
+    if black and not black.sold then
+        -- 암시장: 신뢰도와 상관없이, 정해진 값으로
+        local goods = {}
+        for _, ft in ipairs(black.goods) do goods[#goods + 1] = ft end
+        deal = Quests.proposeTrade(ps, fid, { tier = black.tier, category = black.category, goods = goods,
+            payCategory = bestPay(Value.wantsOf(fid), player), price = Trade.blackPrice(fid, black),
+            stockRef = { black = black.seq } }, now)
+        how = deal and "offer" or nil
+        catText = "the black-market " .. black.category .. " (tier 5)"
+    elseif bundle == "black" then
+        info = { soldOut = true, category = category, tier = tier, restock = 7 }
+        how = "blocked"
+    elseif ctx.allowed then
         local action = ((ctx.freeMaxTier or 0) >= tier) and "gift" or "offer"
         deal, how, info = Trade.fromReply(fid, ps, { action = action, category = category, tier = tier,
                                                      pay_category = bestPay(ctx.wants or {}, player),
@@ -966,7 +1032,7 @@ function Trade.negotiate(fid, ps, trade)
     local trust = Radio.channel(fid).trust
     local rules = Trade.FACTIONS[fid] or {}
     local pay = q.payCategory
-    for _, w in ipairs(rules.wants or {}) do
+    for _, w in ipairs(Value.wantsOf(fid)) do
         if w == trade.pay_category then pay = w end
     end
 

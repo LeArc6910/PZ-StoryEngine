@@ -218,6 +218,19 @@ option StoryEngine.GiftChance
 	page = StoryEngineBalance, translation = StoryEngine_GiftChance,
 }
 
+option StoryEngine.RequestPointsMult
+{
+	type = double, min = 0.5, max = 4.0, default = 1.5,
+	page = StoryEngineBalance, translation = StoryEngine_RequestPointsMult,
+}
+
+option StoryEngine.RequestMinTier
+{
+	type = enum, numValues = 4, default = 3,
+	page = StoryEngineBalance, translation = StoryEngine_RequestMinTier,
+	valueTranslation = StoryEngine_RequestMinTier,
+}
+
 option StoryEngine.ZombieMult
 {
 	type = double, min = 0.25, max = 5.0, default = 1.0,
@@ -313,6 +326,110 @@ option StoryEngine.SpecialtyTrustOffset
 {
 	type = integer, min = -40, max = 20, default = 0,
 	page = StoryEngineNPC, translation = StoryEngine_SpecialtyTrustOffset,
+}
+
+option StoryEngine.SpecialtyScope_ray
+{
+	type = enum, numValues = 3, default = 1,
+	page = StoryEngineNPC, translation = StoryEngine_SpecialtyScope_ray,
+	valueTranslation = StoryEngine_SpecialtyScope,
+}
+
+option StoryEngine.SpecialtyDays_ray
+{
+	type = integer, min = 0, max = 30, default = 7,
+	page = StoryEngineNPC, translation = StoryEngine_SpecialtyDays_ray,
+}
+
+option StoryEngine.SpecialtyScope_casey
+{
+	type = enum, numValues = 3, default = 2,
+	page = StoryEngineNPC, translation = StoryEngine_SpecialtyScope_casey,
+	valueTranslation = StoryEngine_SpecialtyScope,
+}
+
+option StoryEngine.SpecialtyDays_casey
+{
+	type = integer, min = 0, max = 30, default = 3,
+	page = StoryEngineNPC, translation = StoryEngine_SpecialtyDays_casey,
+}
+
+option StoryEngine.SpecialtyScope_doc
+{
+	type = enum, numValues = 3, default = 2,
+	page = StoryEngineNPC, translation = StoryEngine_SpecialtyScope_doc,
+	valueTranslation = StoryEngine_SpecialtyScope,
+}
+
+option StoryEngine.SpecialtyDays_doc
+{
+	type = integer, min = 0, max = 30, default = 7,
+	page = StoryEngineNPC, translation = StoryEngine_SpecialtyDays_doc,
+}
+
+option StoryEngine.SpecialtyScope_pike
+{
+	type = enum, numValues = 3, default = 2,
+	page = StoryEngineNPC, translation = StoryEngine_SpecialtyScope_pike,
+	valueTranslation = StoryEngine_SpecialtyScope,
+}
+
+option StoryEngine.SpecialtyDays_pike
+{
+	type = integer, min = 0, max = 30, default = 3,
+	page = StoryEngineNPC, translation = StoryEngine_SpecialtyDays_pike,
+}
+
+option StoryEngine.SpecialtyScope_dewey
+{
+	type = enum, numValues = 3, default = 2,
+	page = StoryEngineNPC, translation = StoryEngine_SpecialtyScope_dewey,
+	valueTranslation = StoryEngine_SpecialtyScope,
+}
+
+option StoryEngine.SpecialtyDays_dewey
+{
+	type = integer, min = 0, max = 30, default = 7,
+	page = StoryEngineNPC, translation = StoryEngine_SpecialtyDays_dewey,
+}
+
+option StoryEngine.SpecialtyScope_guard
+{
+	type = enum, numValues = 3, default = 2,
+	page = StoryEngineNPC, translation = StoryEngine_SpecialtyScope_guard,
+	valueTranslation = StoryEngine_SpecialtyScope,
+}
+
+option StoryEngine.SpecialtyDays_guard
+{
+	type = integer, min = 0, max = 30, default = 7,
+	page = StoryEngineNPC, translation = StoryEngine_SpecialtyDays_guard,
+}
+
+option StoryEngine.SpecialtyScope_rats
+{
+	type = enum, numValues = 3, default = 2,
+	page = StoryEngineNPC, translation = StoryEngine_SpecialtyScope_rats,
+	valueTranslation = StoryEngine_SpecialtyScope,
+}
+
+option StoryEngine.SpecialtyDays_rats
+{
+	type = integer, min = 0, max = 30, default = 1,
+	page = StoryEngineNPC, translation = StoryEngine_SpecialtyDays_rats,
+}
+
+option StoryEngine.SpecialtyScope_hunter
+{
+	type = enum, numValues = 3, default = 2,
+	page = StoryEngineNPC, translation = StoryEngine_SpecialtyScope_hunter,
+	valueTranslation = StoryEngine_SpecialtyScope,
+}
+
+option StoryEngine.SpecialtyDays_hunter
+{
+	type = integer, min = 0, max = 30, default = 3,
+	page = StoryEngineNPC, translation = StoryEngine_SpecialtyDays_hunter,
 }
 
 option StoryEngine.AutoSupportTrust

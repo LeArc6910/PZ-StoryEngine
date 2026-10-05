@@ -513,7 +513,8 @@ function Radio.channelList()
     for _, f in ipairs(Factions.list) do
         local ch = Radio.channel(f.id)
         out[#out + 1] = { id = f.id, freq = f.freq, trust = ch.trust, seq = ch.seq, busy = Radio.busy[f.id] == true,
-                          followUpIn = Radio.followUpIn(ch), gone = Factions.fateOf(f.id) }
+                          followUpIn = Radio.followUpIn(ch), gone = Factions.fateOf(f.id),
+                          anyWants = StoryEngine.Value and StoryEngine.Value.anyWantsFn(f.id) or nil }
     end
     return out
 end

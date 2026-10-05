@@ -1,4 +1,5 @@
--- 품목 점수 부탁 (2026-10-04 사용자 결정): 음식처럼 종류가 많은 품목은 특정 물건 대신 "음식 가치 N점"으로 받는다
+-- 품목 점수 부탁 (2026-10-04 사용자 결정, 2026-10-05 확장): NPC 가 먼저 하는 부탁은 특정 물건 대신 "음식 가치 N점"처럼
+-- 받는다 (자재는 그대로). 샌드박스 점수 배율(기본 1.5)·등급 하한(기본 부탁 등급-1)
 local T = {}
 
 -- 플레이어(10000,10000) 둘레에 건물 고리 (등급 1·2 거리)
@@ -46,7 +47,10 @@ local function setup()
     local p = H.addPlayer("tester", "Gerald", "Kar")
     local ps = StoryEngine.Store.player(p)
     ps.lang = "EN"
+    SandboxVars.StoryEngine.RequestPointsMult = 1     -- 아래 예전 테스트는 배율·하한 없이
+    SandboxVars.StoryEngine.RequestMinTier = 1
     local V = H.defineItem
+    V("Base.NailsBox", "misc", 0.2)
     V("Base.TinnedBeans", "food", 1.5)
     V("Base.CannedChili", "food", 1.5)
     V("Base.Crisps", "food", 0.5)
@@ -73,21 +77,79 @@ end
 
 function T.food_items_become_category_points()
     setup()
-    local need = StoryEngine.Quests.pointsNeed({ { "Base.TinnedBeans", 3 }, { "Base.Pills", 2 } })
-    H.eq(need[1][1], "Base.Pills", "other categories stay as items")
+    local need = StoryEngine.Quests.pointsNeed({ { "Base.TinnedBeans", 3 }, { "Base.NailsBox", 2 } })
+    H.eq(need[1][1], "Base.NailsBox", "materials stay as items")
     H.eq(need[2][1], "cat:food")
     H.eq(need[2][2], 5, "3 cans x 1.5 = 4.5, rounded up")
     H.ok(string.find(StoryEngine.Quests.needText({ need = need }), "food of any kind", 1, true), "AI hears it as any food")
 end
 
-function T.melee_and_guns_become_points_but_ammo_stays()
+function T.melee_guns_medical_and_ammo_become_points()
     setup()
-    local need = StoryEngine.Quests.pointsNeed({ { "Base.HuntingRifle", 1 }, { "Base.308Box", 1 }, { "Base.HuntingKnife", 1 } })
-    local by = {}
-    for _, n in ipairs(need) do by[n[1]] = n[2] end
-    H.eq(by["Base.308Box"], 1, "ammo stays a specific item (the caliber matters)")
+    H.defineItem("Base.308Box", "ammo", 20, 4)
+    local need = StoryEngine.Quests.pointsNeed({ { "Base.HuntingRifle", 1 }, { "Base.308Box", 1 }, { "Base.HuntingKnife", 1 },
+                                                 { "Base.Pills", 2 } })
+    local by, min = {}, {}
+    for _, n in ipairs(need) do
+        by[n[1]] = n[2]
+        min[n[1]] = n[3]
+    end
+    H.eq(by["cat:ammo"], 20)
+    H.eq(min["cat:ammo"], 4, "ammo of the requested caliber tier or better")
     H.eq(by["cat:firearm"], 40)
     H.eq(by["cat:melee"], 8)
+    H.eq(by["cat:medical"], 8)
+end
+
+function T.default_difficulty_multiplies_and_sets_a_minimum_tier()
+    setup()
+    SandboxVars.StoryEngine.RequestPointsMult = nil
+    SandboxVars.StoryEngine.RequestMinTier = nil
+    local need = StoryEngine.Quests.pointsNeed({ { "Base.TinnedBeans", 3 } }, 3)
+    H.eq(need[1][2], 7, "4.5 x 1.5 = 6.75 -> 7")
+    H.eq(need[1][3], 2, "tier 3 request: tier 2 or better")
+    H.eq(StoryEngine.Quests.pointMinTier("medical", 5), 3, "medical only goes to tier 3")
+    H.eq(StoryEngine.Quests.pointMinTier("comfort", 5), nil, "comforts have no tier")
+    H.eq(StoryEngine.Quests.pointMinTier("food", 2), nil, "tier 1 minimum is no minimum")
+    SandboxVars.StoryEngine.RequestMinTier = 4
+    H.eq(StoryEngine.Quests.pointMinTier("food", 3), 3, "request tier or better")
+    SandboxVars.StoryEngine.RequestMinTier = 1
+    H.eq(StoryEngine.Quests.pointMinTier("food", 5), nil, "off")
+    local plain = StoryEngine.Quests.pointsNeed({ { "Base.TinnedBeans", 3 } }, 3, true)
+    H.eq(plain[1][2], 5, "plain requests skip the multiplier")
+end
+
+function T.minimum_tier_filters_cheap_items()
+    local p, ps = setup()
+    H.defineItem("Base.Crisps", "food", 0.5, 1)
+    H.defineItem("Base.CannedChili", "food", 1.5, 2)
+    local q = ask(p, ps, { { "Base.TinnedBeans", 2 } })
+    q.need = { { "cat:food", 3, 2 } }
+    for _ = 1, 10 do H.give(p, "Base.Crisps") end
+    local ok, why = StoryEngine.Quests.submit(p, q.id)
+    H.ok(not ok and why == "missing_items", "ten tier-1 snacks do not count")
+    for _ = 1, 2 do H.give(p, "Base.CannedChili") end
+    H.ok(StoryEngine.Quests.submit(p, q.id), "tier-2 food does")
+    H.eq(count(p, "Base.Crisps"), 10, "the snacks stay")
+end
+
+function T.electronics_vehicle_and_comforts_have_points()
+    setup()
+    H.defineItem("Base.Generator", "misc", 20)
+    H.defineItem("Base.CarBattery1", "misc", 14)
+    H.defineItem("Base.CigarettePack", "misc", 0.2)
+    local V = StoryEngine.Value
+    H.eq(V.pointKind("Base.Generator"), "electronics")
+    H.eq(V.pointTier("Base.Generator"), 5)
+    H.eq(V.pointKind("Base.CarBattery1"), "vehicle")
+    H.eq(V.pointKind("Base.CigarettePack"), "comfort")
+    H.eq(V.pointOf("Base.CigarettePack"), 2, "comforts use their comfort value")
+    H.eq(V.pointKind("Base.NailsBox"), nil)
+    local need = StoryEngine.Quests.pointsNeed({ { "Base.CigarettePack", 2 }, { "Base.Generator", 1 } }, 5)
+    local by = {}
+    for _, n in ipairs(need) do by[n[1]] = n[2] end
+    H.eq(by["cat:comfort"], 4)
+    H.eq(by["cat:electronics"], 20)
 end
 
 function T.any_gun_worth_the_points_is_accepted()

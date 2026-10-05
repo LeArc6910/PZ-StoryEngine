@@ -667,7 +667,7 @@ function ALife.sendSupport(player, fid, how, reason, levelOverride, retry, count
                 -- 다시 불러도 못 나왔다: 쓴 대기 시간을 돌려주고, 이미 "보냈다"고 한 무전을 바로잡는다
                 if how == "auto" then st.autoAt[ps.key] = nil end
                 if how == "request" then st.cooldown[fid] = nil end
-                if how == "specialty" and StoryEngine.Specialty then pcall(StoryEngine.Specialty.clearWait, fid) end
+                if how == "specialty" and StoryEngine.Specialty then pcall(StoryEngine.Specialty.clearWait, fid, ps.key) end
                 log("alife support gave up, cooldown refunded", fid, how)
                 if not player:isDead() then
                     pcall(Radio.react, fid, "event", "The armed people you sent to back up " .. tostring(ps.name)

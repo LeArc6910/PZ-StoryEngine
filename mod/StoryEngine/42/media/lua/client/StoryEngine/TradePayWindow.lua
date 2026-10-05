@@ -131,11 +131,15 @@ function StoryEngineTradePayWindow:fill()
     self.list:clear()
     local player = getSpecificPlayer(0)
     if not player then return end
-    local items = Value.payableItems(player, self.quest.payCategory)
-    table.sort(items, function(a, b) return Value.itemValue(a) > Value.itemValue(b) end)
+    -- 품목 점수 부탁(quest.points)은 점수 규칙(등급 하한·기호품·전자기기·차량 부품), 거래 대가는 거래 규칙
+    local points = self.quest.points
+    local items = points and Value.pointItems(player, self.quest.payCategory, self.quest.minTier)
+        or Value.payableItems(player, self.quest.payCategory)
+    local valueOf = points and Value.pointValue or Value.itemValue
+    table.sort(items, function(a, b) return valueOf(a) > valueOf(b) end)
     for i, it in ipairs(items) do
         if i > 200 then break end
-        local data = { id = it:getID(), name = it:getDisplayName(), value = Value.itemValue(it), selected = false }
+        local data = { id = it:getID(), name = it:getDisplayName(), value = valueOf(it), selected = false }
         self.list:addItem(data.name, data)
     end
 end

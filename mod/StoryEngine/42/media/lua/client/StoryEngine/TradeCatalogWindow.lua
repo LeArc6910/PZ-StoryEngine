@@ -143,6 +143,17 @@ function StoryEngineTradeCatalogWindow:fill()
     local d = self.data or {}
     self.tiers:clear()
     self.rows = {}
+    -- 빅 교역소의 이번 주 암시장 물건 (신뢰도와 상관없이)
+    if d.black then
+        local row = { category = d.black.category, tier = d.black.tier, open = true, black = true, bundles = { d.black } }
+        self.rows[#self.rows + 1] = row
+        self.tiers:addItem("black", {
+            title = getText("IGUI_StoryEngine_Catalog_Black", catName(d.black.category)),
+            sub = d.black.sold and getText("IGUI_StoryEngine_Catalog_Sold")
+                or getText("IGUI_StoryEngine_Catalog_BlackDays", StoryEngine.intToString(d.black.daysLeft or 7)),
+            value = row, color = d.black.sold and COLOR_LOCKED or COLOR_SHORT,
+        })
+    end
     for _, it in ipairs(d.items or {}) do
         for t = 1, #(it.needs or {}) do
             local need = it.needs[t] or 101
@@ -170,7 +181,7 @@ function StoryEngineTradeCatalogWindow:fill()
     end
     self.row = nil
     for i, row in ipairs(self.rows) do
-        if row.open then self.row = row; self.tiers.selected = i end
+        if row.open and not row.black then self.row = row; self.tiers.selected = i end
     end
     if not self.row and #self.rows > 0 then self.row = self.rows[1]; self.tiers.selected = 1 end
     self:fillBundles()
@@ -225,6 +236,9 @@ function StoryEngineTradeCatalogWindow:showDetail()
         if not row.open then
             parts[#parts + 1] = " <LINE> <RGB:0.95,0.6,0.4> " .. UI.escape(getText("IGUI_StoryEngine_Catalog_Locked"))
         end
+        if row.black then
+            parts[#parts + 1] = " <LINE> <RGB:1,0.75,0.45> " .. UI.escape(getText("IGUI_StoryEngine_Catalog_BlackNote"))
+        end
         parts[#parts + 1] = " <LINE> <RGB:0.6,0.6,0.6> " .. UI.escape(getText("IGUI_StoryEngine_Catalog_Note"))
     else
         parts[#parts + 1] = " <TEXT> " .. UI.escape(getText("IGUI_StoryEngine_Catalog_Empty"))
@@ -232,14 +246,15 @@ function StoryEngineTradeCatalogWindow:showDetail()
     self.detail:setText(table.concat(parts))
     self.detail:paginate()
     self.detail:setYScroll(0)
-    local can = row ~= nil and row.open and d.allowed == true and d.reason ~= "open_deal" and d.reason ~= "negotiating"
+    local can = row ~= nil and row.open and (d.allowed == true or row.black == true) and d.reason ~= "open_deal"
+        and d.reason ~= "negotiating"
     local chosen = row and self.bundle and row.bundles[self.bundle] or nil
     local anyLeft = false
     for _, b in ipairs(row and row.bundles or {}) do
         if not b.sold then anyLeft = true end
     end
     self.askButton:setEnable(can and chosen ~= nil and not chosen.sold)
-    self.randomButton:setEnable(can and anyLeft)
+    self.randomButton:setEnable(can and anyLeft and not row.black)
 end
 
 function StoryEngineTradeCatalogWindow:onTier(row)
@@ -257,6 +272,7 @@ local function ask(self, bundle)
     local row = self.row
     local p = getSpecificPlayer(0)
     if not row or not p then return end
+    if row.black then bundle = "black" end
     Net.toServer(p, "tradeAsk", { faction = self.data.faction, category = row.category, tier = row.tier, bundle = bundle })
     self:close()
 end

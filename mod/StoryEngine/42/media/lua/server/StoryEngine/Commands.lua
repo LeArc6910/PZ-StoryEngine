@@ -158,7 +158,7 @@ end
 
 -- 거점 탭: NPC 생활 상태·행적·평판 (Life.lua)
 function Commands.lifeList(player, args)
-    reply(player, "lifeList", { npcs = StoryEngine.Life.list() })
+    reply(player, "lifeList", { npcs = StoryEngine.Life.list(StoryEngine.Store.playerKey(player)) })
 end
 
 -- 물자 지원: args = { faction, items = 아이템 ID 목록 }
@@ -171,7 +171,7 @@ function Commands.lifeDonate(player, args)
         ok = ok, faction = fid, error = (not ok) and tostring(info) or nil, wait = wait,
         gains = ok and info.gains or nil, trust = ok and info.trust or nil, points = ok and info.points or nil,
     })
-    reply(player, "lifeList", { npcs = StoryEngine.Life.list() })
+    reply(player, "lifeList", { npcs = StoryEngine.Life.list(StoryEngine.Store.playerKey(player)) })
 end
 
 -- 특기 지원: args = { faction, target (레이 보급 대상) }
@@ -182,7 +182,7 @@ function Commands.specialtyRequest(player, args)
         ok = ok, faction = fid, error = (not ok) and tostring(info) or nil, wait = wait,
         pending = ok and info.pending or nil,
     })
-    reply(player, "lifeList", { npcs = StoryEngine.Life.list() })
+    reply(player, "lifeList", { npcs = StoryEngine.Life.list(StoryEngine.Store.playerKey(player)) })
 end
 
 -- 닥 치료: 클라이언트가 10초 동안 가만히 있었다
@@ -190,7 +190,7 @@ function Commands.specHealDone(player, args)
     local ok, info = StoryEngine.Specialty.healDone(player)
     reply(player, "specialtyResult", { ok = ok, faction = "doc", healed = ok and info or nil,
                                        error = (not ok) and tostring(info) or nil })
-    reply(player, "lifeList", { npcs = StoryEngine.Life.list() })
+    reply(player, "lifeList", { npcs = StoryEngine.Life.list(StoryEngine.Store.playerKey(player)) })
 end
 
 -- 라디오 방송을 들었다 (BroadcastClient: 그 주파수에 맞춰 켠 라디오가 있다)
@@ -376,7 +376,7 @@ function Commands.debugLife(player, args)
         StoryEngine.Fate.apply(fid, args.fate, "debug")
     end
     reply(player, "debugStatus", { text = StoryEngine.Life.statusText() .. " | " .. StoryEngine.Tuning.statusText() })
-    reply(player, "lifeList", { npcs = StoryEngine.Life.list() })
+    reply(player, "lifeList", { npcs = StoryEngine.Life.list(StoryEngine.Store.playerKey(player)) })
 end
 
 -- 디버그: 세력 신뢰도 조절. args = { faction, delta } 또는 { faction, set }
@@ -441,7 +441,7 @@ end
 -- 거래 대가를 물건 대신 일·외상·빚으로 (Work.lua)
 function Commands.tradeWork(player, args)
     local ok, why = StoryEngine.Work.choose(player, tostring(args.id or ""), tostring(args.how or ""))
-    reply(player, "tradeWorkResult", { ok = ok, how = args.how, error = not ok and why or nil })
+    reply(player, "tradeWorkResult", { ok = ok, how = ok and why or args.how, error = not ok and why or nil })
 end
 
 function Commands.tradeAsk(player, args)

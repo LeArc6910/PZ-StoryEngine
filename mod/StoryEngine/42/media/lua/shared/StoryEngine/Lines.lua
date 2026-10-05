@@ -44,19 +44,11 @@ Lines.COUNT = {
     -- 명절 (Holiday.lua): 예고, 잔치 (명절 이름)
     holiday_soon = 1, holiday_feast = 1,
 }
--- 이 종류는 이 NPC 들만 (Work.KINDS 와 같게)
+-- 이 종류는 이 NPC 들만. 다른 대가(work_*)는 2026-10-05부터 모든 NPC, 찾아오기는 예전 세이브용
 Lines.ONLY = {
     extort = { guard = true, rats = true },
     extort_paid = { guard = true, rats = true },
-    work_horde = { guard = true, rats = true, hunter = true },
     work_fetch = { ray = true, casey = true, doc = true, dewey = true, rats = true },
-    work_scout = { casey = true, dewey = true, guard = true, hunter = true },
-    work_guard = { pike = true, guard = true },
-    work_courier = { ray = true, casey = true, doc = true, pike = true, rats = true },
-    work_credit = { ray = true, casey = true, doc = true, dewey = true, rats = true },
-    work_favor = { ray = true, pike = true, dewey = true, guard = true, rats = true, hunter = true },
-    favor_call = { ray = true, pike = true, dewey = true, guard = true, rats = true, hunter = true },
-    work_done = { pike = true, guard = true, rats = true, hunter = true },      -- 덤이 붙는 일(소탕·경비)을 받는 NPC
 }
 
 -- 이 NPC 대사가 없을 때 쓰는 공통 문장 (예전 키)

@@ -107,4 +107,15 @@ function T.food_relief_uses_what_is_inside_a_sealed_can()
     H.eq(t, 0, "salty food does not count thirst")
 end
 
+function T.big_magazines_raise_the_gun_tier()
+    local IP = StoryEngine.ItemPool
+    H.eq(IP.capacityMod(17), 0, "standard pistol magazine")
+    H.eq(IP.capacityMod(6), 0, "revolver")
+    H.eq(IP.capacityMod(30), 1, "extended / rifle magazine")
+    H.eq(IP.capacityMod(50), 2, "drum")
+    H.eq(IP.capacityMod(100), 3, "big drum")
+    H.eq(math.min(5, IP.AMMO_TIERS.bullets9mm + IP.ACTION_MOD.semi + IP.capacityMod(50)), 3,
+        "a 9mm pistol with a 50-round drum is tier 3, not 1")
+end
+
 return T

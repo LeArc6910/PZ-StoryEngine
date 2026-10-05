@@ -1,17 +1,19 @@
 -- 물건 대신 다른 대가로 거래하기 (2026-10-04). 거래 제안(trade 퀘스트)에 대가 방식을 고른다.
 --
---   일로 갚기 (Work.LABOR): 소탕(horde) / 찾아오기(fetch) / 정찰(scout = visit) / 경비(guard = defend) /
---                          배달 대행(courier = 꾸러미를 찾아(fetch) 다른 건물까지 가져가기(visit + carry))
+--   일로 갚기 (Work.LABOR, 2026-10-05 개편): 버튼 하나로 받고, 일의 종류는 서버가 무작위로 고른다.
+--     소탕(horde) / 경비(guard = defend, 소탕 수의 1.5배를 시간에 나눠) /
+--     정찰(scout: 지점 여러 곳, 좀비 있는 건물에 들어가 머물기, 3등급부터 밤에만) /
+--     배달 대행(courier: 꾸러미를 찾아(fetch) 다른 건물까지(visit + carry). 챙기면 추적 무리, 다치면 꾸러미 손상, 짧은 기한)
+--     찾아오기(fetch)는 정찰과 겹쳐 없앴다 (예전 세이브의 진행 중 찾아오기는 그대로 끝난다).
 --     일 퀘스트는 복구 작전처럼 "관리되는 퀘스트"(Quests.isManaged)라 제 보상·신뢰도·반응이 없고, 결과만 거래로 넘긴다.
---     일을 마치면 거래한 물건을 배송한다. 소탕·경비(Work.BONUS)는 한 등급 낮은 묶음을 하나 더 얹고,
---     쉬운 찾아오기·정찰·배달은 물건만 (사용자 결정 2026-10-04).
---     일이 실패하면 거래도 실패 (대가를 안 낸 것과 같은 감점).
+--     일을 마치면 거래한 물건 + 덤(한 등급 낮은 묶음)을 배송한다. 배달은 꾸러미 상태에 따라 덤·물건이 줄어든다.
+--     일이 실패하면 거래도 실패 (대가를 안 낸 것과 같은 감점). 거래 가능한 등급이면 어느 등급이든 일로 갚을 수 있다.
 --   외상 (credit): 물건을 먼저 받고 며칠 안에 대가를 낸다 (값 x1.1, 신뢰도 60 이상).
 --   빚 (favor): 물건을 그냥 받고(신뢰도 변화 없음), 그 NPC 가 이틀 뒤 부탁을 하나 한다.
 --   외상을 못 갚거나 빚 부탁을 거절·무시·실패하면 신뢰도가 크게 떨어지고(Work.DEFAULT_PENALTY, 등급별),
 --   그 NPC 와는 2주 동안 외상·빚을 할 수 없다 (Work.BURN_MIN).
 --
--- NPC 마다 어떤 방식을 받는지는 Work.KINDS (성격에 맞춰). 일·외상·빚은 합쳐서 NPC 마다 게임 7일에 Work.PER_WEEK 번.
+-- 모든 NPC 가 모든 방식을 받는다 (2026-10-05). 일·외상·빚은 합쳐서 NPC 마다 게임 7일에 Work.PER_WEEK 번.
 
 if isClient() then return end
 
@@ -35,30 +37,41 @@ StoryEngine.Work = Work
 
 Work.PER_WEEK = 2
 Work.WEEK_MIN = 7 * 24 * 60
-Work.LABOR = { horde = true, fetch = true, scout = true, guard = true, courier = true }
-Work.BONUS = { horde = true, guard = true }       -- 덤을 받는 일 (나머지는 물건만)
--- 쉬운 일(찾아오기·정찰·배달)은 그 품목의 지금 거래 가능 최고 등급보다 한 등급 아래 거래에서만 (2026-10-04 사용자 결정)
-Work.EASY = { fetch = true, scout = true, courier = true }
+Work.LABOR = { horde = true, scout = true, guard = true, courier = true }
+Work.LABOR_LIST = { "horde", "scout", "guard", "courier" }
+Work.BONUS = { horde = true, scout = true, guard = true, courier = true }   -- 덤을 받는 일 (예전 찾아오기는 없음)
 Work.DEFAULT_PENALTY = { 10, 12, 15, 18, 20 }     -- 외상·빚을 안 갚았을 때 등급별 신뢰도 하락 (거래 실패 감점과 별도)
 Work.BURN_MIN = 14 * 24 * 60                      -- 그 뒤 그 NPC 와 외상·빚을 못 하는 기간
-Work.ORDER = { "horde", "fetch", "scout", "guard", "courier", "credit", "favor" }
+Work.ORDER = { "labor", "credit", "favor" }       -- 퀘스트 탭 메뉴 순서
+Work.ALL = { "horde", "scout", "guard", "courier", "credit", "favor" }
 Work.KINDS = {
-    ray = { "fetch", "courier", "credit", "favor" },
-    casey = { "scout", "fetch", "courier", "credit" },
-    doc = { "courier", "fetch", "credit" },
-    pike = { "guard", "courier", "favor" },
-    dewey = { "fetch", "scout", "credit", "favor" },
-    guard = { "horde", "guard", "scout", "favor" },
-    rats = { "fetch", "horde", "courier", "credit", "favor" },
-    hunter = { "horde", "scout", "favor" },
+    ray = Work.ALL, casey = Work.ALL, doc = Work.ALL, pike = Work.ALL,
+    dewey = Work.ALL, guard = Work.ALL, rats = Work.ALL, hunter = Work.ALL,
 }
 Work.CREDIT_TRUST = 60
 Work.FAVOR_TRUST = 40
 Work.CREDIT_INTEREST = 1.1
 Work.CREDIT_DAYS = 14                            -- 외상 상환 기한 (게임 일, 2026-10-04: 2주)
+-- 경비 (2026-10-05): 등급별 시간 동안 소탕 수(Quests.HORDE_SIZE)의 GUARD_TOTAL 배를 무리 여러 번에 나눠 보낸다.
+-- 정비할 틈이 있어 소탕보다 많다. 무리 수 = 시간 / GUARD_WAVE (올림), 첫 무리는 도착하자마자
 Work.GUARD_MIN = { 60, 90, 120, 180, 240 }        -- 등급별 경비 시간 (게임 분)
 Work.GUARD_WAVE = 40                              -- 경비 중 무리 간격 (게임 분)
-Work.GUARD_SHARE = 0.3                            -- 무리 크기 = 지금 추적 무리 크기 x 이 값 (최소 4)
+Work.GUARD_TOTAL = 1.5
+-- 정찰 (2026-10-05): 지점 수, 지점마다 머물 시간, 건물 안 좀비 = 등급 x SCOUT_ZOMBIES, 3등급부터 밤에만
+Work.SCOUT_POINTS = { 2, 2, 3, 3, 4 }
+Work.SCOUT_STAY = 20
+Work.SCOUT_ZOMBIES = 3
+Work.SCOUT_NIGHT_TIER = 3
+Work.SCOUT_HOP = { 60, 200 }                      -- 다음 지점까지 거리 (타일)
+Work.SCOUT_HOP_HOURS = 12                         -- 지점이 하나 늘 때마다 기한 +
+Work.SCOUT_NIGHT_HOURS = 24                       -- 밤에만일 때 기한 +
+-- 배달 (2026-10-05): 챙기면 추적 무리 = 지금 추적 무리 크기 x (COURIER_HUNT[1] + COURIER_HUNT[2] x 등급),
+-- 기한 x COURIER_DEADLINE, 꾸러미 상태 PARCEL_MAX(150)%에서 다칠 때마다 깎임.
+-- 100% 이상이면 덤이 (상태-100)/50 만큼, 100% 미만이면 덤 없이 물건이 상태% 만큼
+Work.COURIER_HUNT = { 0.2, 0.15 }
+Work.COURIER_DEADLINE = 0.6
+Work.PARCEL_MAX = 150
+Work.PARCEL_HIT = { scratched = 10, cut = 20, deep = 30, bitten = 30, fracture = 40 }
 Work.FAVOR_CALL_MIN = 2 * 24 * 60                 -- 빚을 진 뒤 부탁이 오기까지
 Work.FAVOR_EXPIRE_MIN = 14 * 24 * 60              -- 부탁이 끝내 안 오면 빚은 사라진다
 Work.PARCEL = "StoryEngine.SealedParcel"
@@ -73,7 +86,7 @@ end
 
 local function has(fid, how)
     for _, k in ipairs(Work.KINDS[fid] or {}) do
-        if k == how then return true end
+        if k == how or (how == "labor" and Work.LABOR[k]) then return true end
     end
     return false
 end
@@ -98,14 +111,10 @@ function Work.maxTier(fid, category)
     return 0
 end
 
--- 이 방식을 지금 쓸 수 있나. q = 거래 (쉬운 일의 등급 제한에 쓴다)
--- 반환: true | false, 이유("trust" + 필요 신뢰도 | "tier" + 가능한 최고 등급 | "week" | "kind" | "gone" | "owed" | "burned")
+-- 이 방식을 지금 쓸 수 있나. how = "labor"(일로 갚기, 종류는 무작위) | 일 종류 | "credit" | "favor"
+-- 반환: true | false, 이유("trust" + 필요 신뢰도 | "week" | "kind" | "gone" | "owed" | "burned")
 function Work.check(fid, how, q)
     if not has(fid, how) then return false, "kind" end
-    if Work.EASY[how] and q then
-        local top = Work.maxTier(fid, q.category) - 1
-        if (q.tier or 1) > top then return false, "tier", math.max(0, top) end
-    end
     if Factions.isGone(fid) then return false, "gone" end
     local trust = Radio.channel(fid).trust
     if (how == "credit" or how == "favor") and (Radio.channel(fid).workBurnT or 0) > now().t then return false, "burned" end
@@ -118,16 +127,31 @@ function Work.check(fid, how, q)
     return true
 end
 
--- 퀘스트 탭에 보여 줄 방식 목록
+-- 퀘스트 탭에 보여 줄 방식 목록: 일로 갚기(하나) / 외상 / 빚
 function Work.options(q)
     local fid = q.origin and q.origin.faction
     if not fid or not Work.KINDS[fid] then return nil end
     local out = {}
-    for _, how in ipairs(Work.KINDS[fid]) do
-        local ok, why, need = Work.check(fid, how, q)
-        out[#out + 1] = { how = how, ok = ok or nil, why = why, need = need }
+    for _, how in ipairs(Work.ORDER) do
+        if has(fid, how) then
+            local ok, why, need = Work.check(fid, how, q)
+            out[#out + 1] = { how = how, ok = ok or nil, why = why, need = need }
+        end
     end
     return out, math.max(0, Work.PER_WEEK - Work.weekUsed(fid, now().t))
+end
+
+-- 일로 갚기: 이 NPC 가 받는 일 종류를 무작위 순서로
+function Work.laborKinds(fid)
+    local list = {}
+    for _, k in ipairs(Work.KINDS[fid] or {}) do
+        if Work.LABOR[k] then list[#list + 1] = k end
+    end
+    for i = #list, 2, -1 do
+        local j = ZombRand(i) + 1
+        list[i], list[j] = list[j], list[i]
+    end
+    return list
 end
 
 local function playerOf(ps)
@@ -161,6 +185,29 @@ local function childOrigin(trade, how, stage)
              stage = stage }
 end
 
+-- 정찰 다음 지점들: 앞 지점에서 SCOUT_HOP 거리의 다른 건물
+local function scoutHops(first, count, exclude)
+    local out, from = {}, first
+    for _ = 2, count do
+        local found = Quests.findBuilding(from.x, from.y, Work.SCOUT_HOP[1], Work.SCOUT_HOP[2], exclude)
+            or Quests.findBuilding(from.x, from.y, Work.SCOUT_HOP[2], Work.SCOUT_HOP[2] * 2, exclude)
+        if not found then break end
+        exclude[found.key] = true
+        local def = found.def
+        local site = { x = math.floor((def:getX() + def:getX2()) / 2), y = math.floor((def:getY() + def:getY2()) / 2) }
+        out[#out + 1] = site
+        from = site
+    end
+    return out
+end
+
+-- 경비 무리: 소탕 수의 GUARD_TOTAL 배를 시간 안의 무리 수로 나눈다
+function Work.guardPlan(tier)
+    local total = Quests.zombieCount(Quests.HORDE_SIZE[tier] * Work.GUARD_TOTAL)
+    local waves = math.max(1, math.ceil(Work.GUARD_MIN[tier] / Work.GUARD_WAVE))
+    return math.max(1, math.ceil(total / waves)), waves, total
+end
+
 -- 일 퀘스트를 만든다. 반환: 퀘스트 | nil, 이유
 function Work.startLabor(trade, how, player, ps, t)
     local tier = math.max(1, math.min(Quests.MAX_TIER, trade.tier or 1))
@@ -168,6 +215,7 @@ function Work.startLabor(trade, how, player, ps, t)
     if ps.home and ps.home.building then exclude[ps.home.building] = true end
     local site, distance, key = pickSite(player:getX(), player:getY(), tier, exclude)
     if not site then return nil, "no_building" end
+    if key then exclude[key] = true end
     local deadline = t.t + Quests.deadlineMinutes(distance)
     local opts = { tier = tier, building = true, search = 12, deadlineT = deadline }
     local kind = how
@@ -176,8 +224,13 @@ function Work.startLabor(trade, how, player, ps, t)
     elseif how == "fetch" then
         opts.item = Quests.FETCH_ITEMS[ZombRand(#Quests.FETCH_ITEMS) + 1]
     elseif how == "scout" then
-        kind = "visit"
         opts.radius = Work.SCOUT_RADIUS
+        opts.more = scoutHops(site, Work.SCOUT_POINTS[tier], exclude)
+        opts.stayMin = Work.SCOUT_STAY
+        opts.zombies = tier * Work.SCOUT_ZOMBIES
+        opts.night = tier >= Work.SCOUT_NIGHT_TIER or nil
+        opts.deadlineT = deadline + #opts.more * Work.SCOUT_HOP_HOURS * 60
+            + (opts.night and Work.SCOUT_NIGHT_HOURS * 60 or 0)
     elseif how == "guard" then
         kind = "defend"
         opts.needMin = Work.GUARD_MIN[tier]
@@ -186,28 +239,65 @@ function Work.startLabor(trade, how, player, ps, t)
     elseif how == "courier" then
         kind = "fetch"
         opts.item = Work.PARCEL
+        opts.deadlineT = t.t + math.floor(Quests.deadlineMinutes(distance) * Work.COURIER_DEADLINE)
     end
     local q, why = Quests.createSite(kind, ps, site, t, childOrigin(trade, how, how == "courier" and "pickup" or nil), opts)
     if not q then return nil, why end
     q.tier, q.distance, q.siteKey = tier, math.floor(distance or 0), key
+    if how == "guard" then q.waveSize, q.wavesMax = Work.guardPlan(tier) end
     return q
 end
 
--- 배달 대행 2단계: 꾸러미를 챙겼으면 배달할 건물을 정한다
-local function startDropoff(trade, pickup, t)
+-- 배달 대행 2단계: 꾸러미를 챙겼으면 배달할 건물을 정하고, 꾸러미를 가진 사람에게 추적 무리를 붙인다
+local function startDropoff(trade, pickup, t, carrier)
     local ps = Store.data().players[trade.target] or {}
     local site, distance = pickSite(pickup.cx, pickup.cy, math.max(1, (trade.tier or 1) - 1), { [pickup.building or ""] = true })
     if not site then return nil end
     local q = Quests.createSite("visit", ps.key and ps or nil, site, t, childOrigin(trade, "courier", "dropoff"),
         { tier = trade.tier, building = true, search = 12, radius = Work.SCOUT_RADIUS,
-          deadlineT = t.t + Quests.deadlineMinutes(distance) })
+          deadlineT = t.t + math.floor(Quests.deadlineMinutes(distance) * Work.COURIER_DEADLINE) })
     if not q then return nil end
     q.carry = { qid = pickup.id, items = { Work.PARCEL } }
+    q.parcel = Work.PARCEL_MAX
     q.distance = math.floor(distance or 0)
     trade.workId = q.id
     trade.deadlineT = q.deadlineT + 24 * 60
     log("work courier dropoff", trade.id, q.id, "from", pickup.id)
+    q.helpers = q.helpers or {}
+    for k, v in pairs(pickup.helpers or {}) do q.helpers[k] = v end
+    Work.say(q, "courier_pickup", function(p) return where(q, p) end, "Got the parcel. Take it on.")
+    local Hunt = StoryEngine.Hunt
+    if carrier and Hunt then
+        local tier = math.max(1, math.min(Quests.MAX_TIER, trade.tier or 1))
+        local size = math.max(4, math.floor(Hunt.sizeNow() * (Work.COURIER_HUNT[1] + Work.COURIER_HUNT[2] * tier) + 0.5))
+        local ok, err = pcall(Hunt.sendAt, carrier, "work_courier", size)
+        if ok then q.hunted = size else log("work courier hunt error:", err) end
+        log("work courier hunt", q.id, size)
+    end
     return q
+end
+
+-- 꾸러미를 가진 플레이어인가 (배달 2단계)
+local function holdsParcel(player, q)
+    if not player or not q.carry then return false end
+    return #Quests.findInInventory(player, { items = q.carry.items, id = q.carry.qid }) > 0
+end
+
+-- 목록에서 가치 share 만큼만 남긴다 (앞에서부터, 넘치는 것은 건너뛰고 더 싼 것을 계속 본다)
+function Work.trim(list, share)
+    if share >= 1 then return list end
+    local Value = StoryEngine.Value
+    local total = 0
+    for _, ft in ipairs(list) do total = total + (Value.of(ft) or 0) end
+    local budget, out, used = total * math.max(0, share), {}, 0
+    for _, ft in ipairs(list) do
+        local v = Value.of(ft) or 0
+        if used + v <= budget + 0.001 then
+            out[#out + 1] = ft
+            used = used + v
+        end
+    end
+    return out
 end
 
 -- 일로 갚을 때 더 받는 묶음 (한 등급 낮은 같은 품목)
@@ -229,18 +319,72 @@ local function where(q, player)
     return { { t = "town", v = q.place and q.place.town or town }, { t = "dir", v = code }, { t = "num", v = distance } }
 end
 
+local DIR_CODES = { "E", "SE", "S", "SW", "W", "NW", "N", "NE" }
+local function dirCode(dx, dy)
+    local angle = math.atan2(dy, dx) * 180 / math.pi
+    return DIR_CODES[math.floor(((angle + 360 + 22.5) % 360) / 45) + 1]
+end
+
+-- ---------------------------------------------------------------- 진행 무전 (2026-10-05)
+-- 일하는 사람 머리 위에 짧은 진행 소식 (퀘스트 창을 열지 않아도 되게). AI 를 쓰지 않는 준비된 문장
+-- (IGUI_StoryEngine_WorkNote_<key>), 무전 기록에는 남기지 않는다. 받는 사람: 거래한 사람 + 일에 손을 보탠 사람(접속 중)
+-- args = 인자 목록 또는 function(player) -> 인자 목록 (방향처럼 사람마다 다른 것)
+function Work.say(q, key, args, english)
+    local trade = Store.data().quests[q.origin.work]
+    local keys = {}
+    if trade and trade.target then keys[trade.target] = true end
+    if q.target then keys[q.target] = true end
+    for k, _ in pairs(q.helpers or {}) do keys[k] = true end
+    local fid = q.origin.faction
+    for _, p in ipairs(Sensor.players()) do
+        local ps = Store.player(p)
+        if keys[ps.key] then
+            local a = type(args) == "function" and args(p) or args
+            Radio.overhead(ps.key, fid, english or "", { key = "IGUI_StoryEngine_WorkNote_" .. key, args = a or {} })
+        end
+    end
+    log("work note", q.id, key)
+end
+
+local function num(v) return { t = "num", v = math.floor(v or 0) } end
+
+Quests.progressHooks[#Quests.progressHooks + 1] = function(q, event, info)
+    if not Work.isWork(q) then return end
+    if event == "kill" then
+        local step = math.floor((q.killed or 0) * 4 / math.max(1, q.killsNeeded or 1)) * 25
+        if step >= 25 and step < 100 and step > (q.notedPct or 0) then
+            q.notedPct = step
+            Work.say(q, "horde", { num(q.killed), num(q.killsNeeded) }, "Clearing: " .. tostring(q.killed) .. " down.")
+        end
+    elseif event == "scout_entered" then
+        Work.say(q, "scout_entered", { num(q.stayMin) }, "Inside. Stay around a while.")
+    elseif event == "scout_enter" then
+        Work.say(q, "scout_enter", {}, "Now go inside the building.")
+    elseif event == "scout_night" then
+        Work.say(q, "scout_night", {}, "Wait for nightfall.")
+    elseif event == "scout_next" then
+        Work.say(q, "scout_next", function(p)
+            local w = where(q, p)
+            return { num(info.done), num(#(q.points or {})), w[1], w[2], w[3] }
+        end, "Next point.")
+    elseif event == "defend_pct" then
+        Work.say(q, "guard_pct", { num(info.pct), num(info.left) }, "Holding.")
+    end
+end
+
 local TOPIC = {
     horde = "they will clear out a pack of the dead around a building for you instead",
     fetch = "they will retrieve a sealed package from a building for you instead",
-    scout = "they will go and look over a building for you instead",
-    guard = "they will stand guard at a building for you for a while instead",
-    courier = "they will pick up a parcel and carry it to another building for you instead",
+    scout = "they will scout several buildings for you instead: go inside each one (the dead are in there) and watch it for a while",
+    guard = "they will stand guard at a building for you for a while instead, and packs of the dead will come",
+    courier = "they will pick up a fragile parcel and carry it to another building for you instead, quickly; the dead will follow the carrier",
     credit = "you let them take the goods now and pay later, a little extra for the trouble",
     favor = "you let them have it now for nothing, but they owe you a favor and you will call it in soon",
 }
 
--- 거래 제안에 대가 방식을 고른다. 반환: true | false, 이유
-function Work.choose(player, qid, how)
+-- 거래 제안에 대가 방식을 고른다. 반환: true, 정해진 방식 | false, 이유
+-- force = 일 종류 고정 (테스트·디버그용, 클라이언트 명령은 넘기지 않는다)
+function Work.choose(player, qid, how, force)
     local q = Store.data().quests[qid]
     if not q or q.kind ~= "trade" then return false, "no_quest" end
     if not (q.state == "proposed" or (q.state == "accepted" and not q.payKind)) then return false, "not_open" end
@@ -251,8 +395,16 @@ function Work.choose(player, qid, how)
     local ps = Store.player(player)
     local t = now()
     local child = nil
-    if Work.LABOR[how] then
-        child, why = Work.startLabor(q, how, player, ps, t)
+    if how == "labor" or Work.LABOR[how] then
+        -- 일로 갚기: 종류는 서버가 무작위로 (건물을 못 찾으면 다른 종류로). 고른 뒤에는 바꿀 수 없다
+        why = "no_building"
+        for _, kind in ipairs(force and { force } or Work.laborKinds(fid)) do
+            child, why = Work.startLabor(q, kind, player, ps, t)
+            if child then
+                how = kind
+                break
+            end
+        end
         if not child then return false, why or "no_building" end
     end
     if q.state == "proposed" then Quests.respond(player, qid, true) end
@@ -267,7 +419,8 @@ function Work.choose(player, qid, how)
         q.workId = child.id
         q.deadlineT = child.deadlineT + 24 * 60
         Radio.react(fid, "event", topic .. " Tell them briefly where (from them): it is in the quest log.",
-            Lines.fallback(fid, "work_" .. how, "Do this for me and the goods are yours.", where(child, player)), ps)
+            Lines.fallback(fid, "work_" .. how, "Do this for me and the goods are yours.", where(child, player)), ps,
+            { overhead = true })
     elseif how == "credit" then
         q.credit = true
         q.price = math.ceil((q.price or 0) * Work.CREDIT_INTEREST)
@@ -287,7 +440,7 @@ function Work.choose(player, qid, how)
     end
     log("work chosen", q.id, fid, how, child and child.id or "", "by", ps.name)
     Quests.notify(q)
-    return true
+    return true, how
 end
 
 -- 일 퀘스트·거래·빚 부탁의 상태가 바뀌었다 (Quests 의 setState 끝에서 부른다)
@@ -330,7 +483,12 @@ function Work.onChild(q, state, t)
         return
     end
     if state == "completed" and how == "courier" and q.origin.stage == "pickup" then
-        if not startDropoff(trade, q, t) then
+        local carrier = nil
+        for _, p in ipairs(Sensor.players()) do
+            if not carrier and #Quests.findInInventory(p, q) > 0 then carrier = p end
+        end
+        carrier = carrier or nearestPlayer(q.sx or q.cx or 0, q.sy or q.cy or 0)
+        if not startDropoff(trade, q, t, carrier) then
             Quests.setState(trade, "failed", t, nil)
         end
         Quests.notify(trade)
@@ -339,18 +497,38 @@ function Work.onChild(q, state, t)
     if state == "completed" then
         local player = nearestPlayer(q.cx or 0, q.cy or 0)
         local ps = player and Store.player(player) or Store.data().players[trade.target]
-        local goods = {}
-        for _, g in ipairs(trade.goods or {}) do goods[#goods + 1] = g end
+        local base = {}
+        for _, g in ipairs(trade.goods or {}) do base[#base + 1] = g end
         local bonus = Work.BONUS[how] and Work.bonusGoods(trade) or {}
+        if q.parcel then
+            -- 배달: 꾸러미 상태 100% 이상이면 덤이 줄고, 그 아래면 덤 없이 물건이 준다
+            local cond = math.max(0, math.min(Work.PARCEL_MAX, q.parcel))
+            if cond >= 100 then
+                bonus = Work.trim(bonus, (cond - 100) / (Work.PARCEL_MAX - 100))
+            else
+                bonus = {}
+                base = Work.trim(base, cond / 100)
+            end
+            trade.parcel = cond
+        end
+        local goods = {}
+        for _, g in ipairs(base) do goods[#goods + 1] = g end
         for _, g in ipairs(bonus) do goods[#goods + 1] = g end
         trade.workBonus = #bonus > 0 and bonus or nil
-        if player then trade.delivered = (deliver(trade, player, ps, goods, t) or {}).id end
+        if player and #goods > 0 then trade.delivered = (deliver(trade, player, ps, goods, t) or {}).id end
+        if q.parcel and q.parcel < 100 then trade.goodsKept = base end
         Quests.setState(trade, "completed", t, ps and { ps = ps } or nil)
         local fid = trade.origin.faction
         local extra = #bonus > 0 and " plus a little extra for the hard work" or ""
+        if q.parcel and q.parcel < 100 then
+            extra = ", but the parcel arrived damaged so you sent less than agreed"
+        elseif q.parcel and q.parcel < Work.PARCEL_MAX then
+            extra = extra .. " (less extra: the parcel got knocked about)"
+        end
         Radio.react(fid, "event", "The players finished the work they did instead of paying (" .. tostring(how)
             .. "). You sent the goods" .. extra .. "; the drop location comes in a separate call.",
-            StoryEngine.Lines.fallback(fid, #bonus > 0 and "work_done" or "work_paid", "Good work. The goods are on the way."), ps)
+            StoryEngine.Lines.fallback(fid, #bonus > 0 and "work_done" or "work_paid", "Good work. The goods are on the way."), ps,
+            { overhead = true })
         log("work done", trade.id, how, "bonus", #bonus)
     elseif state == "failed" then
         Quests.setState(trade, "failed", t, nil)
@@ -358,25 +536,55 @@ function Work.onChild(q, state, t)
     end
 end
 
--- 게임 내 10분마다 (Sensor tick): 경비 중 무리, 빚 부탁 걸기
+-- 경비 무리 크기 (예전 세이브의 경비 퀘스트는 waveSize 가 없어 등급으로 다시 계산)
+local function guardWave(q)
+    if not q.waveSize then
+        local tier = math.max(1, math.min(Quests.MAX_TIER, q.tier or 1))
+        q.waveSize, q.wavesMax = Work.guardPlan(tier)
+    end
+    return q.waveSize, q.wavesMax
+end
+
+-- 배달 중 꾸러미를 가진 사람이 다치면 꾸러미가 상한다
+function Work.parcelHarm(entries)
+    for _, q in pairs(Store.data().quests) do
+        if Work.isWork(q) and q.carry and q.parcel and Quests.isActive(q) then
+            for _, e in ipairs(entries) do
+                if #(e.newHarm or {}) > 0 and holdsParcel(e.player, q) then
+                    local hit = 0
+                    for _, h in ipairs(e.newHarm) do hit = hit + (Work.PARCEL_HIT[h.kind] or 10) end
+                    q.parcel = math.max(0, q.parcel - hit)
+                    log("work parcel damaged", q.id, "-" .. StoryEngine.intToString(hit), "now", q.parcel)
+                    Work.say(q, q.parcel >= 100 and "parcel" or "parcel_low", { num(q.parcel) }, "The parcel got damaged.")
+                    Quests.notify(q)
+                end
+            end
+        end
+    end
+end
+
+-- 게임 내 10분마다 (Sensor tick): 경비 중 무리, 꾸러미 손상, 빚 부탁 걸기
 function Work.tick(entries, t)
     local players = Sensor.players()
     if #players == 0 then return end
     for _, q in pairs(Store.data().quests) do
         if Work.isWork(q) and q.kind == "defend" and Quests.isActive(q) and (q.present or 0) > 0
             and t.t >= (q.nextWaveT or 0) then
+            local size, most = guardWave(q)
             local target = nearestPlayer(q.cx, q.cy)
-            if target and StoryEngine.Hunt then
-                local size = math.max(4, math.floor(StoryEngine.Hunt.sizeNow() * Work.GUARD_SHARE + 0.5))
+            if target and StoryEngine.Hunt and (q.waves or 0) < most then
                 local angle = ZombRandFloat(0, math.pi * 2)
                 local d = ZombRand(45, 66)
                 StoryEngine.Hunt.start(target, size, q.cx + math.cos(angle) * d, q.cy + math.sin(angle) * d, "work_guard")
+                Work.say(q, "guard_wave", { num((q.waves or 0) + 1), num(most), num(size),
+                    { t = "dir", v = dirCode(math.cos(angle), math.sin(angle)) } }, "A pack is coming.")
                 q.waves = (q.waves or 0) + 1
                 q.nextWaveT = t.t + Work.GUARD_WAVE
-                log("work guard wave", q.id, q.waves, size)
+                log("work guard wave", q.id, q.waves, "/", most, size)
             end
         end
     end
+    Work.parcelHarm(entries)
     Work.callFavors(t)
 end
 
