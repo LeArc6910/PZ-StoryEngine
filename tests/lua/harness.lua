@@ -266,8 +266,8 @@ function H.newItem(fullType, opts)
 end
 
 -- 가치표: Value.cache 에 직접 넣어 ItemPool(게임 스크립트 필요)을 건너뛴다
-function H.defineItem(fullType, category, value)
-    StoryEngine.Value.cache[fullType] = { category = category, value = value }
+function H.defineItem(fullType, category, value, tier)
+    StoryEngine.Value.cache[fullType] = { category = category, value = value, tier = tier }
 end
 
 function H.newPlayer(user, first, last)

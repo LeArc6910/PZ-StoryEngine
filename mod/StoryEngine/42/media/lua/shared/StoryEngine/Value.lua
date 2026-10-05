@@ -353,11 +353,20 @@ Value.WANTS = {
     rats = { "ammo", "firearm", "medical", "tools" },
 }
 
+-- 어떤 품목이든 대가로 받는 NPC인가 (빅 교역소 완성, 2026-10-05). 서버는 Projects 가, 클라이언트는 교신 목록(anyWants)이 정한다
+Value.anyWantsFn = function(fid) return false end
+
+-- 이 NPC 가 지금 대가로 받는 품목
+function Value.wantsOf(fid)
+    if Value.anyWantsFn(fid) then return Value.CATEGORIES end
+    return Value.WANTS[fid] or {}
+end
+
 -- 이 품목을 대가로 받는 NPC id 목록 (Factions.list 순서)
 function Value.wantedBy(category)
     local out = {}
     for _, f in ipairs(StoryEngine.Factions and StoryEngine.Factions.list or {}) do
-        for _, w in ipairs(Value.WANTS[f.id] or {}) do
+        for _, w in ipairs(Value.wantsOf(f.id)) do
             if w == category then out[#out + 1] = f.id end
         end
     end
@@ -422,6 +431,73 @@ function Value.moraleValue(fullType)
     end
     moraleCache[fullType] = value or false
     return value
+end
+
+-- ---------------------------------------------------------------- 품목 점수 부탁 (2026-10-04, 2026-10-05 확장)
+-- NPC 가 먼저 하는 부탁의 물건을 "그 품목 아무거나 가치 N점"으로 받는다. 거래 품목 6가지 + 전자기기·차량 부품
+-- (ItemTiers 등급) + 기호품(Value.moraleValue). 자재(못·나사·금속판·장작·씨앗 등)는 특정 물건 그대로.
+-- 등급 하한(minTier): 그 등급 이상인 물건만 점수로 센다 (탄약은 청한 구경의 등급, 기호품은 등급이 없다)
+Value.POINT_KINDS = { food = true, melee = true, firearm = true, medical = true, tools = true, ammo = true,
+                      electronics = true, vehicle = true, comfort = true }
+Value.POINT_TRADE = { food = true, melee = true, firearm = true, medical = true, tools = true, ammo = true }
+Value.POINT_MAX_TIER = { medical = 3 }
+Value.POINT_RESOURCE = { electronics = "morale", vehicle = "safety", comfort = "morale" }
+
+-- 이 물건이 어느 점수 품목인가 (아니면 nil)
+function Value.pointKind(fullType)
+    local cat = Value.categoryOf(fullType)
+    if Value.POINT_TRADE[cat] then return cat end
+    local IT = StoryEngine.ItemTiers or {}
+    if (IT.ELECTRONICS or {})[fullType] then return "electronics" end
+    if (IT.VEHICLE or {})[fullType] then return "vehicle" end
+    if Value.moraleValue(fullType) then return "comfort" end
+    return nil
+end
+
+-- 점수 품목 안에서의 등급 (없으면 nil)
+function Value.pointTier(fullType)
+    local kind = Value.pointKind(fullType)
+    local IT = StoryEngine.ItemTiers or {}
+    if kind == "electronics" then return (IT.ELECTRONICS or {})[fullType] end
+    if kind == "vehicle" then return (IT.VEHICLE or {})[fullType] end
+    if kind == "comfort" then return nil end
+    return lookup(fullType).tier
+end
+
+-- 종류 가치 (기호품은 기호품 가치)
+function Value.pointOf(fullType)
+    if Value.pointKind(fullType) == "comfort" then return Value.moraleValue(fullType) or 0 end
+    return Value.of(fullType) or 0
+end
+
+-- 물건 하나의 점수 (종류 가치 x 상태 비율)
+function Value.pointValue(item)
+    return Value.pointOf(item:getFullType()) * Value.ratio(item)
+end
+
+-- 이 물건을 이 점수 부탁에 낼 수 있나: 진행 중인 퀘스트 물건·채집 재료·부서진 것·입은 옷·상한 음식·빈 술병이 아니고,
+-- 품목이 맞고 등급이 하한 이상
+function Value.pointPayable(player, item, kind, minTier)
+    if activeQuestItem(item) then return false end
+    local ft = item:getFullType()
+    if Value.isRaw(ft) then return false end
+    if Value.ratio(item) <= 0 then return false end
+    if player and player:isEquippedClothing(item) then return false end
+    if instanceof(item, "Food") and item:isRotten() then return false end
+    if instanceof(item, "InventoryContainer") then return false end
+    if Value.pointKind(ft) ~= kind then return false end
+    if kind == "comfort" and Value.ALCOHOL[ft] and not Value.hasAlcohol(item) then return false end
+    if minTier and minTier > 1 and (Value.pointTier(ft) or 0) < minTier then return false end
+    return true
+end
+
+function Value.pointItems(player, kind, minTier)
+    local out = {}
+    local list = player:getInventory():getAllEvalRecurse(function(item)
+        return Value.pointPayable(player, item, kind, minTier)
+    end)
+    for i = 0, list:size() - 1 do out[#out + 1] = list:get(i) end
+    return out
 end
 
 -- 물건 -> (자원, 가치). 받지 않는 물건이면 nil

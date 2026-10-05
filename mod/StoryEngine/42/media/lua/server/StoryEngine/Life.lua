@@ -154,7 +154,7 @@ function Life.resourceOfItems(items)
         local res, value
         local pc = type(ft) == "string" and string.sub(ft, 1, 4) == "cat:" and string.sub(ft, 5) or nil
         if pc then
-            res, value = Value.RESOURCE_OF[pc], 1      -- 품목 점수 부탁 ("cat:food", 점수)
+            res, value = Value.RESOURCE_OF[pc] or Value.POINT_RESOURCE[pc], 1      -- 품목 점수 부탁 ("cat:food", 점수)
         else
             res, value = Value.resourceOf(ft)
         end
@@ -538,8 +538,8 @@ function Life.context(fid)
              project = StoryEngine.Projects and StoryEngine.Projects.info(fid) or nil }
 end
 
--- 거점 탭 목록
-function Life.list()
+-- 거점 탭 목록 (psKey = 보는 사람, 특기의 개인별 대기)
+function Life.list(psKey)
     local now = Sensor.now()
     local out = {}
     for _, f in ipairs(Factions.list) do
@@ -560,7 +560,7 @@ function Life.list()
             donateWait = Life.donateWait(f.id, now), records = recs, tags = Life.tags(f.id),
             likes = likes, dislikes = dislikes, bondVals = bondVals, key = Life.KEY[f.id], fate = n.fate and n.fate.kind or nil,
             fateDay = n.fate and n.fate.day or nil, starve = n.starve,
-            spec = StoryEngine.Specialty and StoryEngine.Specialty.status(f.id) or nil,
+            spec = StoryEngine.Specialty and StoryEngine.Specialty.status(f.id, psKey) or nil,
             project = StoryEngine.Projects and StoryEngine.Projects.info(f.id) or nil,
         }
     end

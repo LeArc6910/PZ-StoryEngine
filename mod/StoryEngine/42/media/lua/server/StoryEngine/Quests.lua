@@ -158,6 +158,16 @@ end
 -- 상태가 바뀔 때 부르는 함수들 (명절·유품 회수 등 다른 모듈이 등록한다). fn(q, state, outcome, trustDelta)
 Quests.hooks = {}
 
+-- 진행 중 일이 생길 때 부르는 함수들 (거래 대가 일의 머리 위 무전, Work.lua). fn(q, event, info)
+--   kill(소탕 처치) / scout_entered / scout_enter(머물렀지만 아직 안 들어감) / scout_night / scout_next / defend_pct
+Quests.progressHooks = {}
+function Quests.onProgress(q, event, info)
+    for _, fn in ipairs(Quests.progressHooks) do
+        local ok, err = pcall(fn, q, event, info or {})
+        if not ok then log("quest progress hook error:", err) end
+    end
+end
+
 -- 아이템 목록 요약 ("권총, 9mm 탄약 상자 x2")
 local function listText(list)
     local order, counts = {}, {}
@@ -179,7 +189,6 @@ Quests.listText = listText
 -- "그 품목 가치 N점" 하나로 합친다. 부탁 항목 { "cat:food", N }: 그 품목(Value.categoryOf)의 물건 아무거나 가치 합 N 이상.
 -- 음료(캔 음료·물 통조림)도 음식 품목이라 같이 합쳐진다. 근접 무기·총기도 종류가 많아 점수로 (같은 날 추가).
 -- 의약품·도구·탄약 등은 그대로 특정 물건 (탄약은 총에 맞는 구경이 중요해서).
-Quests.POINT_CATS = { food = true, melee = true, firearm = true }
 Quests.POINT_PREFIX = "cat:"
 
 -- 부탁 항목이 품목 점수면 그 품목 이름, 아니면 nil
@@ -189,23 +198,52 @@ function Quests.pointCat(entry)
     return string.sub(s, 5)
 end
 
--- 부탁 물건 목록에서 POINT_CATS 품목의 물건을 가치 합으로 바꾼다 (올림)
-function Quests.pointsNeed(items)
-    local out, sums, order = {}, {}, {}
+-- 샌드박스 부탁 난이도: 점수 배율(RequestPointsMult), 등급 하한(RequestMinTier: 1 없음 / 2 부탁 등급-2 / 3 부탁 등급-1 / 4 부탁 등급)
+local function pointsMult()
+    return StoryEngine.Tuning and StoryEngine.Tuning.num("RequestPointsMult") or 1
+end
+
+function Quests.pointMinTier(kind, tier)
+    if kind == "comfort" then return nil end
+    local opt = StoryEngine.Tuning and StoryEngine.Tuning.num("RequestMinTier") or 1
+    if opt <= 1 then return nil end
+    local min = (tier or 1) - (4 - opt)
+    min = math.min(min, StoryEngine.Value.POINT_MAX_TIER[kind] or 5)
+    if min <= 1 then return nil end
+    return min
+end
+
+-- 부탁 물건 목록을 품목 점수로 바꾼다 (2026-10-05: 점수 품목 전부, 자재는 특정 물건 그대로).
+-- 항목 { "cat:<품목>", 점수, 등급 하한 }. 점수 = 물건 가치 합 x 배율 (올림). 탄약의 하한은 청한 구경의 등급.
+-- plain = 난이도(배율·하한)를 걸지 않는다 (헬기 추락처럼 현장 상자의 물건으로 채우게 만든 부탁)
+function Quests.pointsNeed(items, tier, plain)
+    local V = StoryEngine.Value
+    local out, sums, mins, order = {}, {}, {}, {}
     for _, n in ipairs(items or {}) do
-        local cat = not Quests.pointCat(n) and StoryEngine.Value.categoryOf(n[1]) or nil
-        if cat and Quests.POINT_CATS[cat] then
-            if not sums[cat] then order[#order + 1] = cat end
-            sums[cat] = (sums[cat] or 0) + (StoryEngine.Value.of(n[1]) or 0) * (n[2] or 1)
+        local kind = not Quests.pointCat(n) and V.pointKind(n[1]) or nil
+        if kind then
+            if not sums[kind] then order[#order + 1] = kind end
+            sums[kind] = (sums[kind] or 0) + V.pointOf(n[1]) * (n[2] or 1)
+            if kind == "ammo" then
+                local t = V.pointTier(n[1]) or 1
+                mins.ammo = math.min(mins.ammo or t, t)
+            end
         else
-            out[#out + 1] = { n[1], n[2] }
+            out[#out + 1] = { n[1], n[2], n[3] }
         end
     end
-    for _, cat in ipairs(order) do
-        out[#out + 1] = { Quests.POINT_PREFIX .. cat, math.max(1, math.ceil(sums[cat])) }
+    local mult = plain and 1 or pointsMult()
+    for _, kind in ipairs(order) do
+        local min = kind == "ammo" and mins.ammo or (not plain and Quests.pointMinTier(kind, tier) or nil)
+        if min and min <= 1 then min = nil end
+        out[#out + 1] = { Quests.POINT_PREFIX .. kind, math.max(1, math.ceil(sums[kind] * mult - 0.001)), min }
     end
     return out
 end
+
+Quests.POINT_WORDS = { tools = "tools", melee = "melee weapons", firearm = "firearms", ammo = "ammunition",
+                       medical = "medical supplies", electronics = "electronics", vehicle = "car parts",
+                       comfort = "comforts (alcohol, tobacco, reading, batteries, candles)" }
 
 -- 부탁 물건 목록을 사람이 읽는 문장으로 ("진통제 x2, 붕대 x3", 품목 점수는 "any food worth 5 points")
 function Quests.needText(q)
@@ -213,7 +251,9 @@ function Quests.needText(q)
     for _, n in ipairs(q.need or {}) do
         local cat = Quests.pointCat(n)
         if cat then
-            parts[#parts + 1] = "some " .. cat .. " of any kind (worth about " .. StoryEngine.intToString(n[2]) .. " value points)"
+            local words = Quests.POINT_WORDS[cat] or cat
+            parts[#parts + 1] = "some " .. words .. " of any kind (worth about " .. StoryEngine.intToString(n[2])
+                .. " value points" .. (n[3] and (", tier " .. StoryEngine.intToString(n[3]) .. " or better") or "") .. ")"
         else
             local name = itemName(n[1])
             parts[#parts + 1] = n[2] > 1 and (name .. " x" .. StoryEngine.intToString(n[2])) or name
@@ -455,12 +495,28 @@ local function trySpawn(q)
         if StoryEngine.Named then StoryEngine.Named.spawn(q) end
         return
     end
+    if q.kind == "scout" then
+        Quests.spawnScout(q)
+        return
+    end
     local container, loaded = pickContainer(q)
     if not loaded then
         Quests.attempts[q.id] = (Quests.attempts[q.id] or 0) + 1
         if Quests.attempts[q.id] < Quests.MAX_ATTEMPTS then return end
     end
     spawnAt(q, sq, container)
+end
+
+-- 정찰 지점: 건물 안에 좀비를 둔다 (구조 신호 건물과 같은 방식)
+function Quests.spawnScout(q)
+    local n = Quests.zombieCount(q.zombies or 0)
+    local count = 0
+    if (q.zombies or 0) > 0 and q.bx1 then
+        local ok, zeds = pcall(addZombiesInOutfitArea, q.bx1, q.by1, q.bx2, q.by2, q.z or 0, n, nil, nil)
+        count = ok and zeds and zeds:size() or 0
+    end
+    q.spawned = true
+    log("scout point spawned", q.id, q.point or 1, count, "zombies in", q.building or "?")
 end
 
 -- 소탕 퀘스트: 건물 주변에 좀비 무리를 배치한다
@@ -535,6 +591,8 @@ local function findInInventory(player, q)
     end
     return out
 end
+
+Quests.findInInventory = findInInventory
 
 -- 실패한 퀘스트의 아이템 정리. 끝나면 true
 local function cleanup(q)
@@ -881,15 +939,51 @@ end
 -- kind: fetch(건물 보관함에 opts.item) | supply_drop(opts.items, 다 가져가면 완료) | horde(opts.size, 바로 accepted)
 --       | defend(opts.needMin, opts.radius) | visit(opts.radius)
 -- opts = { deadlineT, item, size, needMin, radius, building = 건물을 꼭 찾을지, search = 건물 찾는 반경 }
-function Quests.createSite(kind, ps, site, now, origin, opts)
-    opts = opts or {}
+local function siteBuilding(site, opts)
     local found = nearestBuilding(site.x, site.y, site.x, site.y, opts.search or 60, {}, function(def)
         return not opts.nonResidential or def:isResidential() ~= true
     end)
     if not found and opts.nonResidential then
         found = nearestBuilding(site.x, site.y, site.x, site.y, opts.search or 60, {}, nil)
     end
-    if not found and opts.building then return nil, "no_building" end
+    return found
+end
+
+-- 정찰 지점 하나: 건물 위치·경계·이름 (Quests.useScoutPoint 가 퀘스트에 옮긴다)
+local function scoutPoint(found)
+    local def, room = found.def, found.room
+    local p = {
+        building = found.key,
+        x = math.floor((room:getX() + room:getX2()) / 2), y = math.floor((room:getY() + room:getY2()) / 2), z = room:getZ(),
+        cx = math.floor((def:getX() + def:getX2()) / 2), cy = math.floor((def:getY() + def:getY2()) / 2),
+        bx1 = def:getX(), by1 = def:getY(), bx2 = def:getX2(), by2 = def:getY2(),
+    }
+    p.place = Places.describe(p.cx, p.cy)
+    p.place.rooms = roomNames(def)
+    p.place.residential = def:isResidential() == true
+    p.place.inside = true
+    return p
+end
+
+-- 정찰 i번째 지점을 지금 목표로 (지도 표시·좀비 배치·진행은 이 지점 기준)
+function Quests.useScoutPoint(q, i)
+    local p = q.points and q.points[i]
+    if not p then return end
+    q.point = i
+    q.building, q.x, q.y, q.z, q.cx, q.cy = p.building, p.x, p.y, p.z, p.cx, p.cy
+    q.bx1, q.by1, q.bx2, q.by2 = p.bx1, p.by1, p.bx2, p.by2
+    q.place = p.place
+    q.sx, q.sy = p.cx, p.cy
+    q.progress, q.entered, q.lastSiteT = 0, nil, nil
+    q.spawned = false
+    Quests.seen[q.id] = nil
+    Quests.waiting = Quests.waiting + 1
+end
+
+function Quests.createSite(kind, ps, site, now, origin, opts)
+    opts = opts or {}
+    local found = siteBuilding(site, opts)
+    if not found and (opts.building or kind == "scout") then return nil, "no_building" end
     local d = Store.data()
     d.questSeq = d.questSeq + 1
     local q = {
@@ -937,6 +1031,19 @@ function Quests.createSite(kind, ps, site, now, origin, opts)
         q.radius = opts.radius or 10
         q.spawned = true
         q.sx, q.sy = q.cx, q.cy
+    elseif kind == "scout" then
+        -- 정찰 (Work.lua): 지점마다 좀비가 있는 건물에 들어가 정해진 시간 머문다. 3등급부터 밤에만 시간이 흐른다
+        q.points = { scoutPoint(found) }
+        for _, extra in ipairs(opts.more or {}) do
+            local f = siteBuilding(extra, opts)
+            if f then q.points[#q.points + 1] = scoutPoint(f) end
+        end
+        q.stayMin = opts.stayMin or 20
+        q.night = opts.night or nil
+        q.zombies = opts.zombies or 0
+        q.radius = opts.radius or 10
+        d.quests[q.id] = q
+        Quests.useScoutPoint(q, 1)
     end
     d.quests[q.id] = q
     if not q.spawned then
@@ -1009,7 +1116,7 @@ function Quests.propose(player, ps, fid, tier, now, opts)
     if not need then return nil, "no_need" end
     local d = Store.data()
     d.questSeq = d.questSeq + 1
-    local items = Quests.pointsNeed(need.items)
+    local items = Quests.pointsNeed(need.items, need.tier)
     local q = {
         id = "Q" .. StoryEngine.intToString(d.questSeq),
         kind = "deliver", tier = need.tier, need = items, why = need.why, urgent = opts.urgent or nil,
@@ -1054,7 +1161,7 @@ function Quests.proposeCustom(player, ps, fid, spec, now, extra)
     extra = extra or {}
     local d = Store.data()
     d.questSeq = d.questSeq + 1
-    local items = Quests.pointsNeed(spec.items)
+    local items = Quests.pointsNeed(spec.items, spec.tier)
     if #items == 0 then return nil end
     local q = {
         id = "Q" .. StoryEngine.intToString(d.questSeq),
@@ -1084,7 +1191,7 @@ function Quests.proposeChoice(player, ps, crisis, now)
     d.questSeq = d.questSeq + 1
     local options, top = {}, 1
     for i, o in ipairs(crisis.options) do
-        options[i] = { faction = o.faction, ask = o.ask, tier = o.tier, items = Quests.pointsNeed(o.items) }
+        options[i] = { faction = o.faction, ask = o.ask, tier = o.tier, items = Quests.pointsNeed(o.items, o.tier, crisis.plain) }
         top = math.max(top, o.tier or 1)
     end
     local q = {
@@ -1135,7 +1242,7 @@ function Quests.demand(player, ps, fid, tier, now)
     if not need then return nil, "no_need" end
     local d = Store.data()
     d.questSeq = d.questSeq + 1
-    local items = Quests.pointsNeed(need.items)
+    local items = Quests.pointsNeed(need.items, need.tier)
     local q = {
         id = "Q" .. StoryEngine.intToString(d.questSeq),
         kind = "extort", tier = need.tier, need = items, why = need.why,
@@ -1509,8 +1616,9 @@ function Quests.onZombieDead(zombie)
             q.killed = (q.killed or 0) + 1
             if q.killed >= q.killsNeeded then
                 Quests.completeHorde(q)
-            elseif q.killed % 3 == 0 then
-                notifyTarget(q)
+            else
+                if q.killed % 3 == 0 then notifyTarget(q) end
+                Quests.onProgress(q, "kill")
             end
         end
     end
@@ -1570,26 +1678,26 @@ end
 
 -- 품목 점수 항목에 낼 물건: chosen(플레이어가 고른 아이템 id 목록)이 있으면 그것만, 없으면 싼 것부터 자동으로.
 -- 그 품목이고 낼 수 있는 물건(Value.payable: 퀘스트 물건·채집 재료·상한 것·입은 것 제외)만. 가치가 모자라면 nil
-local function pointItems(player, cat, points, chosen, used)
+local function pointItems(player, cat, points, chosen, used, minTier)
     local V = StoryEngine.Value
     local list = {}
     if chosen and #chosen > 0 then
         local inv = player:getInventory()
         for _, id in ipairs(chosen) do
             local it = inv:getItemWithIDRecursiv(tonumber(id) or -1)
-            if it and not used[it] and V.payable(player, it, cat) then list[#list + 1] = it end
+            if it and not used[it] and V.pointPayable(player, it, cat, minTier) then list[#list + 1] = it end
         end
     else
-        for _, it in ipairs(V.payableItems(player, cat)) do
+        for _, it in ipairs(V.pointItems(player, cat, minTier)) do
             if not used[it] and not player:isEquipped(it) then list[#list + 1] = it end
         end
-        table.sort(list, function(a, b) return V.itemValue(a) < V.itemValue(b) end)
+        table.sort(list, function(a, b) return V.pointValue(a) < V.pointValue(b) end)
     end
     local out, total = {}, 0
     for _, it in ipairs(list) do
         if total >= points then break end
         out[#out + 1] = it
-        total = total + V.itemValue(it)
+        total = total + V.pointValue(it)
     end
     if total + 0.001 < points then return nil end
     return out
@@ -1602,7 +1710,7 @@ local function takeNeed(player, need, chosen)
     local plan, used = {}, {}
     for _, n in ipairs(need) do
         if Quests.pointCat(n) then
-            local picked = pointItems(player, Quests.pointCat(n), n[2], chosen, used)
+            local picked = pointItems(player, Quests.pointCat(n), n[2], chosen, used, n[3])
             if not picked then return false end
             for _, it in ipairs(picked) do used[it] = true end
             plan[#plan + 1] = picked
@@ -1728,7 +1836,65 @@ end
 Quests.DEFEND_STEP_MAX = 15       -- 샘플 사이가 이보다 길면(접속 끊김 등) 이만큼만 쌓는다
 
 -- 방어·방문: 현장 반경 안에 있는 사람 (10분 샘플)
+-- 정찰 밤 시간 (게임 시각): 21:00 ~ 04:59
+Quests.NIGHT_FROM, Quests.NIGHT_TO = 21, 5
+function Quests.isNight()
+    local h = getGameTime():getHour()
+    return h >= Quests.NIGHT_FROM or h < Quests.NIGHT_TO
+end
+
+local function nearRect(q, x, y, r)
+    local dx = math.max((q.bx1 or q.cx) - x, 0, x - (q.bx2 or q.cx))
+    local dy = math.max((q.by1 or q.cy) - y, 0, y - (q.by2 or q.cy))
+    return math.sqrt(dx * dx + dy * dy) <= r
+end
+
+-- 정찰: 지금 지점의 건물에 한 번 들어가고, 건물 둘레(반경)에 정해진 시간 머물면 다음 지점으로
+function Quests.trackScout(q, entries, now)
+    local here = {}
+    for _, e in ipairs(entries) do
+        if e.s.building == q.building or nearRect(q, e.s.x, e.s.y, q.radius or 10) then
+            here[#here + 1] = e
+            Quests.addHelper(q, e.ps)
+            if e.s.building == q.building and not q.entered then
+                q.entered = true
+                Quests.onProgress(q, "scout_entered")
+            end
+        end
+    end
+    q.present = #here
+    local step = math.min(Quests.DEFEND_STEP_MAX, math.max(0, now.t - (q.lastSiteT or now.t)))
+    q.lastSiteT = now.t
+    if #here == 0 then return end
+    if q.night and not Quests.isNight() then
+        q.waitNight = true
+        if q.nightNoted ~= q.point then
+            q.nightNoted = q.point
+            Quests.onProgress(q, "scout_night")
+        end
+        return
+    end
+    q.waitNight = nil
+    q.progress = math.min(q.stayMin or 20, (q.progress or 0) + step)
+    if not q.entered and q.progress >= (q.stayMin or 20) and q.enterNoted ~= q.point then
+        q.enterNoted = q.point
+        Quests.onProgress(q, "scout_enter")
+    end
+    if q.entered and q.progress >= (q.stayMin or 20) then
+        local done = q.point or 1
+        log("scout point done", q.id, done, "/", #(q.points or {}))
+        if done >= #(q.points or {}) then
+            setState(q, "completed", now, here[1])
+        else
+            Quests.useScoutPoint(q, done + 1)
+            notifyTarget(q)
+            Quests.onProgress(q, "scout_next", { done = done })
+        end
+    end
+end
+
 function Quests.trackSite(q, entries, now)
+    if q.kind == "scout" then return Quests.trackScout(q, entries, now) end
     local here = {}
     for _, e in ipairs(entries) do
         if dist(e.s.x, e.s.y, q.cx, q.cy) <= q.radius then
@@ -1756,8 +1922,14 @@ function Quests.trackSite(q, entries, now)
     local step = math.min(Quests.DEFEND_STEP_MAX, math.max(0, now.t - (q.lastSiteT or now.t)))
     q.lastSiteT = now.t
     if #here > 0 then
+        local before = math.floor((q.progress or 0) * 4 / q.needMin)
         q.progress = (q.progress or 0) + step
-        if q.progress >= q.needMin then setState(q, "completed", now, here[1]) end
+        if q.progress >= q.needMin then
+            setState(q, "completed", now, here[1])
+        elseif math.floor(q.progress * 4 / q.needMin) > before then
+            Quests.onProgress(q, "defend_pct", { pct = math.floor(q.progress * 4 / q.needMin) * 25,
+                                                 left = math.ceil(q.needMin - q.progress) })
+        end
     end
 end
 
@@ -1792,8 +1964,9 @@ function Quests.track(entries, now)
                     setState(q, "entered", now, e)
                 end
             end
-            if q.kind == "defend" or q.kind == "visit" then Quests.trackSite(q, entries, now) end
-            local left = (q.kind ~= "horde" and q.kind ~= "defend" and q.kind ~= "visit" and q.kind ~= "named")
+            if q.kind == "defend" or q.kind == "visit" or q.kind == "scout" then Quests.trackSite(q, entries, now) end
+            local left = (q.kind ~= "horde" and q.kind ~= "defend" and q.kind ~= "visit" and q.kind ~= "named"
+                and q.kind ~= "scout")
                 and atSpot(q, false) or nil
             if left == 0 and q.spawned and q.state ~= "retrieved" then
                 local best, bestD = nil, 40
@@ -1851,6 +2024,7 @@ function Quests.listFor(psKey, now)
                 -- 다른 대가 (Work.lua)
                 item.payKind, item.credit, item.favor, item.workId = q.payKind, q.credit, q.favor, q.workId
                 item.workBonus = q.workBonus
+                item.goodsKept, item.parcelEnd = q.goodsKept, q.parcel
                 local Work = StoryEngine.Work
                 if Work and (state == "proposed" or (state == "accepted" and not q.payKind)) then
                     item.workOptions, item.workWeekLeft = Work.options(q)
@@ -1872,7 +2046,12 @@ function Quests.listFor(psKey, now)
             if q.kind == "defend" then
                 item.progress, item.needMin, item.waves, item.present = q.progress or 0, q.needMin, q.waves or 0, q.present
             end
-            if q.kind == "defend" or q.kind == "visit" then item.radius = q.radius end
+            if q.kind == "defend" or q.kind == "visit" or q.kind == "scout" then item.radius = q.radius end
+            if q.kind == "scout" then
+                item.point, item.points, item.progress, item.needMin = q.point or 1, #(q.points or {}), q.progress or 0, q.stayMin
+                item.entered, item.night, item.waitNight, item.present = q.entered, q.night, q.waitNight, q.present
+            end
+            if q.carry then item.parcel = q.parcel end
             item.cancelled = q.cancelled
             if Quests.isOp(q) then
                 item.op = { kind = q.origin.opKind, act = q.origin.act, acts = q.origin.acts, retry = q.origin.retry }

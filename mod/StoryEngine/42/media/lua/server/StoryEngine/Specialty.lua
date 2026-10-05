@@ -41,6 +41,11 @@ StoryEngine.Specialty = Specialty
 
 Specialty.TIER_MIN = { 40, 60, 80 }
 Specialty.COOLDOWN_DAYS = { guard = 7, doc = 7, dewey = 7, casey = 3, ray = 7, pike = 3, hunter = 3, rats = 1 }
+-- 대기 범위 (2026-10-05 샌드박스 SpecialtyScope_<fid>): 1 서버 전체 / 2 개인별 / 3 둘 다 (다른 사람은 SHARED_GAP_DAYS)
+-- 기본: 레이만 서버 전체 (보급이 다른 NPC 자원을 올리는 세계 효과라 개인별이면 여럿이 끌어올릴 수 있다), 나머지 개인별
+Specialty.SCOPE = { ray = 1, casey = 2, doc = 2, pike = 2, dewey = 2, guard = 2, rats = 2, hunter = 2 }
+Specialty.SHARED_GAP_DAYS = 1
+Specialty.ANTENNA_COOLDOWN = 2 / 3                     -- 케이시 안테나 완성: 정찰 대기 x2/3 (기본 3 -> 2일)
 Specialty.COST = { 10, 10, 15 }                        -- 구간별 핵심 자원 소모
 Specialty.SQUAD_LEVEL = { 1, 3, 5 }                    -- 방위대 분대 시간: ALife.HOURS 의 칸 -> 2/4/6시간
 Specialty.SQUAD_SIZE = { 2, 4, 6 }                     -- 방위대 분대 인원 (2026-09-30: 4/6/8 -> 2/4/6, 검문소 완성이면 +2)
@@ -84,7 +89,8 @@ local function state()
     local d = Store.data()
     d.spec = d.spec or {}
     local s = d.spec
-    s.used = s.used or {}
+    s.used = s.used or {}           -- fid -> 마지막으로 쓴 시각 (누구든)
+    s.usedBy = s.usedBy or {}       -- fid -> { 플레이어 키 -> 그 사람이 마지막으로 쓴 시각 }
     s.jobs = s.jobs or {}
     s.scout = s.scout or {}
     s.comfort = s.comfort or {}
@@ -109,10 +115,32 @@ local function projectDone(fid)
     return StoryEngine.Projects ~= nil and StoryEngine.Projects.done(fid)
 end
 
--- NPC 별 대기 일수 (장기 프로젝트 반영)
+-- NPC 별 대기 일수 (샌드박스 일수·배율, 장기 프로젝트 반영)
 function Specialty.cooldownDays(fid)
-    if fid == "casey" and projectDone("casey") then return 2 end
-    return Specialty.COOLDOWN_DAYS[fid] or 3
+    local days = Specialty.COOLDOWN_DAYS[fid] or 3
+    if fid == "casey" and projectDone("casey") then days = days * Specialty.ANTENNA_COOLDOWN end
+    return days
+end
+
+function Specialty.scope(fid)
+    local v = StoryEngine.Tuning and StoryEngine.Tuning.num("SpecialtyScope_" .. tostring(fid)) or 0
+    if v < 1 or v > 3 then v = Specialty.SCOPE[fid] or 1 end
+    return math.floor(v)
+end
+
+-- 이 사람(psKey)이 기다려야 하는 분 (0 이면 지금 가능). 키가 없으면 서버 전체 기준
+function Specialty.waitMinutes(fid, psKey, now)
+    local s = state()
+    local days = Specialty.cooldownDays(fid) * 24 * 60
+    local function left(last, gap)
+        if not last then return 0 end
+        return math.max(0, gap - (now - last))
+    end
+    local scope = Specialty.scope(fid)
+    local mine = psKey and (s.usedBy[fid] or {})[psKey] or nil
+    if scope == 1 or not psKey then return left(s.used[fid], days) end
+    if scope == 2 then return left(mine, days) end
+    return math.max(left(mine, days), left(s.used[fid], math.min(days, Specialty.SHARED_GAP_DAYS * 24 * 60)))
 end
 
 local function scoutRadius()
@@ -137,14 +165,13 @@ function Specialty.tier(trust)
     return 0
 end
 
--- 거점 탭 표시: { tier, wait(시간), reason = nil | off | low_trust | cooldown | no_resource }
-function Specialty.status(fid)
+-- 거점 탭 표시: { tier, wait(시간), scope, reason = nil | off | low_trust | cooldown | no_resource }
+-- psKey = 보는 사람 (개인별 대기). 없으면 서버 전체 기준
+function Specialty.status(fid, psKey)
     if not Factions.byId[fid] then return nil end
     local tier = Specialty.tier(Radio.channel(fid).trust)
     local now = Sensor.now()
-    local last = state().used[fid]
-    local gap = Specialty.cooldownDays(fid) * 24 * 60
-    local wait = last and math.max(0, math.ceil((gap - (now.t - last)) / 60)) or 0
+    local wait = math.ceil(Specialty.waitMinutes(fid, psKey, now.t) / 60)
     local reason = nil
     if Factions.isGone(fid) then
         reason = "gone"
@@ -159,12 +186,19 @@ function Specialty.status(fid)
     elseif Life.get(fid, Life.KEY[fid] or "morale") < Life.SELF_MIN then
         reason = "no_resource"
     end
-    return { tier = tier, wait = wait, reason = reason }
+    return { tier = tier, wait = wait, reason = reason, scope = Specialty.scope(fid) }
 end
 
--- 디버그: 대기 초기화. 듀이는 기다리는 수리도 바로 하게 한다
-function Specialty.clearWait(fid)
-    state().used[fid] = nil
+-- 대기 초기화 (디버그, A-Life 지원 실패 환불). psKey 가 있으면 그 사람의 대기와 서버 전체 대기, 없으면 모두.
+-- 듀이는 기다리는 수리도 바로 하게 한다 (디버그)
+function Specialty.clearWait(fid, psKey)
+    local s = state()
+    s.used[fid] = nil
+    if psKey then
+        if s.usedBy[fid] then s.usedBy[fid][psKey] = nil end
+        return
+    end
+    s.usedBy[fid] = nil
     if fid == "dewey" then
         local now = Sensor.now()
         for _, job in ipairs(state().jobs) do
@@ -176,7 +210,12 @@ end
 -- 특기를 쓴 것으로 기록한다: 대기, 자원, 행적, 일지, 무전
 function Specialty.commit(fid, ps, tier, info)
     local now = Sensor.now()
-    state().used[fid] = now.t
+    local s = state()
+    s.used[fid] = now.t
+    if ps and ps.key then
+        s.usedBy[fid] = s.usedBy[fid] or {}
+        s.usedBy[fid][ps.key] = now.t
+    end
     local cost = info.cost or Specialty.COST[tier] or 10
     Life.change(fid, info.costRes or Life.KEY[fid] or "morale", -cost, "specialty")
     Life.record(fid, "specialty", ps and ps.name or nil, 0, { spec = fid })
@@ -309,7 +348,7 @@ function Specialty.healDone(player)
     local p = Specialty.healPending[ps.key]
     Specialty.healPending[ps.key] = nil
     if not p or StoryEngine.nowMs() - p.ms > Specialty.HEAL_WAIT_MS then return false, "expired" end
-    local st = Specialty.status(p.fid)
+    local st = Specialty.status(p.fid, ps.key)
     if st.reason then return false, st.reason end
     -- 진료소 확장: 서로 다른 두 부위를 치료한다
     local parts = projectDone("doc") and Specialty.HEAL_PARTS_CLINIC or 1
@@ -704,11 +743,11 @@ Specialty.HANDLERS = {
 function Specialty.request(player, fid, args)
     if not Factions.byId[fid] then return false, "no_faction" end
     if not Factions.canTalk(player) then return false, "no_radio" end
-    local st = Specialty.status(fid)
+    local ps = Store.player(player)
+    local st = Specialty.status(fid, ps.key)
     if st.reason then return false, st.reason, st.wait end
     local handler = Specialty.HANDLERS[fid]
     if not handler then return false, "no_specialty" end
-    local ps = Store.player(player)
     local ok, info = handler(player, ps, fid, st.tier, args or {})
     if not ok then
         log("specialty refused", fid, tostring(info))

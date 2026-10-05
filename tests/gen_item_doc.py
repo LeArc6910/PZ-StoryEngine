@@ -197,7 +197,7 @@ def graded_section(cat, title, note, show_why=False):
 
 
 out.append("## 분류별 목록\n")
-graded_section("firearm", "총기 (등급 = 탄약 + 사격 방식)",
+graded_section("firearm", "총기 (등급 = 탄약 + 사격 방식 + 탄창 용량)",
                "가치 30/40/50/65/80. 탄약 등급에서 자동 사격 가능 +2, 수동 장전(볼트·레버·더블 배럴) -2, "
                "펌프 산탄총·반자동·리볼버는 그대로 (1~5로 자름)", show_why=True)
 if groups["gun_other"]:

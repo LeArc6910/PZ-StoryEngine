@@ -15,6 +15,16 @@ local log = StoryEngine.log
 
 local Cache = StoryEngine.Cache
 
+-- 멀티 클라이언트: 빅 교역소처럼 어떤 품목이든 대가로 받는지는 서버가 교신 목록(anyWants)으로 알려 준다.
+-- 싱글은 서버 코드(Trade.lua)와 같은 Lua 상태라 서버 판정을 그대로 쓴다
+if isClient() then
+    require "StoryEngine/Value"
+    StoryEngine.Value.anyWantsFn = function(fid)
+        local ch = Cache.channels[fid]
+        return ch ~= nil and ch.anyWants == true
+    end
+end
+
 local Client = {
     state = "unknown",
     handlers = {},

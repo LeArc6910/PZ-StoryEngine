@@ -128,4 +128,46 @@ function T.credit_marks_the_bundle_sold_right_away()
     H.ok(Trade.stock("doc").cats.medical[2][idx].sold, "goods already handed over")
 end
 
+-- 빅 교역소 (2026-10-05): 어떤 품목이든 대가로, 묶음 5개·2일 입고, 주간 암시장 물건
+local function tradingPost()
+    StoryEngine.Life.npc("rats").project = { points = 1000, done = true }
+    StoryEngine.Radio.channel("rats").trust = 25
+end
+
+function T.trading_post_takes_any_payment_and_stocks_more()
+    local p, ps = setup()
+    local Trade, Value = StoryEngine.Trade, StoryEngine.Value
+    H.eq(#Value.wantsOf("rats"), #Value.WANTS.rats, "before: the usual payment")
+    StoryEngine.Radio.channel("rats").stock = nil
+    tradingPost()
+    H.eq(#Value.wantsOf("rats"), #Value.CATEGORIES, "any category")
+    local seen = false
+    for _, f in ipairs(Value.wantedBy("food")) do if f == "rats" then seen = true end end
+    H.ok(seen, "the tooltip lists Vic for food too")
+    local st = Trade.stock("rats")
+    local most = 0
+    for _, tiers in pairs(st.cats) do
+        for _, list in pairs(tiers) do most = math.max(most, #list) end
+    end
+    H.ok(most > Trade.STOCK_BUNDLES and most <= Trade.POST_BUNDLES, "more bundles")
+    H.ok(Trade.restockIn("rats") <= Trade.POST_DAYS, "restocks every two days")
+end
+
+function T.trading_post_black_market_ignores_trust()
+    local p, ps = setup()
+    local Trade, Quests = StoryEngine.Trade, StoryEngine.Quests
+    H.ok(Trade.black("rats") == nil, "no black market before the trading post")
+    tradingPost()
+    local opts = Trade.options("rats", ps)
+    H.ok(opts.black and opts.black.tier == 5 and opts.black.price > 0, "listed in the catalog")
+    H.ok(Trade.ask(p, "rats", opts.black.category, 5, "black"))
+    local q = Quests.openTrade("rats")
+    H.ok(q and q.tier == 5 and q.stockRef and q.stockRef.black, "a tier-5 deal at trust 25")
+    H.eq(q.price, opts.black.price)
+    Quests.setState(q, "completed", StoryEngine.Sensor.now(), { ps = ps })
+    H.ok(Trade.options("rats", ps).black.sold, "one a week")
+    H.advanceDays(Trade.BLACK_DAYS)
+    H.ok(not Trade.options("rats", ps).black.sold, "a new one next week")
+end
+
 return T

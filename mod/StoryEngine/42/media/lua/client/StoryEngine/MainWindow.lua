@@ -288,7 +288,7 @@ function StoryEngineRadioPanel:render()
         end
         -- 이 NPC 가 거래 대가로 받는 품목 (Value.WANTS)
         local wants = {}
-        for _, w in ipairs(StoryEngine.Value.WANTS[fid] or {}) do wants[#wants + 1] = catName(w) end
+        for _, w in ipairs(StoryEngine.Value.wantsOf(fid)) do wants[#wants + 1] = catName(w) end
         if #wants > 0 then text = text .. "  |  " .. getText("IGUI_StoryEngine_Radio_Wants", table.concat(wants, ", ")) end
         r, g, b = 0.6, 0.75, 0.6
     end
@@ -435,7 +435,7 @@ function StoryEngineRadioPanel:refresh()
     self.acceptButton:setVisible(proposal)
     self.declineButton:setVisible(proposal)
     local chSel = Cache.channels[Cache.faction]
-    local trades = #(StoryEngine.Value.WANTS[Cache.faction] or {}) > 0
+    local trades = #(StoryEngine.Value.WANTS[Cache.faction] or {}) > 0 or StoryEngine.Value.anyWantsFn(Cache.faction)
     self.tradeButton:setVisible(trades and not proposal and not (chSel and chSel.gone))
 
     -- 지원 요청 버튼은 2026-09-29부터 숨긴다: 방위대 특기(거점 탭)로 옮겼고, A-Life 자동 지원만 남았다
@@ -544,7 +544,7 @@ local function holdsQuestItem(q)
         for _, n in ipairs(q.need or {}) do
             local cat = UI.pointCat(n)
             if cat then
-                if UI.pointsHeld(p, cat) + 0.001 < (n[2] or 1) then return false end
+                if UI.pointsHeld(p, cat, n[3]) + 0.001 < (n[2] or 1) then return false end
             elseif UI.countHeld(p, n[1]) < (n[2] or 1) then
                 return false
             end
@@ -618,8 +618,9 @@ function StoryEngineQuestPanel:onSubmit()
         for _, n in ipairs(q.need or {}) do
             local cat = UI.pointCat(n)
             if cat then
-                StoryEngineTradePayWindow.open({ id = q.id, payCategory = cat, price = n[2] or 1,
-                                                 command = "questSubmit", titleKey = "IGUI_StoryEngine_Need_PickTitle" })
+                StoryEngineTradePayWindow.open({ id = q.id, payCategory = cat, price = n[2] or 1, points = true,
+                                                 minTier = n[3], command = "questSubmit",
+                                                 titleKey = "IGUI_StoryEngine_Need_PickTitle" })
                 return
             end
         end
@@ -759,8 +760,8 @@ local function deliverDetail(q)
     for _, n in ipairs(q.need or {}) do
         local cat = UI.pointCat(n)
         if cat then
-            line(getText("IGUI_StoryEngine_Quest_NeedPoints", getText("IGUI_StoryEngine_Cat_" .. cat),
-                StoryEngine.intToString(n[2] or 1), StoryEngine.intToString(math.floor(UI.pointsHeld(p, cat)))))
+            line(getText("IGUI_StoryEngine_Quest_NeedPoints", UI.pointText(cat, n[2], n[3]),
+                StoryEngine.intToString(math.floor(UI.pointsHeld(p, cat, n[3])))))
         else
             local name = getItemNameFromFullType(n[1]) or n[1]
             line(getText("IGUI_StoryEngine_Quest_NeedHave", name, StoryEngine.intToString(n[2] or 1),
@@ -813,6 +814,10 @@ local function tradeDetail(q)
     parts[#parts + 1] = " <LINE> "
     line(getText("IGUI_StoryEngine_Trade_Goods", UI.itemList(q.goods)))
     if q.workBonus and #q.workBonus > 0 then line(getText("IGUI_StoryEngine_Work_Bonus", UI.itemList(q.workBonus))) end
+    if q.parcelEnd and q.parcelEnd < 100 then
+        line(getText("IGUI_StoryEngine_Work_ParcelKept", StoryEngine.intToString(math.floor(q.parcelEnd)),
+            UI.itemList(q.goodsKept or {})))
+    end
     line(getText("IGUI_StoryEngine_Trade_Price", catName(q.payCategory), StoryEngine.intToString(q.price or 0),
         StoryEngine.intToString(payableValue(q))))
     if q.basePrice and q.basePrice ~= q.price then
@@ -1092,6 +1097,18 @@ local function opDetail(q)
         line(getText("IGUI_StoryEngine_Op_Progress", string.format("%.1f", (q.progress or 0) / 60),
             StoryEngine.intToString(math.floor((q.needMin or 0) / 60))))
         line(getText("IGUI_StoryEngine_Op_Waves", StoryEngine.intToString(q.waves or 0)))
+    elseif q.kind == "scout" then
+        line(getText("IGUI_StoryEngine_Work_ScoutPoint", StoryEngine.intToString(q.point or 1),
+            StoryEngine.intToString(q.points or 1)))
+        line(getText(q.entered and "IGUI_StoryEngine_Work_ScoutEntered" or "IGUI_StoryEngine_Work_ScoutNotEntered"))
+        line(getText("IGUI_StoryEngine_Work_ScoutStay", StoryEngine.intToString(math.floor(q.progress or 0)),
+            StoryEngine.intToString(q.needMin or 0)))
+        if q.night then
+            line(getText(q.waitNight and "IGUI_StoryEngine_Work_ScoutNightWait" or "IGUI_StoryEngine_Work_ScoutNight"))
+        end
+    end
+    if q.parcel then
+        line(getText("IGUI_StoryEngine_Work_Parcel", StoryEngine.intToString(math.floor(q.parcel))))
     end
     if active then
         line(getText("IGUI_StoryEngine_Quest_Deadline", StoryEngine.intToString(q.hoursLeft or 0)))
@@ -1599,6 +1616,7 @@ function StoryEngineLifePanel:refresh()
         tip = getText("IGUI_StoryEngine_Spec_Error_" .. tostring(spec.reason), StoryEngine.intToString(spec.wait or 0))
             .. " <LINE> " .. tip
     end
+    if spec.scope then tip = tip .. " <LINE> " .. getText("IGUI_StoryEngine_Spec_Scope_" .. tostring(spec.scope)) end
     self.specButton.tooltip = tip
 
     local parts = {}

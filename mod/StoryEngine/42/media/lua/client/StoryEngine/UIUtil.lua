@@ -66,12 +66,22 @@ function UI.pointCat(entry)
     return string.sub(s, 5)
 end
 
--- 그 품목으로 낼 수 있는 물건의 가치 합 (Value.payable)
-function UI.pointsHeld(player, cat)
+-- 그 품목으로 낼 수 있는 물건의 점수 합 (Value.pointPayable, 등급 하한 minTier)
+function UI.pointsHeld(player, cat, minTier)
     if not player or not StoryEngine.Value then return 0 end
     local total = 0
-    for _, it in ipairs(StoryEngine.Value.payableItems(player, cat)) do total = total + StoryEngine.Value.itemValue(it) end
+    for _, it in ipairs(StoryEngine.Value.pointItems(player, cat, minTier)) do total = total + StoryEngine.Value.pointValue(it) end
     return total
+end
+
+-- 품목 점수 문장 ("음식 아무거나 가치 5", 등급 하한이 있으면 "(3등급 이상)")
+function UI.pointText(cat, points, minTier)
+    local text = getText("IGUI_StoryEngine_Need_Points", getText("IGUI_StoryEngine_Cat_" .. tostring(cat)),
+        StoryEngine.intToString(points or 1))
+    if minTier and minTier > 1 then
+        text = text .. " " .. getText("IGUI_StoryEngine_Need_MinTier", StoryEngine.intToString(minTier))
+    end
+    return text
 end
 
 function UI.countHeld(player, fullType)
@@ -91,8 +101,7 @@ function UI.needText(need)
     for _, n in ipairs(need or {}) do
         local cat = UI.pointCat(n)
         if cat then
-            parts[#parts + 1] = getText("IGUI_StoryEngine_Need_Points", getText("IGUI_StoryEngine_Cat_" .. cat),
-                StoryEngine.intToString(n[2] or 1))
+            parts[#parts + 1] = UI.pointText(cat, n[2], n[3])
         else
             local name = getItemNameFromFullType(n[1]) or n[1]
             parts[#parts + 1] = (n[2] or 1) > 1 and (name .. " x" .. StoryEngine.intToString(n[2])) or name

@@ -473,4 +473,59 @@ function T.guard_checkpoint_adds_20_snipes_without_alife()
     H.eq(H.sentOf("specSnipe")[1].count, 40, "tier 1: 20 + 20")
 end
 
+-- 특기 대기 범위·일수 (2026-10-05 샌드박스): 레이만 서버 전체, 나머지 개인별, 둘 다, 일수 옵션
+local function twoPlayers()
+    local p1 = H.addPlayer("tester", "Gerald", "Kar")
+    local p2 = H.addPlayer("other", "Ann", "Lee")
+    for _, p in ipairs({ p1, p2 }) do StoryEngine.Store.player(p).lang = "EN" end
+    return p1, p2, StoryEngine.Store.player(p1), StoryEngine.Store.player(p2)
+end
+
+function T.specialty_waits_are_per_player_except_ray()
+    local p1, p2, ps1, ps2 = twoPlayers()
+    local Sp = S()
+    H.eq(Sp.scope("hunter"), 2)
+    H.eq(Sp.scope("ray"), 1)
+    setTrust("hunter", 65)
+    Sp.commit("hunter", ps1, 2, {})
+    H.eq(Sp.status("hunter", ps1.key).reason, "cooldown", "the user waits")
+    H.eq(Sp.status("hunter", ps2.key).wait, 0, "someone else can still ask Hank")
+    setTrust("ray", 65)
+    Sp.commit("ray", ps1, 2, {})
+    H.eq(Sp.status("ray", ps2.key).reason, "cooldown", "Ray's supplies wait for everyone")
+end
+
+function T.specialty_scope_both_and_days_option()
+    local p1, p2, ps1, ps2 = twoPlayers()
+    local Sp = S()
+    SandboxVars.StoryEngine.SpecialtyScope_hunter = 3
+    SandboxVars.StoryEngine.SpecialtyDays_hunter = 5
+    StoryEngine.Tuning.apply()
+    setTrust("hunter", 65)
+    Sp.commit("hunter", ps1, 2, {})
+    H.eq(Sp.status("hunter", ps1.key).wait, 5 * 24, "the user waits the option's days")
+    H.eq(Sp.status("hunter", ps2.key).wait, 24, "everyone else one day")
+    H.advanceDays(1)
+    H.eq(Sp.status("hunter", ps2.key).wait, 0)
+    H.ok(Sp.status("hunter", ps1.key).wait > 0)
+    SandboxVars.StoryEngine.SpecialtyScope_hunter = 1
+    H.ok(Sp.status("hunter", ps2.key).wait > 0, "server-wide: everyone waits the full days")
+    SandboxVars.StoryEngine.SpecialtyDays_hunter = nil
+    SandboxVars.StoryEngine.SpecialtyScope_hunter = nil
+    StoryEngine.Tuning.apply()
+end
+
+function T.specialty_refund_clears_only_that_player()
+    local p1, p2, ps1, ps2 = twoPlayers()
+    local Sp = S()
+    setTrust("guard", 65)
+    Sp.commit("guard", ps1, 2, {})
+    Sp.commit("guard", ps2, 2, {})
+    Sp.clearWait("guard", ps1.key)
+    H.eq(Sp.status("guard", ps1.key).wait, 0, "refunded")
+    H.ok(Sp.status("guard", ps2.key).wait > 0, "the other player's wait stays")
+    Sp.clearWait("guard")
+    H.eq(Sp.status("guard", ps2.key).wait, 0, "debug clears everyone")
+end
+
 return T
