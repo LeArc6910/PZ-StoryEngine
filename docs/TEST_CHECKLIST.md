@@ -294,6 +294,11 @@
 - [ ] 처음 보는 분류 이름의 모드 음식·근접 무기·의약품·전자기기·차량 부품이 자동으로 그 종류가 되고, 로그 `mod categories registered by their items`와 `itempool.txt`의 `[mod categories registered by their items]`에 나옴. 씨앗·약초·미끼는 음식이 되지 않음
 - [ ] 나뭇가지·돌로 만든 무기·도구가 NPC 재고·보상에 안 나오고 대가로도 안 받음
 
+## 실존 구경 표로 모드 탄약 등급 (2026-10-05, 미확인)
+
+- [ ] `itempool.txt`의 `[ammo]`에 탄약마다 등급과 정한 방법(name·caliber·damage). 바닐라·EFK 탄약은 예전과 같은 등급
+- [ ] (다른 총기 모드를 켰다면) 그 모드 탄약이 구경 이름으로 맞는 등급을 받고, 이름이 특이한 탄약은 총 피해로 등급, 로그 `ammo matched to a caliber by name`
+
 ## 탄창 용량으로 총 등급 (2026-10-05, 미확인)
 
 - [ ] 1~2등급 총기 거래·보상에 드럼 탄창 총(`*_Drum`, 50발)이 안 나오고 3등급부터 나옴. 디버그 "아이템 분류"의 `itempool.txt`에서 드럼 총 `cap=+2`, 30발 `cap=+1`

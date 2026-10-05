@@ -57,6 +57,56 @@ ItemPool.FRESH_DAYS = 30            -- 이보다 빨리 상하면 보상에서 �
 ItemPool.FOOD_TIERS = { 10, 15, 25, 40 }   -- 배고픔 + 갈증 해소 경계 -> 1~5등급
 ItemPool.UNKNOWN_AMMO_TIER = 3
 
+-- 실존 구경 표 (2026-10-05 사용자 결정): 다른 모드가 자기 이름으로 만든 탄약도 이름에서 구경을 찾아 등급을 매긴다.
+-- 이름(낱발 아이템 이름, 영어 표시 이름)을 소문자로 바꾸고 기호·빈칸을 뺀 뒤 앞에서부터 처음 맞는 줄.
+-- 긴(구체적인) 패턴을 먼저 둔다 (762x39 를 762 보다, 545 를 45 보다, 338 을 38 보다 먼저). false = 거래·보상에서 뺌.
+-- 등급: 1 권총탄 / 2 매그넘 권총탄 / 3 중간 소총탄·작은 산탄 / 4 풀파워 소총탄·12게이지 / 5 매그넘 소총탄
+ItemPool.CALIBERS = {
+    { "50ae", 2, ".50 AE" },
+    { "50bmg", false, ".50 BMG" }, { "127x99", false, "12.7x99" }, { "127x108", false, "12.7x108" },
+    { "bullets50", false, ".50 BMG" }, { "145", false, "14.5mm" }, { "grenade", false, "grenade" },
+    { "40mm", false, "40mm grenade" }, { "flame", false, "flame fuel" }, { "fuel", false, "fuel" },
+    { "nail", false, "nails" }, { "rocket", false, "rocket" }, { "rpg", false, "rocket" },
+    { "50carton", false, ".50 BMG" }, { "50drum", false, ".50 BMG" }, { "50box", false, ".50 BMG" },
+    { "boombolt", false, "explosive bolt" }, { "firebolt", false, "incendiary bolt" },
+    { "338", 5, ".338 Lapua" }, { "86x70", 5, ".338 Lapua" }, { "bullets86", 5, ".338 Lapua" },
+    { "86carton", 5, ".338 Lapua" }, { "86box", 5, ".338 Lapua" },
+    { "300winmag", 5, ".300 Win Mag" }, { "300wm", 5, ".300 Win Mag" }, { "7mmrem", 5, "7mm Rem Mag" },
+    { "375h", 5, ".375 H&H" },
+    { "762x39", 3, "7.62x39" }, { "762x54", 4, "7.62x54R" }, { "54r", 4, "7.62x54R" }, { "762x51", 4, "7.62x51" },
+    { "762nato", 4, "7.62x51" }, { "3006", 4, ".30-06" }, { "3030", 4, ".30-30" }, { "308", 4, ".308" },
+    { "792x57", 4, "8mm Mauser" }, { "8mm", 4, "8mm Mauser" }, { "303", 4, ".303 British" },
+    { "545", 3, "5.45x39" }, { "556", 3, "5.56x45" }, { "223", 3, ".223" }, { "58x42", 3, "5.8x42" },
+    { "a58", 3, "5.8x42" }, { "58box", 3, "5.8x42" }, { "58clip", 3, "5.8x42" }, { "58carton", 3, "5.8x42" }, { "300blk", 3, ".300 BLK" }, { "300aac", 3, ".300 BLK" }, { "9x39", 3, "9x39" },
+    { "65grendel", 3, "6.5 Grendel" },
+    { "410", 3, ".410 bore" }, { "20gauge", 3, "20 gauge" }, { "20ga", 3, "20 gauge" },
+    { "16gauge", 4, "16 gauge" }, { "16ga", 4, "16 gauge" }, { "12gauge", 4, "12 gauge" }, { "12ga", 4, "12 gauge" },
+    { "shotgun", 4, "12 gauge" }, { "twelvegauge", 4, "12 gauge" }, { "12g", 4, "12 gauge" }, { "shell", 4, "12 gauge" },
+    { "4570", 4, ".45-70" },
+    { "40sw", 2, ".40 S&W" }, { "10mm", 2, "10mm Auto" }, { "357", 2, ".357 Magnum" }, { "454", 2, ".454 Casull" },
+    { "44", 2, ".44 Magnum" },
+    { "22lr", 1, ".22 LR" }, { "25acp", 1, ".25 ACP" }, { "32acp", 1, ".32 ACP" }, { "380", 1, ".380 ACP" },
+    { "9x19", 1, "9mm" }, { "9mm", 1, "9mm" }, { "38", 1, ".38 Special" }, { "45", 1, ".45 ACP" },
+    { "57x28", 1, "5.7x28" }, { "46x30", 1, "4.6x30" }, { "22", 1, ".22 LR" },
+    { "crossbow", 1, "crossbow bolt" }, { "bolt", 1, "crossbow bolt" }, { "arrow", 1, "arrow" },
+    { "762", 4, "7.62 (ambiguous)" },
+}
+ItemPool.ammoInfo = {}     -- 낱발 fullType -> { tier, caliber, how = name|caliber|damage|override }
+
+local function normName(s)
+    return (string.gsub(string.lower(tostring(s or "")), "[^%w]", ""))
+end
+
+-- 이름들에서 구경을 찾는다 (앞의 이름이 우선: 아이템 이름 > 표시 이름). 반환: 등급(false = 뺌), 구경 이름 | nil
+function ItemPool.caliberOf(names)
+    for _, n in ipairs(names) do
+        for _, row in ipairs(ItemPool.CALIBERS) do
+            if n ~= "" and string.find(n, row[1], 1, true) then return row[2], row[3] end
+        end
+    end
+    return nil
+end
+
 -- 낱발 아이템(모듈 없이, 소문자) -> 탄약(구경) 등급. false 는 제외
 ItemPool.AMMO_TIERS = {
     bullets38 = 1, bullets9mm = 1, bullets45 = 1, crossbowbolt = 1,
@@ -696,15 +746,26 @@ function ItemPool.build()
                 local module = script:getModuleName()
                 local ammoKey = lower(string.match(round, "([^%.]+)$") or round)
                 local ammoTier = ItemPool.AMMO_TIERS[ammoKey]
+                local how, caliber = "name", nil
+                if ammoTier == nil then
+                    -- 표에 없는 이름: 실존 구경 표 (낱발 이름, 영어 표시 이름)
+                    local names = { normName(ammoKey) }
+                    pcall(function() names[#names + 1] = normName(roundScript:getDisplayName()) end)
+                    ammoTier, caliber = ItemPool.caliberOf(names)
+                    how = "caliber"
+                end
                 if ammoTier == false then
                     gunRejected.excluded_ammo = (gunRejected.excluded_ammo or 0) + 1
                     return
                 end
-                if ammoTier == nil then
+                local pending = ammoTier == nil
+                if pending then
                     unknownAmmo[round] = (unknownAmmo[round] or 0) + 1
-                    ammoTier = ItemPool.UNKNOWN_AMMO_TIER
+                    ammoTier, how = ItemPool.UNKNOWN_AMMO_TIER, "damage"
                 end
-                local g = { fullType = fullType, round = round, ammoTier = ammoTier, tier = ammoTier, action = "semi" }
+                ItemPool.ammoInfo[round] = ItemPool.ammoInfo[round] or { tier = ammoTier, caliber = caliber, how = how }
+                local g = { fullType = fullType, round = round, ammoTier = ammoTier, tier = ammoTier, action = "semi",
+                            dmg = dmg, pending = pending or nil }
                 if item then
                     -- 탄창·상자·사격 방식은 총 아이템에서만 알 수 있다
                     g.box = resolve(item:getAmmoBox(), module)
@@ -732,6 +793,34 @@ function ItemPool.build()
             end
         end)
         if not ok then StoryEngine.log("item pool skip:", tostring(err)) end
+    end
+
+    -- 이름으로도 구경을 못 찾은 탄약: 그 탄약을 쓰는 총들의 평균 피해를 모든 총의 피해 5분위에 대어 등급
+    local dmgs = {}
+    for _, g in ipairs(guns) do dmgs[#dmgs + 1] = g.dmg or 0 end
+    table.sort(dmgs)
+    local bounds = nil
+    if #dmgs >= 5 then
+        bounds = {}
+        for q = 1, 4 do bounds[q] = dmgs[math.ceil(q * #dmgs / 5) + 1] or dmgs[#dmgs] end
+    end
+    local byRound = {}
+    for _, g in ipairs(guns) do
+        if g.pending then
+            local r = byRound[g.round] or { sum = 0, n = 0 }
+            r.sum, r.n = r.sum + (g.dmg or 0), r.n + 1
+            byRound[g.round] = r
+        end
+    end
+    for round, r in pairs(byRound) do
+        local t = bounds and tierByBounds(r.sum / r.n, bounds) or ItemPool.UNKNOWN_AMMO_TIER
+        ItemPool.ammoInfo[round] = { tier = t, how = "damage" }
+        for _, g in ipairs(guns) do
+            if g.pending and g.round == round then
+                g.ammoTier = t
+                g.tier = math.max(1, math.min(5, t + ItemPool.ACTION_MOD[g.action or "semi"] + (g.capMod or 0)))
+            end
+        end
     end
 
     -- 총 등급 (탄약 + 사격 방식, 수집할 때 정함)
@@ -809,7 +898,13 @@ function ItemPool.build()
     StoryEngine.log("item pool built: scanned", counts.scanned, "food", counts.food, "(condiments", counts.condiments
         .. ")", "firearm", counts.firearm, "melee", counts.melee, "excluded", counts.excluded,
         "| runtime-tiered mod items:", counts.runtime, "| food skipped:", tally(rejected),
-        "| guns skipped:", tally(gunRejected), "| unknown ammo (tier " .. ItemPool.UNKNOWN_AMMO_TIER .. "):", tally(unknownAmmo))
+        "| guns skipped:", tally(gunRejected), "| ammo tiered by gun damage (no known caliber):", tally(unknownAmmo))
+    local byCaliber = {}
+    for round, a in pairs(ItemPool.ammoInfo) do
+        if a.how == "caliber" then byCaliber[#byCaliber + 1] = round .. "=" .. tostring(a.caliber) .. ":" .. tostring(a.tier) end
+    end
+    table.sort(byCaliber)
+    if #byCaliber > 0 then StoryEngine.log("item pool: ammo matched to a caliber by name:", table.concat(byCaliber, ", ")) end
     local auto = {}
     for _, a in pairs(ItemPool.autoKind) do
         auto[#auto + 1] = a.name .. "=" .. a.kind .. " (" .. tostring(a.n) .. "/" .. tostring(a.total) .. ")"
@@ -850,7 +945,10 @@ function ItemPool.ammoTierOf(fullType)
     local inside = ItemPool.contentsOf(fullType)    -- 카톤 -> 상자 -> 낱발
     if inside then return ItemPool.ammoTierOf(inside[1]) end
     local key = lower(string.match(fullType, "([^%.]+)$") or fullType)
-    return ItemPool.AMMO_TIERS[key]
+    local t = ItemPool.AMMO_TIERS[key]
+    if t ~= nil then return t end
+    local tier = ItemPool.caliberOf({ normName(key) })     -- 총이 없는 모드 탄약도 이름으로 구경을 찾는다
+    return tier
 end
 
 -- 도구 분류와 가치 (도구가 아니면 nil)
@@ -1187,6 +1285,15 @@ function ItemPool.dump()
                 .. " rounds=" .. tostring(g.rounds) .. " cap=+" .. tostring(g.capMod or 0) .. " " .. tostring(g.action) .. "\n")
         end
     end
+    -- 탄약 등급을 정한 방법 (name = 알던 이름, caliber = 구경 표, damage = 총 피해로 추정)
+    local ammoRows = {}
+    for round, a in pairs(ItemPool.ammoInfo) do
+        ammoRows[#ammoRows + 1] = round .. "=" .. tostring(a.tier) .. " (" .. tostring(a.how)
+            .. (a.caliber and (", " .. a.caliber) or "") .. ")"
+    end
+    table.sort(ammoRows)
+    w:write("\n[ammo] " .. tostring(#ammoRows) .. "  (set one with a line in items.txt: ammo <1-5|exclude> <round>)\n  "
+        .. table.concat(ammoRows, ", ") .. "\n")
     -- 표에 없어 실행 중 분류한 모드 물건 (루팅표에 나와 NPC 가 판다)
     w:write("\n")
     for _, kind in ipairs({ "tools", "medical", "electronics", "vehicle" }) do
