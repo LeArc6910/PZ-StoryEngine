@@ -10,7 +10,7 @@ Radio contacts you can talk to, an AI director that throws events at you, quests
 [*]They live their own lives: they call you, pass on rumors, talk among themselves on an open channel, and their camps run short of food, medicine or weapons. Donate, help build their projects, or watch them leave or die
 [*]Crises where several groups ask for help at once; who you choose changes their stories and their feelings toward each other
 [*]Trade on the open channel: ask for goods or offer your own, several contacts make offers and you pick one
-[*]Trade list showing each contact's tiers and bundles; pay with goods, or with work (clearing, guarding, scouting, deliveries), credit or a favor
+[*]Trade list showing each contact's tiers and bundles; pay with goods, a random job (clearing, guarding, scouting, delivering; progress called overhead), credit or a favor
 [*]AI director: supply drops, storms, requests, hordes that follow you, helicopters, threats from hostile groups
 [*]Quests with deadlines and tiers, shared by everyone on the server; rewards in real containers, marked on the map
 [*]Power and water repair operations, multi-day events (helicopter crash, migration, fever, radio blackout), evening news on radio 105.4 MHz, handwritten letters, difficulty presets
@@ -53,7 +53,7 @@ Source: [url=https://github.com/LeArc6910/PZ-StoryEngine]mod[/url], [url=https:/
 [*]상대들이 각자 살아감: 먼저 연락하고, 소문을 전하고, 공용 주파수에서 서로 이야기하며, 거점의 식량·의약품·무기가 바닥나기도 함. 물자를 보내고 프로젝트를 도울 수 있고, 떠나거나 죽을 수도 있음
 [*]여러 세력이 동시에 도움을 청하는 위기. 선택에 따라 이야기와 서로의 관계가 바뀜
 [*]공용 주파수 거래: 물건을 청하거나 내놓으면 여러 상대가 제안하고, 그중 하나를 고름
-[*]상대별 등급·묶음을 보고 고르는 거래 목록(3일마다 새 재고). 대가는 물건 또는 일(소탕·경비·정찰·배달), 외상, 빚으로
+[*]상대별 등급·묶음을 보고 고르는 거래 목록(3일마다 새 재고). 대가는 물건, 무작위 일(소탕·경비·정찰·배달, 진행은 머리 위 무전), 외상, 빚으로
 [*]AI 디렉터: 보급, 폭풍, 부탁, 쫓아오는 좀비 무리, 헬기, 적대 세력의 협박
 [*]기한·등급이 있는 퀘스트(서버 전체 공유), 보상은 실제 보관함에 놓이고 지도에 표시
 [*]전기·수도 복구 작전, 여러 날 이어지는 사건(헬기 추락, 대이동, 열병, 통신 두절), 라디오 105.4 MHz 저녁 방송, 손편지, 난이도 프리셋
