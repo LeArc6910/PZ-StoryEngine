@@ -49,10 +49,11 @@ local function lookup(fullType)
         hit.value = Value.ammoValue(fullType, value)
     elseif category ~= "misc" then
         -- 상자·묶음은 안에 든 물건 x 개수 (붕대 상자 = 붕대 12개, 그래놀라 바 상자 = 5개)
-        local inside = StoryEngine.ItemTiers.CONTENTS[fullType]
+        local inside = StoryEngine.ItemPool.contentsOf(fullType)
         if inside and inside[2] >= 2 and lookup(inside[1]).category == category then
             hit.value = lookup(inside[1]).value * inside[2]
-            hit.tier = lookup(inside[1]).tier
+            -- 음식 포장은 열면 나오는 것의 합계로 등급을 정해 두었다 (ItemPool). 그 밖은 안에 든 것의 등급
+            hit.tier = (category == "food" and hit.tier) or lookup(inside[1]).tier
         end
     end
     return hit
@@ -96,7 +97,10 @@ end
 local function roundsPerBox()
     if boxRounds then return boxRounds end
     boxRounds = scanBoxes()
-    for box, inside in pairs(StoryEngine.ItemTiers.CONTENTS) do
+    local all = {}
+    for box, inside in pairs(StoryEngine.ItemPool.contentsAll()) do all[box] = inside end
+    for box, inside in pairs(StoryEngine.ItemTiers.CONTENTS) do all[box] = inside end
+    for box, inside in pairs(all) do
         if string.find(box, "Box", 1, true) then
             boxRounds[box] = inside[2]
             boxRounds[inside[1]] = boxRounds[inside[1]] or inside[2]
@@ -107,7 +111,7 @@ end
 
 function Value.ammoValue(fullType, default)
     local IP = StoryEngine.ItemPool
-    local inside = StoryEngine.ItemTiers.CONTENTS[fullType]
+    local inside = IP.contentsOf(fullType)
     if inside and not string.find(fullType, "Box", 1, true) then     -- 카톤: 상자 x 개수
         return Value.of(inside[1]) * inside[2]
     end
@@ -421,7 +425,7 @@ function Value.moraleValue(fullType)
             for _, prefix in ipairs(Value.TOBACCO_PREFIX) do
                 if string.sub(name, 1, string.len(prefix)) == prefix then value = Value.MORALE_DEFAULT end
             end
-        elseif cat == "Food" then
+        elseif StoryEngine.ItemPool.isFoodCategory(cat) then
             local okI, item = pcall(instanceItem, fullType)
             if okI and item and Value.hasAlcohol(item) then
                 value = Value.MORALE_DEFAULT
@@ -447,9 +451,9 @@ Value.POINT_RESOURCE = { electronics = "morale", vehicle = "safety", comfort = "
 function Value.pointKind(fullType)
     local cat = Value.categoryOf(fullType)
     if Value.POINT_TRADE[cat] then return cat end
-    local IT = StoryEngine.ItemTiers or {}
-    if (IT.ELECTRONICS or {})[fullType] then return "electronics" end
-    if (IT.VEHICLE or {})[fullType] then return "vehicle" end
+    local IP = StoryEngine.ItemPool
+    if IP.lootTierOf(fullType, "electronics") then return "electronics" end
+    if IP.lootTierOf(fullType, "vehicle") then return "vehicle" end
     if Value.moraleValue(fullType) then return "comfort" end
     return nil
 end
@@ -457,9 +461,7 @@ end
 -- 점수 품목 안에서의 등급 (없으면 nil)
 function Value.pointTier(fullType)
     local kind = Value.pointKind(fullType)
-    local IT = StoryEngine.ItemTiers or {}
-    if kind == "electronics" then return (IT.ELECTRONICS or {})[fullType] end
-    if kind == "vehicle" then return (IT.VEHICLE or {})[fullType] end
+    if kind == "electronics" or kind == "vehicle" then return StoryEngine.ItemPool.lootTierOf(fullType, kind) end
     if kind == "comfort" then return nil end
     return lookup(fullType).tier
 end

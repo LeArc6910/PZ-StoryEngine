@@ -5,6 +5,8 @@
 --   CONTENTS: sealed food / box / carton -> { item inside, count } (from the opening and unpacking recipes)
 --   MEDICAL: medical tier (1 dressing/cleaning, 2 taken by mouth, 3 serious wound care)
 --   ELECTRONICS, VEHICLE: tier from vanilla loot tables like tools (Casey and Dewey sell these)
+--   *_BOUNDS: loot-weight cut-offs of those tiers, so the game can tier items from other mods at runtime
+--             (weight >= BOUNDS[1] -> tier 1, >= BOUNDS[2] -> 2, ... below BOUNDS[4] -> 5)
 local ItemTiers = {}
 StoryEngine = StoryEngine or {}
 StoryEngine.ItemTiers = ItemTiers
@@ -340,5 +342,8 @@ ItemTiers.VEHICLE = {
     ["Base.Windshield2"] = 4,
     ["Base.Windshield3"] = 4,
 }
+ItemTiers.TOOL_BOUNDS = { 404.0, 282.0, 204.15, 75.0 }
+ItemTiers.ELECTRONICS_BOUNDS = { 349.45, 221.52, 134.55, 50.12 }
+ItemTiers.VEHICLE_BOUNDS = { 75.0, 70.0, 62.0, 30.0 }
 
 return ItemTiers
