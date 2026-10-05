@@ -32,6 +32,14 @@ Lines.COUNT = {
     offline_reply = 2, offer = 2, gift = 1, refuse = 1,
     -- 공용 주파수 (예약 장면, 플레이어 말에 반응)
     open_chat = 3, open_reply = 2,
+    -- AI 없는 공용 주파수 대화 (2026-10-05, Social.offlineLines): 두 사람 사이(좋음·보통·나쁨)별 꺼내기·받기·맺기(%1 상대),
+    -- 사건 화제 꺼내기(%1 상대, %2 사람·명절 이름)와 받기(%1 꺼낸 사람), 플레이어 말 종류별 대답(%1 플레이어)
+    duo_warm_open = 2, duo_warm_reply = 2, duo_warm_close = 1,
+    duo_plain_open = 2, duo_plain_reply = 2, duo_plain_close = 1,
+    duo_cold_open = 2, duo_cold_reply = 2, duo_cold_close = 1,
+    topic_storm = 1, topic_heli = 1, topic_death = 1, topic_power = 1, topic_water = 1, topic_winter = 1,
+    topic_share = 1, topic_clash = 1, topic_holiday = 1, topic_reply = 3,
+    player_greet = 2, player_help = 1, player_trade = 1, player_info = 1, player_thanks = 1,
     -- 위협 세력만
     extort = 2, extort_paid = 1,
     -- 다른 대가 (Work.lua): 일 장소 안내(마을, 방향, 거리), 외상(기한 일수), 빚, 일 끝, 빚 부탁(물건 목록)
@@ -89,6 +97,31 @@ function Lines.has(fid, kind)
 end
 
 -- NPC 대사 lt. 이 NPC 에게 없는 종류면 공통 문장(alt), 그것도 없으면 nil
+-- 플레이어가 공용 주파수에 한 말의 종류 (AI 가 없을 때 준비된 대답을 고른다, 2026-10-05). 앞에서부터 처음 맞는 것.
+-- 여기는 영어 낱말(ASCII). 클라이언트는 IGUI_StoryEngine_Intent_<종류>(쉼표로 나눈 자기 언어 낱말)도 더해 고른다
+Lines.INTENTS = {
+    { "help", { "help", "hurt", "bitten", "danger", "sos", "injured", "chased" } },
+    { "trade", { "trade", "buy", "sell", "need", "have any", "looking for", "spare", "swap" } },
+    { "thanks", { "thank", "thx", "appreciate" } },
+    { "info", { "where", "news", "what's up", "whats up", "weather", "info", "how are" } },
+    { "greet", { "hello", " hi ", "hey", "anyone", "anybody", "greetings", "is someone", "can you hear" } },
+}
+Lines.INTENT_KINDS = { help = true, trade = true, thanks = true, info = true, greet = true }
+
+-- extra = { 종류 = { 낱말, ... } } (클라이언트의 자기 언어 낱말)
+function Lines.intentOf(text, extra)
+    local t = string.lower(" " .. tostring(text or "") .. " ")
+    for _, row in ipairs(Lines.INTENTS) do
+        for _, w in ipairs(row[2]) do
+            if string.find(t, w, 1, true) then return row[1] end
+        end
+        for _, w in ipairs((extra or {})[row[1]] or {}) do
+            if w ~= "" and string.find(t, string.lower(w), 1, true) then return row[1] end
+        end
+    end
+    return nil
+end
+
 function Lines.lt(fid, kind, args)
     local alt = Lines.ALT[kind]
     if not Lines.has(fid, kind) then

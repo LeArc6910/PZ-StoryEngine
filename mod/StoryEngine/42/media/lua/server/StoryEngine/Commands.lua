@@ -427,7 +427,8 @@ end
 
 function Commands.radioSay(player, args)
     rememberLang(player, args.lang)
-    local ok, why = StoryEngine.Radio.say(player, tostring(args.faction or ""), args.text)
+    local intent = type(args.intent) == "string" and string.sub(args.intent, 1, 16) or nil
+    local ok, why = StoryEngine.Radio.say(player, tostring(args.faction or ""), args.text, intent)
     if not ok then reply(player, "radioError", { faction = args.faction, error = why }) end
 end
 

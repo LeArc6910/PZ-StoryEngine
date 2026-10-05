@@ -299,7 +299,8 @@ function Holiday.celebrate(u, now)
         end
         if inst.host and other then
             StoryEngine.Social.queueTopic({ inst.host, other }, "It is " .. about .. ". The contacts celebrate together on "
-                .. "the open channel: what they ate, old memories of the holiday, wishing each other well.")
+                .. "the open channel: what they ate, old memories of the holiday, wishing each other well.", "holiday",
+                { t = "key", v = nameKey(u.h.id) })
             pcall(StoryEngine.Social.scene, nil)
         end
     end

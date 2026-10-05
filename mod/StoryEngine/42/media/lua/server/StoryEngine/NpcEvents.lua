@@ -132,7 +132,7 @@ function NpcEvents.share(now)
                         Social.news(taker, nameOf(giver.id) .. " sent your people some " .. RES_WORDS[r]
                             .. " when you had run out. You are grateful.")
                         Social.news(giver.id, "You sent some of your spare " .. RES_WORDS[r] .. " to " .. nameOf(taker) .. ".")
-                        Social.queueTopic({ giver.id, taker }, text .. " They talk about it.")
+                        Social.queueTopic({ giver.id, taker }, text .. " They talk about it.", "share")
                     end
                     log("npc share", giver.id, "->", taker, r)
                     return true
@@ -158,7 +158,7 @@ function NpcEvents.clash(now)
     if Social then
         Social.news("all", "Sergeant Whitaker's squad and Vic's crew traded fire near Coalfield. Both sides took losses.")
         Social.queueTopic({ "guard", "rats" }, "Whitaker's squad and Vic's crew just had a firefight near Coalfield. "
-            .. "They blame each other on the open channel.")
+            .. "They blame each other on the open channel.", "clash")
     end
     log("npc clash guard rats")
     -- 가끔은 플레이어가 편을 들게 한다
