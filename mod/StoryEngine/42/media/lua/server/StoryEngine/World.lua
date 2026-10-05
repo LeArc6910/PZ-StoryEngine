@@ -221,7 +221,8 @@ function World.fire(id, key, now)
                 if not dup and alive(f.id) and #ids < 2 then ids[#ids + 1] = f.id end
             end
         end
-        if #ids >= 2 then Social.queueTopic(ids, ev.sceneTopic or (ev.news .. " They talk about it.")) end
+        local offKey = (id == "power" or id == "water") and id or ((id == "winter" or id == "snow") and "winter" or nil)
+        if #ids >= 2 then Social.queueTopic(ids, ev.sceneTopic or (ev.news .. " They talk about it."), offKey) end
     end
     -- 무전 반응: 정해진 NPC + 살아 있는 다른 한 명
     if ev.topic then

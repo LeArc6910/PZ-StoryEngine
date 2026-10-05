@@ -232,11 +232,13 @@ function Social.onDayEnd(player, ps, day)
 end
 
 function Social.onDeath(name, town)
+    state().deathT, state().deathName = Sensor.now().t, tostring(name)
     Social.news("all", "Word on the radio is that " .. tostring(name) .. ", one of the survivors you know of, died"
         .. (town and (" near " .. tostring(town)) or "") .. ".")
 end
 
 function Social.onHelicopter()
+    state().heliT = Sensor.now().t
     Social.news("all", "A helicopter flew low over the county today. Nobody knows who was flying it.")
 end
 
@@ -555,9 +557,75 @@ local function pickParticipants(count, prefer)
     return chosen
 end
 
--- 다음 예약 장면의 참가자와 주제를 정해 둔다 (NpcEvents: 나눔, 충돌)
-function Social.queueTopic(ids, topic)
-    state().queuedTopic = { ids = ids, topic = string.sub(tostring(topic), 1, 400) }
+-- 다음 예약 장면의 참가자와 주제를 정해 둔다 (NpcEvents: 나눔, 충돌, World, Holiday).
+-- key = AI 가 없을 때 쓰는 준비된 대화 화제 (Social.OFFLINE_TOPICS), arg = 그 대사의 두 번째 인자 (lt arg)
+function Social.queueTopic(ids, topic, key, arg)
+    state().queuedTopic = { ids = ids, topic = string.sub(tostring(topic), 1, 400), key = key, arg = arg }
+end
+
+-- ---------------------------------------------------------------- AI 없는 공용 주파수 (2026-10-05)
+-- 브릿지가 없으면 준비된 대사로 짧은 대화를 만든다.
+--   예약 장면: 화제(사건)가 있으면 A 가 그 이야기를 꺼내고(topic_<화제>) B 가 받고(topic_reply),
+--             없으면 두 사람 사이(Bonds: 좋음 warm / 보통 plain /나쁨 cold)에 맞는 세 줄 (duo_<사이>_open/reply/close)
+--   플레이어 발언: 말에 든 낱말로 종류를 골라(도움·거래·감사·소식·인사) 첫 사람이 그 대답(player_<종류>), 다음 사람이 짧은 대답
+Social.OFFLINE_TOPICS = { storm = true, heli = true, death = true, power = true, water = true, winter = true,
+                          share = true, clash = true, holiday = true }
+Social.OFFLINE_RECENT_MIN = 24 * 60
+-- 플레이어 말의 종류: 클라이언트가 자기 언어의 낱말로 고른 것(intent)을 먼저, 없으면 영어 낱말 (Lines.intentOf)
+function Social.classifySaid(text, intent)
+    if intent and StoryEngine.Lines.INTENT_KINDS[intent] then return intent end
+    return StoryEngine.Lines.intentOf(text)
+end
+
+local function moodOf(a, b)
+    local v = StoryEngine.Bonds and StoryEngine.Bonds.get(a, b) or 0
+    if v >= 1 then return "warm" end
+    if v <= -1 then return "cold" end
+    return "plain"
+end
+
+-- 지금 이야깃거리 (화제, lt 인자). 최근 하루의 죽음·헬기·폭풍, 아니면 단전·단수·겨울. 없으면 nil
+function Social.offlineTopic()
+    local s = state()
+    local now = Sensor.now().t
+    local recent = Social.OFFLINE_RECENT_MIN
+    if ZombRand(100) < 70 then
+        if s.deathT and now - s.deathT < recent then return "death", { t = "s", v = s.deathName } end
+        if s.heliT and now - s.heliT < recent then return "heli" end
+        if s.stormT and now - s.stormT < recent then return "storm" end
+    end
+    local World = StoryEngine.World
+    if World and ZombRand(100) < 30 then
+        local list = {}
+        if World.powerOff() then list[#list + 1] = "power" end
+        if World.waterOff() then list[#list + 1] = "water" end
+        if World.isWinter() then list[#list + 1] = "winter" end
+        if #list > 0 then return list[ZombRand(#list) + 1] end
+    end
+    return nil
+end
+
+function Social.offlineLines(ids, said, key, arg)
+    local Lines = StoryEngine.Lines
+    local a, b = ids[1], ids[2]
+    local function line(fid, kind, args)
+        return { npc = fid, text = "(prepared line, no AI)", lt = Lines.lt(fid, kind, args), quiet = true }
+    end
+    local function npcArg(fid) return { t = "npc", v = fid } end
+    if said then
+        local kind = Social.classifySaid(said.text, said.intent)
+        local out = { line(a, kind and ("player_" .. kind) or "open_reply", { { t = "s", v = said.name } }) }
+        if b then out[2] = line(b, "open_reply", { { t = "s", v = said.name } }) end
+        return out, kind or "reply"
+    end
+    if not b then return { line(a, "open_chat") }, "chat" end
+    if not (key and Social.OFFLINE_TOPICS[key]) then key, arg = Social.offlineTopic() end
+    if key and Lines.has(a, "topic_" .. key) then
+        return { line(a, "topic_" .. key, { npcArg(b), arg }), line(b, "topic_reply", { npcArg(a) }) }, key
+    end
+    local ma, mb = moodOf(a, b), moodOf(b, a)
+    return { line(a, "duo_" .. ma .. "_open", { npcArg(b) }), line(b, "duo_" .. mb .. "_reply", { npcArg(a) }),
+             line(a, "duo_" .. ma .. "_close", { npcArg(b) }) }, ma
 end
 
 function Social.crisesUsedTable()
@@ -640,7 +708,7 @@ function Social.scene(said, cut)
     local count = 2 + ZombRand(2)
     local ids = pickParticipants(count, nil)
     -- 정해 둔 화제가 있으면 (나눔·충돌) 그 사람들이 그 이야기를 한다
-    local queued = nil
+    local queued, queuedKey, queuedArg = nil, nil, nil
     local qt = state().queuedTopic
     if not said and qt then
         state().queuedTopic = nil
@@ -651,7 +719,7 @@ function Social.scene(said, cut)
         if okIds and #(qt.ids or {}) >= 2 then
             ids = {}
             for _, id in ipairs(qt.ids) do ids[#ids + 1] = id end
-            queued = qt.topic
+            queued, queuedKey, queuedArg = qt.topic, qt.key, qt.arg
         end
     end
     local parts = {}
@@ -720,12 +788,10 @@ function Social.scene(said, cut)
             end
         end
         if #queue == 0 and Radio.OFFLINE_ERRORS[tostring(res.error)] then
-            -- AI 가 없으면 참가자 두 명이 준비된 짧은 말을 한다 (플레이어에게 답하거나 잡담)
-            for i = 1, math.min(2, #ids) do
-                queue[#queue + 1] = { npc = ids[i], text = said and "(short reply, no AI)" or "(small talk, no AI)",
-                                      lt = StoryEngine.Lines.lt(ids[i], said and "open_reply" or "open_chat"), quiet = true }
-            end
-            log("open scene offline", table.concat(ids, ","))
+            -- AI 가 없으면 준비된 대사로 짧은 대화 (Social.offlineLines)
+            local lines2, what = Social.offlineLines(ids, said, queuedKey, queuedArg)
+            for _, l in ipairs(lines2) do queue[#queue + 1] = l end
+            log("open scene offline", table.concat(ids, ","), tostring(what))
         end
         if #queue == 0 then
             log("open scene failed", tostring(res.error))
@@ -763,7 +829,7 @@ function Social.scene(said, cut)
 end
 
 -- 플레이어가 공용 주파수에서 말했다 (Radio.say). 아직 안 나간 줄은 버리고 그 말에 반응한다
-function Social.onOpenSay(ps, text)
+function Social.onOpenSay(ps, text, intent)
     local s = state()
     local cut = nil
     if s.pending then
@@ -771,7 +837,7 @@ function Social.onOpenSay(ps, text)
         log("open scene interrupted,", #s.pending.lines, "lines dropped")
         s.pending = nil
     end
-    Social.scene({ name = ps.name, text = text, key = ps.key }, cut)
+    Social.scene({ name = ps.name, text = text, key = ps.key, intent = intent }, cut)
 end
 
 -- ---------------------------------------------------------------- ticks

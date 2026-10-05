@@ -466,7 +466,7 @@ Events.EveryTenMinutes.Add(function()
 end)
 
 -- 플레이어 발언. 성공하면 true, 실패하면 false, 오류 코드
-function Radio.say(player, fid, text)
+function Radio.say(player, fid, text, intent)
     if not Factions.byId[fid] and fid ~= Radio.OPEN then return false, "unknown_faction" end
     text = trim(string.sub(tostring(text or ""), 1, Radio.MAX_TEXT))
     if text == "" then return false, "empty" end
@@ -498,7 +498,7 @@ function Radio.say(player, fid, text)
     end
     if fid == Radio.OPEN then
         -- 공용 주파수: NPC 들이 각자 반응하고 서로 이야기한다
-        if StoryEngine.Social then StoryEngine.Social.onOpenSay(ps, text) end
+        if StoryEngine.Social then StoryEngine.Social.onOpenSay(ps, text, intent) end
         return true
     end
 

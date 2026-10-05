@@ -3,6 +3,7 @@
 if isServer() then return end
 
 require "StoryEngine/Core"
+require "StoryEngine/Lines"
 
 local UI = {}
 StoryEngine.UI = UI
@@ -56,6 +57,29 @@ function UI.itemList(fullTypes)
         parts[#parts + 1] = counts[ft] > 1 and (name .. " x" .. StoryEngine.intToString(counts[ft])) or name
     end
     return table.concat(parts, ", ")
+end
+
+-- 공용 주파수에 한 말의 종류 (도움·거래·감사·소식·인사). 이 클라이언트 언어의 낱말(IGUI_StoryEngine_Intent_<종류>,
+-- 쉼표로 나눔)과 영어 낱말로 고른다. 서버는 AI 가 없을 때 이것으로 준비된 대답을 고른다
+local intentWords = nil
+function UI.intentOf(text)
+    if not intentWords then
+        intentWords = {}
+        for kind, _ in pairs(StoryEngine.Lines.INTENT_KINDS) do
+            local key = "IGUI_StoryEngine_Intent_" .. kind
+            local raw = getText(key)
+            local list = {}
+            if raw and raw ~= key then
+                for w in string.gmatch(raw, "[^,]+") do
+                    local t = string.gsub(w, "^%s+", "")
+                    t = string.gsub(t, "%s+$", "")
+                    if t ~= "" then list[#list + 1] = t end
+                end
+            end
+            intentWords[kind] = list
+        end
+    end
+    return StoryEngine.Lines.intentOf(text, intentWords)
 end
 
 -- 가지고 있는 개수 (가방 속까지, 퀘스트 태그가 붙은 것은 빼고)

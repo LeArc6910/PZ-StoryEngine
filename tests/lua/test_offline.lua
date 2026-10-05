@@ -163,18 +163,91 @@ function T.memoir_template()
     end
 end
 
-function T.open_channel_offline_scene_has_two_lines()
-    local p = setup()
+-- 공용 주파수 장면의 줄 (나간 첫 줄 + 기다리는 줄)
+local function sceneLines()
+    local out = {}
+    local first = lastMsg("open", "npc")
+    if first then out[#out + 1] = first end
+    local s = StoryEngine.Store.data().social
+    for _, l in ipairs(s and s.pending and s.pending.lines or {}) do out[#out + 1] = l end
+    return out
+end
+
+local function sayOpen(p, text, intent)
     local Social = StoryEngine.Social
     Social.sceneBusy = false
     Social.lastReplyT = nil
     StoryEngine.Radio.lastSay = {}
-    H.ok(StoryEngine.Radio.say(p, "open", "anyone out there?"))
+    H.ok(StoryEngine.Radio.say(p, "open", text, intent))
     H.lastBridge("radio_scene").callback(OFFLINE)
-    local first = lastMsg("open", "npc")
-    H.ok(first and first.npc and startsWith(first.lt.key, "IGUI_StoryEngine_Line_" .. first.npc .. "_open_reply_"),
-        "first reply line out")
+    return sceneLines()
+end
+
+function T.open_channel_offline_answers_by_what_was_said()
+    local p = setup()
+    local lines = sayOpen(p, "anyone out there?")
+    H.eq(#lines, 2, "two contacts answer")
+    H.ok(startsWith(lines[1].lt.key, "IGUI_StoryEngine_Line_" .. lines[1].npc .. "_player_greet_"), "a greeting")
+    H.eq(lines[1].lt.args[1].v, "Gerald Kar", "addressed by name")
+    H.ok(startsWith(lines[2].lt.key, "IGUI_StoryEngine_Line_" .. lines[2].npc .. "_open_reply_"))
     H.ok(H.logHas("open scene offline"))
+end
+
+function T.open_channel_offline_uses_the_clients_intent()
+    local p = setup()
+    local lines = sayOpen(p, "(text in another language)", "trade")
+    H.ok(startsWith(lines[1].lt.key, "IGUI_StoryEngine_Line_" .. lines[1].npc .. "_player_trade_"),
+        "the client already knew it was a trade question")
+    local L = StoryEngine.Lines
+    H.eq(L.intentOf("I need some bandages"), "trade")
+    H.eq(L.intentOf("help, I'm bitten"), "help")
+    H.eq(L.intentOf("thanks a lot"), "thanks")
+    H.eq(L.intentOf("nice day"), nil)
+    H.eq(L.intentOf("abc XYZ", { info = { "xyz" } }), "info", "extra words from the client's language")
+end
+
+local function scheduledScene(ids)
+    local Social = StoryEngine.Social
+    Social.sceneBusy = false
+    Social.scene(nil)
+    H.lastBridge("radio_scene").callback(OFFLINE)
+    return sceneLines()
+end
+
+function T.open_channel_offline_pair_talk_follows_their_bond()
+    local p = setup()
+    local Social = StoryEngine.Social
+    StoryEngine.Bonds.change("ray", "doc", 2, "test", true)
+    Social.queueTopic({ "ray", "doc" }, "they catch up")
+    ZombRand = function() return 99 end         -- 최근 사건 화제를 고르지 않게
+    local lines = scheduledScene()
+    H.eq(#lines, 3, "open, reply, close")
+    H.ok(startsWith(lines[1].lt.key, "IGUI_StoryEngine_Line_ray_duo_warm_open_"), lines[1].lt.key)
+    H.eq(lines[1].lt.args[1].v, "doc", "talks to the other contact")
+    H.ok(startsWith(lines[2].lt.key, "IGUI_StoryEngine_Line_doc_duo_warm_reply_"))
+    H.ok(startsWith(lines[3].lt.key, "IGUI_StoryEngine_Line_ray_duo_warm_close_"))
+    StoryEngine.Bonds.change("guard", "rats", -3, "test", true)
+    Social.queueTopic({ "guard", "rats" }, "they argue")
+    StoryEngine.Store.data().social.pending = nil
+    lines = scheduledScene()
+    H.ok(startsWith(lines[1].lt.key, "IGUI_StoryEngine_Line_guard_duo_cold_open_"), "cold when they dislike each other")
+end
+
+function T.open_channel_offline_talks_about_what_happened()
+    local p = setup()
+    local Social = StoryEngine.Social
+    Social.queueTopic({ "guard", "rats" }, "firefight", "clash")
+    local lines = scheduledScene()
+    H.eq(#lines, 2)
+    H.ok(startsWith(lines[1].lt.key, "IGUI_StoryEngine_Line_guard_topic_clash_"), lines[1].lt.key)
+    H.ok(startsWith(lines[2].lt.key, "IGUI_StoryEngine_Line_rats_topic_reply_"))
+    -- 최근 죽음은 저절로 화제가 된다
+    StoryEngine.Store.data().social.pending = nil
+    Social.onDeath("Ann Lee", "Riverside")
+    ZombRand = function() return 0 end
+    lines = scheduledScene()
+    H.ok(string.find(lines[1].lt.key, "_topic_death_", 1, true), lines[1].lt.key)
+    H.eq(lines[1].lt.args[2].v, "Ann Lee", "names the dead")
 end
 
 return T
