@@ -218,6 +218,7 @@ end
 -- kind: quest_completed | quest_failed | quest_declined | quest_ignored | quest_accepted | trade_done | trade_failed
 --       | crisis_helped | crisis_snubbed | crisis_ignored | donation | insult | spill_up | spill_down | rescued
 --       | specialty (특기를 써 줌) | ray_supply (레이가 보급을 가져옴)
+--       | volunteer (보수 없이 일해 줌) | volunteer_failed | reward_waived (보상을 사양함)
 function Life.record(fid, kind, who, delta, extra)
     if not Factions.byId[fid] then return end
     local n = Life.npc(fid)
@@ -562,6 +563,7 @@ function Life.list(psKey)
             fateDay = n.fate and n.fate.day or nil, starve = n.starve,
             spec = StoryEngine.Specialty and StoryEngine.Specialty.status(f.id, psKey) or nil,
             project = StoryEngine.Projects and StoryEngine.Projects.info(f.id) or nil,
+            volunteer = StoryEngine.Work and StoryEngine.Work.volunteerStatus(f.id) or nil,
         }
     end
     return out

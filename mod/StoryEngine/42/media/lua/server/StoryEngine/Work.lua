@@ -182,7 +182,7 @@ end
 
 local function childOrigin(trade, how, stage)
     return { source = "work", faction = trade.origin.faction, initiator = "npc", work = trade.id, workKind = how,
-             stage = stage }
+             stage = stage, volunteer = trade.kind == "volunteer" or nil }
 end
 
 -- 정찰 다음 지점들: 앞 지점에서 SCOUT_HOP 거리의 다른 건물
@@ -477,6 +477,10 @@ function Work.onChild(q, state, t)
     local trade = Store.data().quests[q.origin.work]
     if not trade or trade.state ~= "accepted" then return end
     local how = q.origin.workKind
+    if trade.kind == "volunteer" and (state == "completed" or state == "failed")
+        and not (state == "completed" and how == "courier" and q.origin.stage == "pickup") then
+        return Work.volunteerEnd(trade, q, state, t)
+    end
     if state == "retrieved" and how == "courier" then
         -- 꾸러미를 챙겼다: 회수 퀘스트는 끝내고 배달지로
         Quests.setState(q, "completed", t, nil)
@@ -533,6 +537,122 @@ function Work.onChild(q, state, t)
     elseif state == "failed" then
         Quests.setState(trade, "failed", t, nil)
         log("work failed", trade.id, how)
+    end
+end
+
+-- ---------------------------------------------------------------- 일거리 청하기 (2026-10-06)
+-- 거점 탭 [일거리 청하기]: 보수 없이 그 NPC 의 일을 해 주고 신뢰도를 얻는다. 일의 종류는 무작위(소탕·정찰·경비·배달),
+-- 등급은 그 NPC 의 지금 신뢰도(VOLUNTEER_BANDS)와 진행 단계 상한 중 낮은 쪽. 완료하면 신뢰도 +등급 x 2,
+-- 그 NPC 핵심 자원 +등급 x 10, 실패하면 신뢰도 -등급. NPC 마다 게임 7일에 두 번(서버 전체), 동시에 하나.
+-- 일 퀘스트의 부모는 kind = "volunteer" 인 숨은 퀘스트 (위치·목록 없음, Quests.isManaged)
+Work.VOLUNTEER_PER_WEEK = 2
+Work.VOLUNTEER_TRUST = 2
+Work.VOLUNTEER_LIFE = 10
+Work.VOLUNTEER_BANDS = { 20, 40, 60, 80 }
+
+function Work.volunteerTier(fid)
+    local trust = Radio.channel(fid).trust
+    local tier = 1
+    for i, b in ipairs(Work.VOLUNTEER_BANDS) do
+        if trust >= b then tier = i + 1 end
+    end
+    local cap = Store.STAGE_MAX_TIER[Store.stage()] or Quests.MAX_TIER
+    return math.max(1, math.min(tier, cap, Quests.MAX_TIER))
+end
+
+function Work.volunteerUsed(fid, t)
+    local ch = Radio.channel(fid)
+    local kept = {}
+    for _, x in ipairs(ch.volunteerLog or {}) do
+        if t - x < Work.WEEK_MIN then kept[#kept + 1] = x end
+    end
+    ch.volunteerLog = kept
+    return #kept
+end
+
+local function openVolunteer(fid)
+    for _, q in pairs(Store.data().quests) do
+        if q.kind == "volunteer" and q.origin and q.origin.faction == fid and q.state == "accepted" then return q end
+    end
+    return nil
+end
+
+-- 지금 일거리를 청할 수 있나 (거점 탭 버튼). 반환 { ok, why, tier, gain, left }
+function Work.volunteerStatus(fid)
+    local t = now().t
+    local tier = Work.volunteerTier(fid)
+    local out = { tier = tier, gain = tier * Work.VOLUNTEER_TRUST,
+                  left = math.max(0, Work.VOLUNTEER_PER_WEEK - Work.volunteerUsed(fid, t)) }
+    if Factions.isGone(fid) then out.why = "gone"
+    elseif openVolunteer(fid) then out.why = "open"
+    elseif out.left <= 0 then out.why = "week" end
+    out.ok = out.why == nil or nil
+    return out
+end
+
+function Work.volunteer(player, fid, force)
+    if not Factions.byId[fid] then return false, "no_faction" end
+    if not Factions.canTalk(player) then return false, "no_radio" end
+    local st = Work.volunteerStatus(fid)
+    if not st.ok then return false, st.why end
+    local ps = Store.player(player)
+    local t = now()
+    local d = Store.data()
+    d.questSeq = (d.questSeq or 0) + 1
+    local parent = { id = "Q" .. StoryEngine.intToString(d.questSeq), kind = "volunteer", state = "accepted",
+                     tier = st.tier, gain = st.gain, target = ps.key, targetName = ps.name, createdT = t.t,
+                     deadlineT = t.t, origin = { source = "volunteer", faction = fid, initiator = "player" },
+                     history = { { state = "accepted", t = t.t, by = ps.name } } }
+    d.quests[parent.id] = parent
+    local child, why = nil, "no_building"
+    for _, kind in ipairs(force and { force } or Work.laborKinds(fid)) do
+        child, why = Work.startLabor(parent, kind, player, ps, t)
+        if child then
+            parent.payKind = kind
+            break
+        end
+    end
+    if not child then
+        d.quests[parent.id] = nil
+        return false, why or "no_building"
+    end
+    parent.workId = child.id
+    parent.deadlineT = child.deadlineT + 24 * 60
+    local ch = Radio.channel(fid)
+    ch.volunteerLog = ch.volunteerLog or {}
+    ch.volunteerLog[#ch.volunteerLog + 1] = t.t
+    Radio.react(fid, "event", ps.name .. " offered to help you for nothing, just to earn your trust. You gave them a job: "
+        .. (TOPIC[parent.payKind] or "some work"):gsub(" instead", "") .. ". Tell them briefly where (from them): it is in the quest log. "
+        .. "You cannot pay for it and you say so; you are grateful.",
+        StoryEngine.Lines.fallback(fid, "volunteer_ask", "No pay, but it would mean a lot.", where(child, player)), ps,
+        { overhead = true })
+    log("volunteer", parent.id, fid, parent.payKind, "tier", parent.tier, child.id, "by", ps.name)
+    Quests.notify(child)
+    return true, parent.payKind
+end
+
+function Work.volunteerEnd(parent, q, state, t)
+    local fid = parent.origin.faction
+    local tier = math.max(1, math.min(Quests.MAX_TIER, parent.tier or 1))
+    local player = nearestPlayer(q.cx or 0, q.cy or 0)
+    local ps = player and Store.player(player) or Store.data().players[parent.target]
+    Quests.setState(parent, state, t, ps and { ps = ps } or nil)
+    local Life = StoryEngine.Life
+    if state == "completed" then
+        local gain = StoryEngine.Trust.apply(fid, tier * Work.VOLUNTEER_TRUST, "volunteer_done", parent.id, parent.target)
+        if Life then
+            Life.change(fid, Life.KEY[fid], tier * Work.VOLUNTEER_LIFE, "volunteer")
+            Life.record(fid, "volunteer", ps and ps.name or parent.targetName, gain)
+        end
+        Radio.react(fid, "event", "The players did the job you gave them (" .. tostring(parent.payKind)
+            .. ") without asking anything in return. Thank them warmly; you have nothing to give but your trust.",
+            StoryEngine.Lines.fallback(fid, "volunteer_done", "You did it for nothing. I won't forget it."), ps,
+            { overhead = true })
+        log("volunteer done", parent.id, fid, "trust", gain)
+    else
+        local loss = StoryEngine.Trust.apply(fid, -tier, "volunteer_failed", parent.id, parent.target)
+        if Life then Life.record(fid, "volunteer_failed", ps and ps.name or parent.targetName, loss) end
+        log("volunteer failed", parent.id, fid, "trust", loss)
     end
 end
 

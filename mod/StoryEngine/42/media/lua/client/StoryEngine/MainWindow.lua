@@ -519,6 +519,14 @@ function StoryEngineQuestPanel:createChildren()
     self.declineButton = newButton(x + 120 + PAD, h - PAD - BUTTON_H, 120, getText("IGUI_StoryEngine_Quest_Decline"),
         self, function(panel) respond(findQuest(Cache.questId), false) end)
     self:addChild(self.declineButton)
+    -- 보상 사양 (Quests.waiveReward): 보상 보급을 챙기지 않고 NPC 에게 남겨 신뢰도를 얻는다
+    self.waiveButton = newButton(x + 160 + PAD, h - PAD - BUTTON_H, 200, "", self, function(panel)
+        local q = findQuest(Cache.questId)
+        if q then request("rewardWaive", { id = q.id }) end
+    end)
+    self.waiveButton.tooltip = getText("IGUI_StoryEngine_Waive_Tooltip")
+    self.waiveButton:setVisible(false)
+    self:addChild(self.waiveButton)
     -- 다른 대가 (Work.lua): 일·외상·빚을 고르는 메뉴
     self.workButton = newButton(x, h - PAD - BUTTON_H, 150, getText("IGUI_StoryEngine_Work_Button"),
         self, StoryEngineQuestPanel.onWork)
@@ -663,6 +671,11 @@ local function questTitle(q)
     if q.work then
         local key = "IGUI_StoryEngine_Work_Title_" .. tostring(q.work.how) .. (q.work.stage and ("_" .. q.work.stage) or "")
         local title = getText(key, UI.npcName(q.work.faction))
+        if q.work.volunteer then
+            -- 일거리 청하기 (보수 없는 일)
+            key = "IGUI_StoryEngine_Volunteer_Title_" .. tostring(q.work.how) .. (q.work.stage and ("_" .. q.work.stage) or "")
+            title = getText(key, UI.npcName(q.work.faction))
+        end
         if q.town then title = title .. " - " .. UI.townName(q.town) end
         return title
     end
@@ -735,7 +748,9 @@ local function questSub(q)
     if q.saga then
         sub = getText("IGUI_StoryEngine_Saga_Tag") .. " " .. sagaName(q.saga) .. " - " .. sagaStageName(q.saga)
     end
-    if q.work then sub = getText("IGUI_StoryEngine_Work_Tag") .. " " .. sub end
+    if q.work then
+        sub = getText(q.work.volunteer and "IGUI_StoryEngine_Volunteer_Tag" or "IGUI_StoryEngine_Work_Tag") .. " " .. sub
+    end
     if q.holiday then sub = getText("IGUI_StoryEngine_Holiday_Tag") .. " " .. sub end
     if q.favorCall then sub = getText("IGUI_StoryEngine_Work_FavorTag") .. " " .. sub end
     -- 다른 사람이 받은 퀘스트는 누가 받았는지 붙인다 (퀘스트는 서버 전체가 함께 본다)
@@ -1018,6 +1033,9 @@ local function opDetail(q)
     local header
     if q.holiday then
         header = getText("IGUI_StoryEngine_Holiday_Header", getText("IGUI_StoryEngine_Holiday_" .. tostring(q.holiday)))
+    elseif q.work and q.work.volunteer then
+        header = getText("IGUI_StoryEngine_Volunteer_Header", Factions.name(q.work.faction),
+            StoryEngine.intToString(q.work.gain or 0))
     elseif q.work then
         header = getText("IGUI_StoryEngine_Work_Header", Factions.name(q.work.faction),
             getText("IGUI_StoryEngine_Work_" .. tostring(q.work.how)))
@@ -1049,7 +1067,8 @@ local function opDetail(q)
         local goal = "IGUI_StoryEngine_Op_Goal_" .. q.kind
         if q.kind == "supply_drop" then goal = "IGUI_StoryEngine_Quest_Goal_supply_drop" end
         if q.work then
-            goal = "IGUI_StoryEngine_Work_Goal_" .. tostring(q.work.how) .. (q.work.stage and ("_" .. q.work.stage) or "")
+            goal = "IGUI_StoryEngine_" .. (q.work.volunteer and "Volunteer" or "Work") .. "_Goal_" .. tostring(q.work.how)
+                .. (q.work.stage and ("_" .. q.work.stage) or "")
         end
         if q.holiday and q.kind == "collect" then goal = "IGUI_StoryEngine_Holiday_CollectGoal" end
         line(getText(goal, StoryEngine.intToString(q.radius or 0)))
@@ -1295,6 +1314,12 @@ function StoryEngineQuestPanel:refresh()
         self.submitButton:setX(located and (self.mapButton:getRight() + PAD) or self.mapButton:getX())
     end
     self.submitButton:setEnable(selected ~= nil and (selected.kind == "trade" or holdsQuestItem(selected)))
+    local canWaive = selected ~= nil and active and selected.waiveGain ~= nil
+    self.waiveButton:setVisible(canWaive)
+    if canWaive then
+        self.waiveButton:setTitle(getText("IGUI_StoryEngine_Waive_Button", StoryEngine.intToString(selected.waiveGain)))
+        self.waiveButton:setX(located and (self.mapButton:getRight() + PAD) or self.mapButton:getX())
+    end
     self.workButton:setVisible(canWork)
     if canWork then
         local after = (proposed and self.declineButton) or (canSubmit and self.submitButton) or nil
@@ -1422,6 +1447,7 @@ local RES_LABEL_W = 90
 local DONATE_W = 150
 local SPEC_W = 190
 local PROJECT_W = 150
+local VOLUNTEER_W = 150
 
 local function levelOf(v)
     if v < 20 then return "empty" end
@@ -1477,6 +1503,13 @@ function StoryEngineLifePanel:createChildren()
     self.projectButton = newButton(x + DONATE_W + SPEC_W + PAD * 2, h - PAD - BUTTON_H, PROJECT_W,
         getText("IGUI_StoryEngine_Project_Button"), self, StoryEngineLifePanel.onProject)
     self:addChild(self.projectButton)
+    -- 일거리 청하기 (Work.volunteer): 보수 없이 일해 주고 신뢰도를 얻는다
+    self.volunteerButton = newButton(x + DONATE_W + SPEC_W + PROJECT_W + PAD * 3, h - PAD - BUTTON_H, VOLUNTEER_W,
+        getText("IGUI_StoryEngine_Volunteer_Button"), self, function(panel)
+            local n = lifeOf(Cache.lifeFaction)
+            if n then request("volunteerAsk", { faction = n.id }) end
+        end)
+    self:addChild(self.volunteerButton)
 end
 
 function StoryEngineLifePanel:onProject()
@@ -1558,7 +1591,7 @@ function StoryEngineLifePanel:render()
     -- 물자 지원 대기
     if not n.fate and (n.donateWait or 0) > 0 then
         self:drawText(getText("IGUI_StoryEngine_Life_DonateWait", StoryEngine.intToString(n.donateWait)),
-            self.projectButton:getRight() + PAD, self.donateButton:getY() + (BUTTON_H - FONT_H) / 2, 0.7, 0.7, 0.7, 1, UIFont.Small)
+            self.volunteerButton:getRight() + PAD, self.donateButton:getY() + (BUTTON_H - FONT_H) / 2, 0.7, 0.7, 0.7, 1, UIFont.Small)
     end
 end
 
@@ -1598,6 +1631,15 @@ function StoryEngineLifePanel:refresh()
     self.donateButton:setVisible(n ~= nil)
     self.specButton:setVisible(n ~= nil)
     self.projectButton:setVisible(false)
+    self.volunteerButton:setVisible(n ~= nil and n.volunteer ~= nil and not n.fate)
+    if n and n.volunteer then
+        local v = n.volunteer
+        local tip = getText("IGUI_StoryEngine_Volunteer_Tooltip", StoryEngine.intToString(v.tier or 1),
+            StoryEngine.intToString(v.gain or 0), StoryEngine.intToString(v.left or 0))
+        if v.why then tip = getText("IGUI_StoryEngine_Volunteer_Why_" .. tostring(v.why)) .. " <LINE> " .. tip end
+        self.volunteerButton.tooltip = tip
+        self.volunteerButton:setEnable(v.ok == true)
+    end
     if not n then
         self.detail:setText(" <TEXT> " .. UI.escape(getText("IGUI_StoryEngine_Life_Empty")))
         self.detail:paginate()

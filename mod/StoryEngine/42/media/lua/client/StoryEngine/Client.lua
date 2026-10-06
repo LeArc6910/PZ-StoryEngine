@@ -156,6 +156,41 @@ function Client.handlers.holidayNotice(args)
     Net.toServer(player, "questList", {})
 end
 
+-- 일거리 청하기 (Work.volunteer)
+function Client.handlers.volunteerResult(args)
+    local player = getPlayer()
+    if not player then return end
+    if args.ok then
+        HaloTextHelper.addGoodText(player, getText("IGUI_StoryEngine_Volunteer_Chosen_" .. tostring(args.how)))
+    else
+        local key = "IGUI_StoryEngine_Volunteer_Why_" .. tostring(args.error)
+        local text = getText(key)
+        if text == key then
+            key = "IGUI_StoryEngine_Work_Error_" .. tostring(args.error)
+            text = getText(key)
+            if text == key then text = getText("IGUI_StoryEngine_Error", tostring(args.error)) end
+        end
+        HaloTextHelper.addBadText(player, text)
+    end
+    Net.toServer(player, "questList", {})
+    Net.toServer(player, "lifeList", {})
+end
+
+-- 보상 사양 (Quests.waiveReward)
+function Client.handlers.rewardWaiveResult(args)
+    local player = getPlayer()
+    if not player then return end
+    if args.ok then
+        HaloTextHelper.addGoodText(player, getText("IGUI_StoryEngine_Waive_Done", StoryEngine.intToString(args.gain or 0)))
+    else
+        local key = "IGUI_StoryEngine_Waive_Error_" .. tostring(args.error)
+        local text = getText(key)
+        if text == key then text = getText("IGUI_StoryEngine_Error", tostring(args.error)) end
+        HaloTextHelper.addBadText(player, text)
+    end
+    Net.toServer(player, "questList", {})
+end
+
 -- 거래 대가를 일·외상·빚으로 (Work.lua)
 function Client.handlers.tradeWorkResult(args)
     local player = getPlayer()
