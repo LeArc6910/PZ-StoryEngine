@@ -129,7 +129,7 @@ local function itemName(fullType)
 end
 
 -- 건물 위치가 있는 퀘스트인가 (부탁·거래는 무전으로만 주고받아 위치가 없다)
-local NO_LOCATION = { deliver = true, trade = true, extort = true, collect = true, market = true }
+local NO_LOCATION = { deliver = true, trade = true, extort = true, collect = true, market = true, volunteer = true }
 function Quests.hasLocation(q)
     return not NO_LOCATION[q.kind]
 end
@@ -151,7 +151,7 @@ end
 
 -- 작전·큰 사건·거래 대가 일이 맡는 퀘스트 (신뢰도·반응·보상을 건너뛴다)
 function Quests.isManaged(q)
-    return Quests.isOp(q) or Quests.isSaga(q) or Quests.isWork(q)
+    return Quests.isOp(q) or Quests.isSaga(q) or Quests.isWork(q) or (q ~= nil and q.kind == "volunteer")
         or (q ~= nil and q.origin ~= nil and (q.origin.holiday ~= nil or q.origin.source == "recover"))
 end
 
@@ -854,7 +854,7 @@ Quests.notify = function(q) return notifyTarget(q) end
 
 -- 죽거나 떠난 NPC 의 부탁·거래를 조용히 거둔다 (신뢰도·반응·생활 상태 변화 없음, Fate.lua).
 -- 이미 놓인 보급(보상·선물)은 그대로 둔다.
-local CANCELABLE = { deliver = true, trade = true, horde = true, extort = true }
+local CANCELABLE = { deliver = true, trade = true, horde = true, extort = true, volunteer = true }
 function Quests.cancelFor(fid, now)
     for _, q in pairs(all()) do
         local job = Quests.isWork(q) and Quests.isActive(q)     -- 거래 대가로 하던 일 (Work.lua)
@@ -2080,12 +2080,66 @@ function Quests.track(entries, now)
     end
 end
 
+-- ---------------------------------------------------------------- 보상 사양 (2026-10-06)
+-- NPC 부탁(물건 전달·소탕·찾아오기·아는 얼굴)을 끝내고 받은 보상 보급을 챙기지 않고 사양하면, 그 NPC 가 물건을 그대로
+-- 쓰고 신뢰도 +부탁 등급, 핵심 자원 +등급 x WAIVE_LIFE. 아직 아무것도 안 가져갔을 때만. 거래로 산 물건·선물·협박 대가는 안 된다.
+-- 편지가 함께 든 보급은 편지를 챙기라고 사양을 막는다
+Quests.WAIVE_KINDS = { deliver = true, horde = true, fetch = true, named = true }
+Quests.WAIVE_LIFE = 5
+
+-- 사양할 수 있는 보상이면 그 부탁 등급 (신뢰도 +), 아니면 nil
+function Quests.waiveTier(q)
+    if not (q and q.kind == "supply_drop" and q.origin and q.origin.source == "reward" and Quests.isActive(q)) then
+        return nil
+    end
+    if not Quests.WAIVE_KINDS[Quests.rewardKind(q) or ""] or q.letterId then return nil end
+    local parent = q.origin.rewardFor and all()[q.origin.rewardFor]
+    return math.max(1, math.min(Quests.MAX_TIER, (parent and parent.tier) or q.tier or 1))
+end
+
+function Quests.waiveReward(player, qid)
+    local q = all()[qid]
+    if q and q.letterId and q.kind == "supply_drop" and Quests.isActive(q) then return false, "letter" end
+    local tier = Quests.waiveTier(q)
+    if not tier then return false, "not_waivable" end
+    if not Factions.canTalk(player) then return false, "no_radio" end
+    if q.spawned and q.placed then
+        local left = atSpot(q, false)
+        if left ~= nil and left < #q.placed then return false, "taken" end
+    end
+    local now = Sensor.now()
+    local ps = Store.player(player)
+    local fid = q.origin.faction
+    q.state, q.endedT, q.waived = "declined", now.t, true
+    q.history = q.history or {}
+    Store.push(q.history, { state = "waived", t = now.t, by = ps.name }, 20)
+    if q.spawned then
+        q.cleanup = true
+        cleanup(q)
+    end
+    local gain = 0
+    if fid and Factions.byId[fid] then
+        gain = StoryEngine.Trust.apply(fid, tier, "reward_waived", q.id, ps.key)
+        local Life = StoryEngine.Life
+        if Life then
+            Life.change(fid, Life.KEY[fid], tier * Quests.WAIVE_LIFE, "waived")
+            Life.record(fid, "reward_waived", ps.name, gain)
+        end
+        Radio.react(fid, "event", ps.name .. " told you to keep the reward you left for them; your people need it more. "
+            .. "Thank them; it means a lot to you.",
+            StoryEngine.Lines.fallback(fid, "reward_waived", "You'd leave it for us? Thank you."), ps, { overhead = true })
+    end
+    log("reward waived", q.id, fid or "", "tier", tier, "trust", gain, "by", ps.name)
+    notifyTarget(q)
+    return true, gain
+end
+
 -- 클라이언트 퀘스트 탭·지도용 목록: 서버의 모든 퀘스트 (진행 중 + 최근 끝난 것). 누가 받았든 함께 보고,
 -- 누구나 수락·제출·지불할 수 있다. psKey 는 표시용 (내가 받은 퀘스트 구분)
 function Quests.listFor(psKey, now)
     local active, done = {}, {}
     for _, q in pairs(all()) do
-        do
+        if q.kind ~= "volunteer" then      -- 일거리 청하기의 숨은 부모 (Work.lua): 일 퀘스트만 보인다
             local state = LEGACY[q.state] or q.state
             local item = {
                 id = q.id, kind = q.kind or "supply_drop", state = state, tier = q.tier or 1,
@@ -2118,8 +2172,10 @@ function Quests.listFor(psKey, now)
                 end
             end
             if Quests.isWork(q) then
+                local parent = all()[q.origin.work]
                 item.work = { how = q.origin.workKind, stage = q.origin.stage, trade = q.origin.work,
-                              faction = q.origin.faction }
+                              faction = q.origin.faction, volunteer = q.origin.volunteer,
+                              gain = q.origin.volunteer and parent and parent.gain or nil }
                 item.site = nil
             end
             if q.kind == "visit" or q.kind == "defend" then item.radius = q.radius end
@@ -2164,6 +2220,8 @@ function Quests.listFor(psKey, now)
             end
             if q.origin and q.origin.story then item.story = q.origin.story.crisis and "crisis" or "story" end
             item.urgent = q.urgent
+            if ACTIVE[state] then item.waiveGain = Quests.waiveTier(q) end
+            item.waived = q.waived
             if ACTIVE[state] or state == "proposed" then active[#active + 1] = item else done[#done + 1] = item end
         end
     end

@@ -36,7 +36,7 @@ Legacy.NEWCOMER_COMPANIONS = 3
 Legacy.WEIGHT = {
     quest_completed = 3, trade_done = 2, donation = 2, project_gift = 2, crisis_helped = 3, crisis_ally = 2, project_done = 3,
     specialty = 1, ray_supply = 1, quest_accepted = 1, quest_failed = 1, quest_ignored = 1, quest_declined = 1,
-    trade_failed = 1, crisis_snubbed = 1, insult = 1,
+    trade_failed = 1, crisis_snubbed = 1, insult = 1, volunteer = 2, volunteer_failed = 1, reward_waived = 2,
 }
 
 -- 행적 종류 -> AI 에게 넘기는 영어 (함께한 일 요약)
@@ -46,6 +46,8 @@ local KIND_WORDS = {
     quest_failed = "let you down on a job", quest_ignored = "ignored your requests", quest_declined = "turned down your requests",
     trade_failed = "backed out of a trade", crisis_snubbed = "chose someone else over you in a crisis",
     specialty = "called on your help", insult = "insulted you",
+    volunteer = "worked for you for nothing", volunteer_failed = "failed a job they offered to do for you",
+    reward_waived = "left you the reward they had earned",
 }
 
 -- ---------------------------------------------------------------- 기록
