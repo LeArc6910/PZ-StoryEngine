@@ -15,7 +15,6 @@ require "StoryEngine/UIUtil"
 require "StoryEngine/Factions"
 
 local UI = StoryEngine.UI
-local Factions = StoryEngine.Factions
 
 StoryEngineMiniRadio = ISCollapsableWindow:derive("StoryEngineMiniRadio")
 StoryEngineMiniRadio.MAX = 40
@@ -26,12 +25,13 @@ local function line(entry)
     local m, fid = entry.msg, entry.faction
     local clock = "[" .. tostring(m.clock or "") .. "] "
     if m.from == "npc" then
-        local who = Factions.name(m.npc or fid)
-        if m.npc and fid == "open" then who = who .. " (" .. Factions.name("open") .. ")" end
+        -- 간소화 창에서는 괄호 속 거점 이름을 뺀다 (UI.npcName)
+        local who = UI.npcName(m.npc or fid)
+        if m.npc and fid == "open" then who = who .. " (" .. UI.npcName("open") .. ")" end
         return " <RGB:0.95,0.75,0.4> " .. UI.escape(clock .. who .. ": ")
             .. " <RGB:0.92,0.92,0.88> " .. UI.escape(UI.textOf(m)) .. " <LINE> "
     elseif m.from == "player" then
-        return " <RGB:0.55,0.75,1> " .. UI.escape(clock .. tostring(m.name or "?") .. " > " .. Factions.name(fid) .. ": ")
+        return " <RGB:0.55,0.75,1> " .. UI.escape(clock .. tostring(m.name or "?") .. " > " .. UI.npcName(fid) .. ": ")
             .. " <RGB:0.8,0.8,0.8> " .. UI.escape(UI.textOf(m)) .. " <LINE> "
     end
     return nil
