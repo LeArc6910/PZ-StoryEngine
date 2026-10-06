@@ -215,7 +215,7 @@ Loot.SPECIALTY = {
 -- ---------------------------------------------------------------- 실시간 보상 (2026-10-04 사용자 결정)
 -- 거래 묶음과 같은 생성기(Trade.generate): 품목마다 그 등급 물건 1개 + 남은 예산을 그 등급 이하 물건으로 무작위로.
 -- 구성(음식·음료·의약품, 등급별 확률로 도구·근접 무기·총)과 확률(Loot.CHANCE)은 예전 그대로이고, 물건만 실시간으로 고른다.
--- 예산은 예전 고정 보상의 가치에 맞췄다. 샌드박스 보상 배율(RewardMult)은 음식·의약품·전문 묶음 예산에 곱한다.
+-- 예산은 예전 고정 보상의 가치에 맞췄다. 샌드박스 보상 배율(RewardMult)은 모든 품목과 전문 묶음 예산에 곱한다 (2026-10-07).
 -- 전문 보상은 그 세력의 전문 품목(Loot.SPECIALTY_CAT, 케이시·듀이는 전자기기·차량 부품 풀)을 거래 예산의 절반으로.
 -- 생성기가 물건을 못 고르면(아이템 풀이 비었을 때) 아래 예전 고정 표를 쓴다.
 Loot.BUDGET = {
@@ -265,7 +265,8 @@ end
 
 -- 한 품목: 생성기로, 못 하면 fallback() (예전 고정 표)
 local function part(out, category, tier, scale, fallback)
-    local made = gen(category, tier, nil, Loot.BUDGET[category][tier] * (scale and rewardMult() or 1))
+    -- 보상 배율은 모든 품목의 예산에 곱한다 (2026-10-07, 예전엔 음식·의약품만)
+    local made = gen(category, tier, nil, Loot.BUDGET[category][tier] * rewardMult())
     if made then append(out, made) else fallback() end
 end
 

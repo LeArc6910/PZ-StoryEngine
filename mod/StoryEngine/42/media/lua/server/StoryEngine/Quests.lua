@@ -32,6 +32,7 @@ require "StoryEngine/Store"
 require "StoryEngine/Sensor"
 require "StoryEngine/Factions"
 require "StoryEngine/Radio"
+require "StoryEngine/Danger"
 require "StoryEngine/Loot"
 require "StoryEngine/Needs"
 require "StoryEngine/Trust"
@@ -257,12 +258,24 @@ function Quests.itemMode()
     return m
 end
 
+-- 그 물건 그대로 받는 것의 개수: 등급이 있으면 부탁 점수 배율의 기본값(1.5) 대비 비율을 곱한다 (2026-10-07,
+-- 보통 난이도면 그대로). 최소 1
+local function exactCount(n, tier, plain)
+    n = n or 1
+    if not tier or plain then return n end
+    local base = StoryEngine.Tuning and tonumber(StoryEngine.Tuning.DEFAULTS.RequestPointsMult) or 1.5
+    local r = pointsMult() / base
+    if r == 1 then return n end
+    return math.max(1, math.floor(n * r + 0.5))
+end
+Quests.exactCount = exactCount
+
 function Quests.pointsNeed(items, tier, plain)
     local V = StoryEngine.Value
     local out, sums, lows, order = {}, {}, {}, {}
     local mode = plain and 1 or Quests.itemMode()
     if mode == 3 then
-        for _, n in ipairs(items or {}) do out[#out + 1] = { n[1], n[2], n[3] } end
+        for _, n in ipairs(items or {}) do out[#out + 1] = { n[1], exactCount(n[2], tier, plain), n[3] } end
         return out
     end
     local matWeight = 0
@@ -277,7 +290,7 @@ function Quests.pointsNeed(items, tier, plain)
             local it = V.pointTier(n[1])
             if it then lows[kind] = math.min(lows[kind] or it, it) end
         else
-            out[#out + 1] = { n[1], n[2], n[3] }
+            out[#out + 1] = { n[1], exactCount(n[2], tier, plain), n[3] }
             if t and keptKind then
                 -- 방식 2 에서 그대로 받는 점수 품목 물건: 그 품목 기준으로 수고를 센다
                 matWeight = matWeight + V.pointOf(n[1]) * (n[2] or 1) / Quests.POINT_BASE[keptKind][t]
@@ -372,8 +385,9 @@ local function groundRoom(def)
 end
 
 -- 점 (px, py) 근처(반경 r)에서 조건에 맞는 건물 중 점에 가장 가까운 것.
--- accept(def, cx, cy) 가 false 면 건너뛴다. 반환: { def, room, key, distance(플레이어부터) } | nil
-local function nearestBuilding(x, y, px, py, r, exclude, accept)
+-- accept(def, cx, cy) 가 false 면 건너뛴다. keep = 좀비 밀집도 지역 순위 아래 몇 % 까지 (Danger.lua, nil 이면 거르지 않음).
+-- 반환: { def, room, key, distance(플레이어부터) } | nil
+local function nearestBuilding(x, y, px, py, r, exclude, accept, keep)
     local list = ArrayList.new()
     getWorld():getMetaGrid():getBuildingsIntersecting(math.floor(px - r), math.floor(py - r), r * 2, r * 2, list)
     local best, bestD = nil, nil
@@ -381,7 +395,8 @@ local function nearestBuilding(x, y, px, py, r, exclude, accept)
         local def = list:get(i)
         local key = buildingKey(def)
         local cx, cy = (def:getX() + def:getX2()) / 2, (def:getY() + def:getY2()) / 2
-        if not exclude[key] and (not accept or accept(def, cx, cy)) then
+        if not exclude[key] and (not accept or accept(def, cx, cy))
+            and (not keep or StoryEngine.Danger.allowed(def, keep)) then
             local room = groundRoom(def)
             local fromPoint = dist(px, py, cx, cy)
             if room and (not bestD or fromPoint < bestD) then
@@ -393,7 +408,7 @@ local function nearestBuilding(x, y, px, py, r, exclude, accept)
 end
 
 -- 무작위 방향으로 목표 거리 지점을 찍고, 그 근처에서 조건에 맞는 건물을 찾는다.
-function Quests.findBuilding(x, y, minD, maxD, exclude, accept)
+function Quests.findBuilding(x, y, minD, maxD, exclude, accept, keep)
     for _ = 1, 12 do
         local angle = ZombRandFloat(0, math.pi * 2)
         local d = ZombRandFloat(minD, maxD)
@@ -402,14 +417,14 @@ function Quests.findBuilding(x, y, minD, maxD, exclude, accept)
             local fromPlayer = dist(x, y, cx, cy)
             if fromPlayer < minD * 0.8 or fromPlayer > maxD * 1.1 then return false end
             return not accept or accept(def, cx, cy)
-        end)
+        end, keep)
         if found then return found end
     end
     return nil
 end
 
 -- 5등급: 플레이어가 있는 마을이 아닌, 가까운 다른 마을 몇 곳 중 하나의 안쪽 건물
-function Quests.findInOtherTown(x, y, exclude)
+function Quests.findInOtherTown(x, y, exclude, keep)
     local here = Places.describe(x, y).town
     local towns = {}
     for _, t in ipairs(Places.towns) do
@@ -423,25 +438,43 @@ function Quests.findInOtherTown(x, y, exclude)
         local t = towns[ZombRand(choices) + 1].town
         local px = t.x + ZombRandFloat(-Quests.CITY_RADIUS, Quests.CITY_RADIUS)
         local py = t.y + ZombRandFloat(-Quests.CITY_RADIUS, Quests.CITY_RADIUS)
-        local found = nearestBuilding(x, y, px, py, 120, exclude, nil)
+        local found = nearestBuilding(x, y, px, py, 120, exclude, nil, keep)
         if found then return found end
     end
     return nil
 end
 
 -- 등급에 맞는 퀘스트 건물. 4등급은 교외를 먼저 찾고, 없으면 거리만 맞춘다.
-function Quests.findForTier(x, y, tier, exclude)
+local function findForTier(x, y, tier, exclude, keep)
     if tier >= 5 then
-        return Quests.findInOtherTown(x, y, exclude) or Quests.findBuilding(x, y, 2000, 3500, exclude)
+        return Quests.findInOtherTown(x, y, exclude, keep) or Quests.findBuilding(x, y, 2000, 3500, exclude, nil, keep)
     end
     local range = Quests.RANGES[tier]
     if tier == 4 then
         local rural = Quests.findBuilding(x, y, range[1], range[2], exclude, function(def, cx, cy)
             return Places.describe(cx, cy).townDist >= Quests.RURAL_TOWN_DIST
-        end)
+        end, keep)
         if rural then return rural end
     end
-    return Quests.findBuilding(x, y, range[1], range[2], exclude)
+    return Quests.findBuilding(x, y, range[1], range[2], exclude, nil, keep)
+end
+
+-- keep = 좀비 밀집도 지역 순위 아래 몇 %의 건물만 (2026-10-07: 보상 보급 0.5, 그 밖 위치 퀘스트 0.7, Danger.lua).
+-- 생략하면 위치 퀘스트 기준, false 면 거르지 않는다. 걸러서 못 찾으면 거르지 않고 다시 찾는다
+function Quests.findForTier(x, y, tier, exclude, keep)
+    if keep == nil then keep = StoryEngine.Danger.KEEP_QUEST end
+    local found = findForTier(x, y, tier, exclude, keep or nil)
+    if not found and keep then
+        found = findForTier(x, y, tier, exclude, nil)
+        if found then log("danger filter relaxed: no calmer building for tier", tier) end
+    end
+    return found
+end
+
+-- 보상·선물·거래 배송 보급인가 (일하러 가는 곳이 아니라 물건만 챙기면 되는 곳): 마굴 기준이 더 엄격하다
+local TASK_SOURCES = { op = true, saga = true, rescue = true }
+function Quests.isPickupOrigin(kind, origin)
+    return kind == "supply_drop" and not (origin and TASK_SOURCES[origin.source])
 end
 
 local function roomNames(def)
@@ -949,7 +982,8 @@ function Quests.create(kind, player, ps, tier, now, origin, itemsOverride)
     local exclude = {}
     if ps.home and ps.home.building then exclude[ps.home.building] = true end
     if ps.prev and ps.prev.building then exclude[ps.prev.building] = true end
-    local found = Quests.findForTier(math.floor(player:getX()), math.floor(player:getY()), tier, exclude)
+    local keep = Quests.isPickupOrigin(kind, origin) and StoryEngine.Danger.KEEP_REWARD or StoryEngine.Danger.KEEP_QUEST
+    local found = Quests.findForTier(math.floor(player:getX()), math.floor(player:getY()), tier, exclude, keep)
     if not found then return nil, "no_building" end
 
     local d = Store.data()

@@ -54,10 +54,18 @@ function ItemTooltip.lines(item)
         return out
     end
     if s.category then
-        out[#out + 1] = { getText("IGUI_StoryEngine_Tip_Trade", getText("IGUI_StoryEngine_Cat_" .. s.category), fmt(s.value)), COLOR }
+        local cat = getText("IGUI_StoryEngine_Cat_" .. s.category)
+        if s.tier then cat = getText("IGUI_StoryEngine_Tip_CatTier", cat, StoryEngine.intToString(s.tier)) end
+        out[#out + 1] = { getText("IGUI_StoryEngine_Tip_Trade", cat, fmt(s.value)), COLOR }
         local who = names(s.wanted)
         out[#out + 1] = { who ~= "" and getText("IGUI_StoryEngine_Tip_Wanted", who) or getText("IGUI_StoryEngine_Tip_NotWanted"),
                           who ~= "" and COLOR or DIM }
+    end
+    if s.kind then
+        -- 거래 품목이 아닌 분류 (전자기기·차량 부품·기호품): NPC 부탁 점수에 쓰인다
+        local cat = getText("IGUI_StoryEngine_Cat_" .. s.kind)
+        if s.tier then cat = getText("IGUI_StoryEngine_Tip_CatTier", cat, StoryEngine.intToString(s.tier)) end
+        out[#out + 1] = { getText("IGUI_StoryEngine_Tip_Kind", cat), COLOR }
     end
     if s.resource then
         out[#out + 1] = { getText("IGUI_StoryEngine_Tip_Donate", getText("IGUI_StoryEngine_Life_Res_" .. s.resource),

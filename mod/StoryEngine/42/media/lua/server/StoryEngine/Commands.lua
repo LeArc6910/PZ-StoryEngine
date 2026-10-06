@@ -616,6 +616,14 @@ function Commands.questSubmit(player, args)
     reply(player, "questSubmitResult", { ok = ok, error = not ok and why or nil })
 end
 
+-- 디버그: 이 자리의 좀비 밀집도와 지역 기준 (Danger.lua, 마굴 거르기 기준 확인용)
+function Commands.debugDanger(player, args)
+    if not canUseDebug(player) then return end
+    local text = StoryEngine.Danger.statusAt(player:getX(), player:getY())
+    StoryEngine.log(text)
+    reply(player, "debugStatus", { text = text })
+end
+
 function Commands.debugQuests(player, args)
     if not canUseDebug(player) then return end
     StoryEngine.Sensor.tick()

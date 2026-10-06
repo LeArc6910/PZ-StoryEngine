@@ -225,6 +225,7 @@ end
 
 function T.batteries_stay_items_candles_are_comforts_firewood_is_a_material()
     setup()
+    SandboxVars.StoryEngine.RequestPointsMult = nil     -- 기본 1.5: 그대로 받는 물건 개수도 그대로
     H.defineItem("Base.Battery", "misc", 2)
     H.defineItem("Base.Candle", "misc", 2)
     local V = StoryEngine.Value
@@ -258,6 +259,7 @@ end
 
 function T.item_mode_exact_items()
     local p, ps = setup()
+    SandboxVars.StoryEngine.RequestPointsMult = nil
     SandboxVars.StoryEngine.RequestItemMode = 3
     local Q = StoryEngine.Quests
     local need = Q.pointsNeed({ { "Base.TinnedBeans", 3 }, { "Base.HuntingRifle", 1 } }, 4)
@@ -270,6 +272,19 @@ function T.item_mode_exact_items()
     H.ok(not StoryEngine.Quests.submit(p, q.id), "other food does not count")
     for _ = 1, 2 do H.give(p, "Base.TinnedBeans") end
     H.ok(StoryEngine.Quests.submit(p, q.id), "the exact cans do")
+end
+
+-- 그대로 받는 물건 개수는 부탁 점수 배율 / 1.5 (2026-10-07)
+function T.exact_counts_follow_the_request_multiplier()
+    setup()
+    local Q = StoryEngine.Quests
+    SandboxVars.StoryEngine.RequestPointsMult = 3
+    local need = Q.pointsNeed({ { "Base.NailsBox", 2 }, { "Base.TinnedBeans", 3 } }, 2)
+    H.eq(need[1][1], "Base.NailsBox")
+    H.eq(need[1][2], 4, "double the multiplier, double the nails")
+    SandboxVars.StoryEngine.RequestPointsMult = 0.1
+    H.eq(Q.pointsNeed({ { "Base.NailsBox", 2 } }, 2)[1][2], 1, "never below one")
+    H.eq(Q.pointsNeed({ { "Base.NailsBox", 2 } })[1][2], 2, "no tier: as asked")
 end
 
 return T

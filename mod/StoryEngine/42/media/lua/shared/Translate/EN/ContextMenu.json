@@ -5,6 +5,7 @@
     "ContextMenu_StoryEngine_WriteJournal": "StoryEngine: write journal now",
     "ContextMenu_StoryEngine_Director": "StoryEngine: run director",
     "ContextMenu_StoryEngine_Supply": "StoryEngine: force supply drop",
+    "ContextMenu_StoryEngine_DebugDanger": "StoryEngine: Zombie density here (hotspot filter)",
     "ContextMenu_StoryEngine_Quests": "StoryEngine: quest status",
     "ContextMenu_StoryEngine_QuestLog": "Quests",
     "ContextMenu_StoryEngine_Radio": "Radio",
@@ -79,5 +80,7 @@
     "ContextMenu_StoryEngine_DebugRecover": "Belongings recovery (now)",
     "ContextMenu_StoryEngine_DebugHoliday": "Holidays",
     "ContextMenu_StoryEngine_DebugHolidayAnnounce": "Announce %1",
-    "ContextMenu_StoryEngine_DebugHolidayFeast": "Celebrate %1"
+    "ContextMenu_StoryEngine_DebugHolidayFeast": "Celebrate %1",
+    "ContextMenu_StoryEngine_MiniShow": "Show compact radio window",
+    "ContextMenu_StoryEngine_MiniHide": "Hide compact radio window"
 }

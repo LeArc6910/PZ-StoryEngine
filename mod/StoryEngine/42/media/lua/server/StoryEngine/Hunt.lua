@@ -142,6 +142,71 @@ local function adopt(h)
     return tagged(h.id)
 end
 
+-- ---------------------------------------------------------------- 은신처 둘레 (2026-10-07)
+-- 추적 무리는 은신처 둘레 SafehouseRadius 타일 안에서는 실제 좀비로 생기지 않는다. 그 바깥 경계에서 생겨 걸어온다.
+-- 은신처 = 서버의 세이프하우스 목록. 싱글처럼 목록이 비었으면 접속한 캐릭터들의 집(모드가 추정한 ps.home) 둘레 HOME_HALF 타일
+Hunt.HOME_HALF = 8
+
+function Hunt.safeRadius()
+    local Tuning = StoryEngine.Tuning
+    return Tuning and Tuning.num("SafehouseRadius") or 30
+end
+
+function Hunt.safeZones()
+    local zones = {}
+    pcall(function()
+        local list = SafeHouse and SafeHouse.getSafehouseList and SafeHouse.getSafehouseList()
+        for i = 0, (list and list:size() or 0) - 1 do
+            local s = list:get(i)
+            zones[#zones + 1] = { s:getX(), s:getY(), s:getX() + s:getW(), s:getY() + s:getH() }
+        end
+    end)
+    if #zones == 0 and not (isClient() or isServer()) then
+        for _, p in ipairs(Sensor.players()) do
+            local home = Store.player(p).home
+            if home and home.x then
+                local r = Hunt.HOME_HALF
+                zones[#zones + 1] = { home.x - r, home.y - r, home.x + r, home.y + r }
+            end
+        end
+    end
+    return zones
+end
+
+local function rectDist(z, x, y)
+    local dx = math.max(z[1] - x, 0, x - z[3])
+    local dy = math.max(z[2] - y, 0, y - z[4])
+    return math.sqrt(dx * dx + dy * dy)
+end
+
+-- (x, y) 가 은신처 둘레 안이면 은신처 가운데에서 바깥쪽으로 밀어낸다. 반환: x, y, 옮겼는가
+function Hunt.pushOut(x, y)
+    local radius = Hunt.safeRadius()
+    if radius <= 0 then return x, y, false end
+    local zones = Hunt.safeZones()
+    local moved = false
+    for _ = 1, 3 do
+        local again = false
+        for _, z in ipairs(zones) do
+            if rectDist(z, x, y) < radius then
+                local cx, cy = (z[1] + z[3]) / 2, (z[2] + z[4]) / 2
+                local dx, dy = x - cx, y - cy
+                local len = math.sqrt(dx * dx + dy * dy)
+                if len < 0.5 then dx, dy, len = 1, 0, 1 end
+                dx, dy = dx / len, dy / len
+                local step = 0
+                while rectDist(z, x, y) < radius and step < 200 do
+                    x, y = x + dx * 2, y + dy * 2
+                    step = step + 1
+                end
+                moved, again = true, true
+            end
+        end
+        if not again then break end
+    end
+    return x, y, moved
+end
+
 local function materialize(h, target, exact)
     local tx, ty = target:getX(), target:getY()
     local d = dist(h.x, h.y, tx, ty)
@@ -149,6 +214,16 @@ local function materialize(h, target, exact)
     if not exact and d < Hunt.MIN_SPAWN_DIST and d > 0 then
         sx = tx + (h.x - tx) / d * Hunt.MIN_SPAWN_DIST
         sy = ty + (h.y - ty) / d * Hunt.MIN_SPAWN_DIST
+    end
+    if not exact then
+        local px, py, moved = Hunt.pushOut(sx, sy)
+        if moved then
+            if not h.pushLogged then
+                h.pushLogged = true
+                log("hunt kept outside a safehouse", h.id, math.floor(sx), math.floor(sy), "->", math.floor(px), math.floor(py))
+            end
+            sx, sy = px, py
+        end
     end
     local zombies = adopt(h)
     local need = h.remaining - #zombies

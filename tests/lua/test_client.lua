@@ -156,6 +156,10 @@ function T.item_tooltip_lines()
     H.ok(string.find(lines[3][1], "IGUI_StoryEngine_Life_Res_safety", 1, true), lines[3][1])
     StoryEngine.Value.cache["Base.Rock"] = { category = "misc", value = 0.2 }
     H.eq(#StoryEngine.ItemTooltip.lines(H.newItem("Base.Rock")), 0)
+    -- 등급이 있으면 종류와 함께 보인다 (2026-10-07)
+    StoryEngine.Value.cache["Base.Saw"] = { category = "tools", value = 8, tier = 3 }
+    local saw = StoryEngine.ItemTooltip.lines(H.newItem("Base.Saw"))
+    H.ok(string.find(saw[1][1], "IGUI_StoryEngine_Tip_CatTier|IGUI_StoryEngine_Cat_tools|3", 1, true), saw[1][1])
 end
 
 
@@ -184,6 +188,24 @@ function T.renders_sentence_lists_and_npc_names()
     local npc = UI.render({ key = "IGUI_X", args = { { t = "npc", v = "doc" }, { t = "key", v = "IGUI_Y" } } })
     H.ok(string.find(npc, "IGUI_Y", 1, true), npc)
     H.ok(StoryEngine.Client.handlers.tradeOptions, "trade menu handler")
+end
+
+-- 간소화 무전 창 (MiniRadio.lua): 대화만 시간순으로 담는다 (2026-10-07)
+function T.mini_radio_feed_keeps_only_talk()
+    H.addPlayer("tester", "Gerald", "Kar")
+    local Mini = StoryEngineMiniRadio
+    Mini.feed = {}
+    StoryEngine.Client.handlers.radioMessage({ faction = "ray", msg = { n = 1, from = "npc", text = "Morning.", clock = "08:00" } })
+    StoryEngine.Client.handlers.radioMessage({ faction = "ray", msg = { n = 2, from = "system", trust = 1, reason = "x" } })
+    StoryEngine.Client.handlers.radioMessage({ faction = "doc", msg = { n = 1, from = "player", name = "Gerald", text = "Hi doc" } })
+    StoryEngine.Client.handlers.radioMessage({ faction = "ray", msg = { n = 1, from = "npc", text = "dup" } })
+    H.eq(#Mini.feed, 2, "npc and player lines, no system line, no duplicate")
+    H.ok(string.find(Mini.line(Mini.feed[1]), "Morning.", 1, true))
+    H.ok(string.find(Mini.line(Mini.feed[2]), "Gerald", 1, true))
+    for i = 1, 50 do
+        StoryEngine.Client.handlers.radioMessage({ faction = "casey", msg = { n = i, from = "npc", text = "m" .. i } })
+    end
+    H.eq(#Mini.feed, Mini.MAX, "keeps the latest only")
 end
 
 return T

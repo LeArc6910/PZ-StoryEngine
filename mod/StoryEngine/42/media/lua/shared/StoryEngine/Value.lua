@@ -556,6 +556,14 @@ function Value.summary(item)
     if res then out.resource, out.resValue = res, rv * ratio; any = true end
     local vv = Value.vehicleValue(ft)
     if vv then out.vehicle = vv; any = true end
+    -- 종류와 등급 (2026-10-07): 거래 품목은 그 등급, 거래 품목이 아닌 전자기기·차량 부품은 따로 한 줄
+    -- (기호품은 등급이 없고 물자 지원 줄에 이미 나온다)
+    local okK, kind = pcall(Value.pointKind, ft)
+    if okK and kind and kind ~= "comfort" then
+        local okT, tier = pcall(Value.pointTier, ft)
+        out.tier = okT and tier or nil
+        if not out.category then out.kind = kind; any = true end
+    end
     if not any then return nil end
     if instanceof(item, "Food") and item:isRotten() then out.rotten = true end
     if ratio <= 0 then out.broken = true elseif ratio < 1 then out.worn = math.floor(ratio * 100 + 0.5) end

@@ -23,7 +23,7 @@ Tuning.DEFAULTS = {
     SpecialtyScope_dewey = 2, SpecialtyScope_guard = 2, SpecialtyScope_rats = 2, SpecialtyScope_hunter = 2,
     SpecialtyDays_ray = 7, SpecialtyDays_casey = 3, SpecialtyDays_doc = 7, SpecialtyDays_pike = 3,
     SpecialtyDays_dewey = 7, SpecialtyDays_guard = 7, SpecialtyDays_rats = 1, SpecialtyDays_hunter = 3,
-    ZombieMult = 1, HuntSizeMult = 1, Extortion = true, StayHorde = true, StayHordeDays = 4, HeliGapDays = 5, RaidSizeMult = 1,
+    ZombieMult = 1, SafehouseRadius = 30, HuntSizeMult = 1, Extortion = true, StayHorde = true, StayHordeDays = 4, HeliGapDays = 5, RaidSizeMult = 1,
     LifeDrift = 5, LifeLossMult = 1, StarveDays = 3, NpcFateCause = 1,
     ProjectGoal = 1000, ProjectDonateCap = 100, DonateGapDays = 3,
     SpecialtyCooldownMult = 1, SpecialtyTrustOffset = 0, AutoSupportTrust = 70, AutoSupportDays = 7,

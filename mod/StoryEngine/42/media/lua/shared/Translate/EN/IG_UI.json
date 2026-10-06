@@ -2085,5 +2085,16 @@
     "IGUI_StoryEngine_Waive_Error_taken": "Something was already taken; it can't be left now",
     "IGUI_StoryEngine_Waive_Error_letter": "There's a letter in it. Go and pick it up.",
     "IGUI_StoryEngine_Waive_Error_not_waivable": "This drop can't be left",
-    "IGUI_StoryEngine_Waive_Error_no_radio": "You have no two-way radio"
+    "IGUI_StoryEngine_Waive_Error_no_radio": "You have no two-way radio",
+    "IGUI_StoryEngine_Tip_CatTier": "%1 tier %2",
+    "IGUI_StoryEngine_Tip_Kind": "Kind: %1",
+    "IGUI_StoryEngine_Mini_Title": "Radio",
+    "IGUI_StoryEngine_Mini_Open": "Open",
+    "IGUI_StoryEngine_Mini_OpenTip": "Open the full window on the last call's channel",
+    "IGUI_StoryEngine_Mini_Empty": "New radio calls show up here.",
+    "IGUI_StoryEngine_Keys_Title": "AI Story Engine",
+    "IGUI_StoryEngine_Keys_Open": "Open/close the Story Engine window",
+    "IGUI_StoryEngine_Keys_OpenTip": "Radio, quests, journal and camps",
+    "IGUI_StoryEngine_Keys_Mini": "Show/hide the compact radio window",
+    "IGUI_StoryEngine_Keys_MiniTip": "A small window with just the radio talk"
 }
