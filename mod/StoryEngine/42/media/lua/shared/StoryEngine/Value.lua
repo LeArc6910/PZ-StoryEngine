@@ -448,7 +448,11 @@ Value.POINT_MAX_TIER = { medical = 3 }
 Value.POINT_RESOURCE = { electronics = "morale", vehicle = "safety", comfort = "morale" }
 
 -- 이 물건이 어느 점수 품목인가 (아니면 nil)
+-- 채집·벌목 재료(장작 등)는 점수 품목이 아니다 (자재로 그 물건 그대로 받는다, 2026-10-06).
+-- 기호품 특별 값이 있는 물건(배터리·양초·담배)은 다른 분류보다 기호품이 먼저다
 function Value.pointKind(fullType)
+    if Value.isRaw(fullType) then return nil end
+    if Value.MORALE_SPECIAL[fullType] then return "comfort" end
     local cat = Value.categoryOf(fullType)
     if Value.POINT_TRADE[cat] then return cat end
     local IP = StoryEngine.ItemPool
