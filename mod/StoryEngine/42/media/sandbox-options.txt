@@ -78,12 +78,6 @@ option StoryEngine.Named
 	page = StoryEngine, translation = StoryEngine_Named,
 }
 
-option StoryEngine.Recover
-{
-	type = boolean, default = true,
-	page = StoryEngine, translation = StoryEngine_Recover,
-}
-
 option StoryEngine.Holidays
 {
 	type = boolean, default = true,

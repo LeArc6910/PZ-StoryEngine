@@ -463,10 +463,17 @@ local namedDetail
 StoryEngineQuestPanel = derivePanel("StoryEngineQuestPanel")
 
 -- 퀘스트 묶음 (2026-10-04 사용자 요청): 목록 위 버튼으로 수락 대기 / 진행 중 / 실패·거절 / 완료를 나눠 본다
-local QUEST_GROUPS = { "proposed", "active", "failed", "completed" }
+local QUEST_GROUPS = { "proposed", "active", "reward", "completed", "failed" }
+
+-- 가서 물건만 챙기면 되는 보급 (보상·선물·디렉터 보급·거래 배송). 작전·큰 사건 현장과 구조 신호(안에 좀비)는 진행 중에 둔다
+local TASK_SOURCES = { op = true, saga = true, rescue = true }
+local function isRewardPickup(q)
+    return q.kind == "supply_drop" and not (q.origin and TASK_SOURCES[q.origin.source])
+end
 
 local function questGroup(q)
     if q.state == "proposed" then return "proposed" end
+    if ACTIVE[q.state] and isRewardPickup(q) then return "reward" end
     if ACTIVE[q.state] then return "active" end
     if q.state == "completed" then return "completed" end
     return "failed"      -- failed, declined (거절·무응답·취소·철회)
@@ -474,7 +481,7 @@ end
 
 function StoryEngineQuestPanel:createChildren()
     local h = self.height
-    -- 묶음 버튼 2줄 x 2개
+    -- 묶음 버튼 2개씩 (5개 = 3줄)
     self.groupButtons = {}
     local gw = math.floor((LIST_W - PAD) / 2)
     for i, g in ipairs(QUEST_GROUPS) do
@@ -487,7 +494,8 @@ function StoryEngineQuestPanel:createChildren()
         self:addChild(b)
         self.groupButtons[g] = b
     end
-    local top = PAD + 2 * BUTTON_H + 4 + PAD
+    local rows = math.ceil(#QUEST_GROUPS / 2)
+    local top = PAD + rows * (BUTTON_H + 4) + PAD
     self.list = newList(PAD, top, LIST_W, h - top - PAD, self, StoryEngineQuestPanel.onSelect)
     self.list:setAnchorBottom(true)
     self:addChild(self.list)
@@ -1193,14 +1201,14 @@ end
 
 function StoryEngineQuestPanel:refresh()
     self.list:clear()
-    -- 묶음별 개수. 처음 열면 진행 중 > 수락 대기 > 완료 > 실패 순으로 퀘스트가 있는 묶음
+    -- 묶음별 개수. 처음 열면 진행 중 > 보상 > 수락 대기 > 완료 > 실패 순으로 퀘스트가 있는 묶음
     local counts = {}
     for _, q in ipairs(Cache.quests) do
         local g = questGroup(q)
         counts[g] = (counts[g] or 0) + 1
     end
     if not Cache.questGroup then
-        for _, g in ipairs({ "active", "proposed", "completed", "failed" }) do
+        for _, g in ipairs({ "active", "reward", "proposed", "completed", "failed" }) do
             if not Cache.questGroup and (counts[g] or 0) > 0 then Cache.questGroup = g end
         end
         Cache.questGroup = Cache.questGroup or "active"

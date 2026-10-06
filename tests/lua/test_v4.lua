@@ -1,4 +1,4 @@
--- 아는 얼굴의 좀비 (Named.lua), 유품 회수 (Recover.lua), 명절 (Holiday.lua)
+-- 아는 얼굴의 좀비 (Named.lua), 명절 (Holiday.lua). 유품 회수는 2026-10-06 없앰
 local T = {}
 
 local OFFLINE = { ok = false, error = "bridge_offline" }
@@ -123,37 +123,19 @@ function T.named_candidates_need_trust_and_story_end()
     H.eq(c[1].id, "dad", "story ending comes first")
 end
 
--- ---------------------------------------------------------------- recover
+-- ---------------------------------------------------------------- recover (removed 2026-10-06)
 
-function T.recover_points_new_character_to_the_old_one()
+function T.old_recover_quests_are_cancelled_on_load()
     local p, ps = setup()
     local d = StoryEngine.Store.data()
-    d.players["tester|Old Timer"] = { key = "tester|Old Timer", name = "Old Timer", dead = true,
-        journal = { { kind = "daily", date = "July 10", text = "We found a farm." },
-                    { kind = "daily", date = "July 11", text = "The dead came at night." } } }
-    d.deaths = { { key = "tester|Old Timer", name = "Old Timer", x = 10050, y = 10020, t = StoryEngine.Sensor.now().t,
-                   town = "Muldraugh" } }
-    local Recover = StoryEngine.Recover
-    local entries = { { player = p, ps = ps, s = { x = 10000, y = 10000 } } }
-    Recover.tick(entries, StoryEngine.Sensor.now())
-    H.ok(ps.recoverAt, "scheduled")
-    H.advance(61)
-    Recover.tick(entries, StoryEngine.Sensor.now())
-    local q = nil
-    for _, x in pairs(d.quests) do if x.origin and x.origin.source == "recover" then q = x end end
-    H.ok(q and q.origin.dead == "Old Timer", "recovery quest")
-    H.ok(StoryEngine.Quests.isManaged(q), "no trust or reward of its own")
-    local found = false
-    for _, ft in ipairs(q.items) do if ft == "StoryEngine.Letter" then found = true end end
-    H.ok(found, "notebook placed")
-    local info = StoryEngine.Letters.read(p, q.letterId, q.id)
-    H.eq(info.memorial, "Old Timer")
-    H.eq(#info.pages, 2)
-    H.eq(info.pages[2].text, "The dead came at night.")
-    H.ok(d.deaths[1].recovered, "only once")
-    -- 다른 계정의 죽음은 안 한다
-    local p2 = H.addPlayer("other", "Ann", "Lee")
-    H.ok(Recover.findDeath(StoryEngine.Store.player(p2), StoryEngine.Sensor.now()) == nil)
+    d.quests = d.quests or {}
+    d.quests["Q900"] = { id = "Q900", kind = "supply_drop", state = "offered", tier = 1, items = {},
+                         origin = { source = "recover", faction = "casey", dead = "Old Timer" },
+                         deadlineT = StoryEngine.Sensor.now().t + 1000, x = 10050, y = 10020, radius = 15 }
+    StoryEngine.Quests.ready = false
+    StoryEngine.Quests.track({}, StoryEngine.Sensor.now())
+    H.eq(d.quests["Q900"].state, "declined", "an old belongings quest is put away")
+    H.ok(StoryEngine.Recover == nil, "the feature is gone")
 end
 
 -- ---------------------------------------------------------------- holidays

@@ -22,7 +22,7 @@ StoryEngineLetterWindow = ISCollapsableWindow:derive("StoryEngineLetterWindow")
 StoryEngineLetterWindow.instance = nil
 
 -- 창에 넣을 글 (서식 태그 포함)
--- 유품 수첩 (Recover.lua): 죽은 캐릭터의 마지막 일기들
+-- 유품 수첩 (예전 유품 회수 퀘스트, 2026-10-06 없앰. 이미 받은 수첩은 계속 읽힌다): 죽은 캐릭터의 마지막 일기들
 local function memorialBody(info)
     local parts = {}
     parts[#parts + 1] = " <CENTRE> <SIZE:medium> " .. UI.escape(getText("IGUI_StoryEngine_Memorial_Title", tostring(info.memorial)))

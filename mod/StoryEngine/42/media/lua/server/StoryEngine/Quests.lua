@@ -2004,6 +2004,14 @@ function Quests.trackSite(q, entries, now)
     end
 end
 
+-- 놓은 물건을 챙겼나. 보급(supply_drop)은 하나라도 가져가면 완료 (2026-10-06, 나머지는 그대로 남는다),
+-- 그 밖(찾아오기 꾸러미 등)은 모두 가져가야. left = 놓은 자리에 남은 태그 아이템 수 (칸이 안 로드됐으면 nil)
+function Quests.takenEnough(q, left)
+    if left == nil or not q.spawned then return false end
+    if left == 0 then return true end
+    return q.kind == "supply_drop" and q.placed ~= nil and left < #q.placed
+end
+
 function Quests.track(entries, now)
     local okHarm, errHarm = pcall(Quests.recordHarm, entries)
     if not okHarm then log("quest harm error:", errHarm) end
@@ -2015,6 +2023,14 @@ function Quests.track(entries, now)
             if LEGACY[q.state] then q.state = LEGACY[q.state] end
             q.kind = q.kind or "supply_drop"
             q.deadlineT = q.deadlineT or q.expiresT or now.t
+            -- 유품 회수 퀘스트는 없앴다 (2026-10-06): 예전 세이브에 남은 것은 조용히 거둔다
+            if q.origin and q.origin.source == "recover" and Quests.isActive(q) then
+                q.state, q.endedT = "declined", now.t
+                q.history = q.history or {}
+                Store.push(q.history, { state = "cancelled", t = now.t }, 20)
+                if q.spawned then q.cleanup = true end
+                log("old recover quest cancelled", q.id)
+            end
         end
     end
 
@@ -2039,7 +2055,7 @@ function Quests.track(entries, now)
             local left = (q.kind ~= "horde" and q.kind ~= "defend" and q.kind ~= "visit" and q.kind ~= "named"
                 and q.kind ~= "scout")
                 and atSpot(q, false) or nil
-            if left == 0 and q.spawned and q.state ~= "retrieved" then
+            if Quests.takenEnough(q, left) and q.state ~= "retrieved" then
                 local best, bestD = nil, 40
                 for _, e in ipairs(entries) do
                     local dd = dist(e.s.x, e.s.y, q.sx, q.sy)
