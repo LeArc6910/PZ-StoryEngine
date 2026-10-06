@@ -213,30 +213,81 @@ function Quests.pointMinTier(kind, tier)
     return min
 end
 
+-- 등급별 요구량 (2026-10-06): 부탁 등급마다 품목별 기준 가치. 요구 점수 = 기준 x 배율(RequestPointsMult)이라
+-- 같은 등급이면 어느 품목이든 비슷한 수고가 들고, 등급이 오르면 일정하게 늘어난다.
+-- 대략 그 등급의 거래 묶음 하나. 총기는 x1.5 했을 때 그 등급 총 한 자루 (30/40/50/65/80)
+Quests.POINT_BASE = {
+    food = { 4, 8, 12, 18, 26 },
+    medical = { 4, 8, 12, 20, 30 },
+    tools = { 4, 8, 14, 22, 32 },
+    electronics = { 4, 8, 14, 22, 32 },
+    vehicle = { 4, 8, 14, 22, 32 },
+    melee = { 3, 5, 8, 12, 16 },
+    ammo = { 8, 12, 18, 28, 40 },
+    firearm = { 20, 27, 34, 44, 54 },
+    comfort = { 3, 6, 10, 15, 22 },
+}
+Quests.MATERIAL_BASE = Quests.POINT_BASE.tools
+-- 그대로 받는 자재의 수고 (점수 품목과 나눌 때만 쓴다). 없으면 MATERIAL_DEFAULT
+Quests.MATERIAL_VALUE = {
+    ["Base.NailsBox"] = 4, ["Base.ScrewsBox"] = 3, ["Base.DuctTape"] = 2, ["Base.Matches"] = 1, ["Base.Sheet"] = 1,
+    ["Base.SheetMetal"] = 3, ["Base.Twine"] = 1, ["Base.WeldingRods"] = 2, ["Base.WaterRationCan"] = 2,
+    ["Base.Firewood"] = 1, ["Base.Battery"] = 1, ["Base.CarrotBagSeed2"] = 2, ["Base.PotatoBagSeed2"] = 2, ["Base.TomatoBagSeed2"] = 2,
+}
+Quests.MATERIAL_DEFAULT = 2
+-- 점수 품목이어도 부탁에서는 그 물건 그대로 받는 것 (배터리: 기호품이지만 무전기·조명에 쓰라는 부탁이라, 2026-10-06)
+Quests.EXACT_ITEMS = { ["Base.Battery"] = true }
+
 -- 부탁 물건 목록을 품목 점수로 바꾼다 (2026-10-05: 점수 품목 전부, 자재는 특정 물건 그대로).
--- 항목 { "cat:<품목>", 점수, 등급 하한 }. 점수 = 물건 가치 합 x 배율 (올림). 탄약의 하한은 청한 구경의 등급.
--- plain = 난이도(배율·하한)를 걸지 않는다 (헬기 추락처럼 현장 상자의 물건으로 채우게 만든 부탁)
+-- 항목 { "cat:<품목>", 점수, 등급 하한 }.
+-- 등급(tier)이 있으면 (2026-10-06) 부탁 전체의 수고를 그 등급의 기준(POINT_BASE)에 맞춘다: 품목마다
+-- 무게 = 원래 물건 가치 / 그 품목 기준, 자재도 MATERIAL_VALUE / MATERIAL_BASE 로 무게를 갖고, 품목 점수 =
+-- 기준 x 배율 x (그 품목 무게 / 모든 무게 합). 물건이 한 품목뿐이면 기준 x 배율 그대로.
+-- 등급이 없으면 예전처럼 원래 물건 가치 합 x 배율.
+-- 등급 하한 = 부탁 등급 -1 (RequestMinTier) 이되 원래 청한 물건 중 가장 낮은 등급보다 높지 않다 (청한 그 물건은 늘 낼 수 있게).
+-- 탄약의 하한은 청한 구경의 등급.
+-- plain = 난이도(배율·하한·기준)를 걸지 않는다 (헬기 추락처럼 현장 상자의 물건으로 채우게 만든 부탁)
 function Quests.pointsNeed(items, tier, plain)
     local V = StoryEngine.Value
-    local out, sums, mins, order = {}, {}, {}, {}
+    local out, sums, lows, order = {}, {}, {}, {}
+    local matWeight = 0
+    local t = tier and math.max(1, math.min(5, math.floor(tier))) or nil
     for _, n in ipairs(items or {}) do
-        local kind = not Quests.pointCat(n) and V.pointKind(n[1]) or nil
+        local kind = not Quests.pointCat(n) and not Quests.EXACT_ITEMS[n[1]] and V.pointKind(n[1]) or nil
         if kind then
             if not sums[kind] then order[#order + 1] = kind end
             sums[kind] = (sums[kind] or 0) + V.pointOf(n[1]) * (n[2] or 1)
-            if kind == "ammo" then
-                local t = V.pointTier(n[1]) or 1
-                mins.ammo = math.min(mins.ammo or t, t)
-            end
+            local it = V.pointTier(n[1])
+            if it then lows[kind] = math.min(lows[kind] or it, it) end
         else
             out[#out + 1] = { n[1], n[2], n[3] }
+            if t and not Quests.pointCat(n) then
+                matWeight = matWeight + (Quests.MATERIAL_VALUE[n[1]] or Quests.MATERIAL_DEFAULT) * (n[2] or 1)
+                    / Quests.MATERIAL_BASE[t]
+            end
         end
     end
     local mult = plain and 1 or pointsMult()
+    local scaled = t and not plain
+    local weights, total = {}, matWeight
+    if scaled then
+        for _, kind in ipairs(order) do
+            weights[kind] = math.max(0.01, sums[kind] / Quests.POINT_BASE[kind][t])
+            total = total + weights[kind]
+        end
+    end
     for _, kind in ipairs(order) do
-        local min = kind == "ammo" and mins.ammo or (not plain and Quests.pointMinTier(kind, tier) or nil)
+        local min
+        if kind == "ammo" then
+            min = lows.ammo
+        elseif not plain then
+            min = Quests.pointMinTier(kind, tier)
+            if min and lows[kind] and lows[kind] < min then min = lows[kind] end
+        end
         if min and min <= 1 then min = nil end
-        out[#out + 1] = { Quests.POINT_PREFIX .. kind, math.max(1, math.ceil(sums[kind] * mult - 0.001)), min }
+        local value = sums[kind]
+        if scaled then value = Quests.POINT_BASE[kind][t] * weights[kind] / total end
+        out[#out + 1] = { Quests.POINT_PREFIX .. kind, math.max(1, math.ceil(value * mult - 0.001)), min }
     end
     return out
 end

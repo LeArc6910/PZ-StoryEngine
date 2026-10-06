@@ -1,5 +1,6 @@
 -- 품목 점수 부탁 (2026-10-04 사용자 결정, 2026-10-05 확장): NPC 가 먼저 하는 부탁은 특정 물건 대신 "음식 가치 N점"처럼
--- 받는다 (자재는 그대로). 샌드박스 점수 배율(기본 1.5)·등급 하한(기본 부탁 등급-1)
+-- 받는다 (자재는 그대로). 샌드박스 점수 배율(기본 1.5)·등급 하한(기본 부탁 등급-1).
+-- 2026-10-06: 등급이 있으면 요구량은 등급별 기준(Quests.POINT_BASE)을 따르고, 하한은 청한 물건의 등급을 넘지 않는다
 local T = {}
 
 -- 플레이어(10000,10000) 둘레에 건물 고리 (등급 1·2 거리)
@@ -62,8 +63,8 @@ local function setup()
     return p, ps
 end
 
-local function ask(p, ps, items)
-    local q = StoryEngine.Quests.proposeCustom(p, ps, "doc", { tier = 1, why = "hungry patients", items = items },
+local function ask(p, ps, items, tier)
+    local q = StoryEngine.Quests.proposeCustom(p, ps, "doc", { tier = tier or 1, why = "hungry patients", items = items },
         StoryEngine.Sensor.now(), { silent = true })
     q.state = "accepted"
     return q
@@ -106,7 +107,7 @@ function T.default_difficulty_multiplies_and_sets_a_minimum_tier()
     SandboxVars.StoryEngine.RequestPointsMult = nil
     SandboxVars.StoryEngine.RequestMinTier = nil
     local need = StoryEngine.Quests.pointsNeed({ { "Base.TinnedBeans", 3 } }, 3)
-    H.eq(need[1][2], 7, "4.5 x 1.5 = 6.75 -> 7")
+    H.eq(need[1][2], 18, "tier 3 food base 12 x 1.5")
     H.eq(need[1][3], 2, "tier 3 request: tier 2 or better")
     H.eq(StoryEngine.Quests.pointMinTier("medical", 5), 3, "medical only goes to tier 3")
     H.eq(StoryEngine.Quests.pointMinTier("comfort", 5), nil, "comforts have no tier")
@@ -116,7 +117,7 @@ function T.default_difficulty_multiplies_and_sets_a_minimum_tier()
     SandboxVars.StoryEngine.RequestMinTier = 1
     H.eq(StoryEngine.Quests.pointMinTier("food", 5), nil, "off")
     local plain = StoryEngine.Quests.pointsNeed({ { "Base.TinnedBeans", 3 } }, 3, true)
-    H.eq(plain[1][2], 5, "plain requests skip the multiplier")
+    H.eq(plain[1][2], 5, "plain requests skip the multiplier and the tier scale (3 x 1.5 = 4.5)")
 end
 
 function T.minimum_tier_filters_cheap_items()
@@ -145,20 +146,22 @@ function T.electronics_vehicle_and_comforts_have_points()
     H.eq(V.pointKind("Base.CigarettePack"), "comfort")
     H.eq(V.pointOf("Base.CigarettePack"), 2, "comforts use their comfort value")
     H.eq(V.pointKind("Base.NailsBox"), nil)
+    -- 둘을 섞으면 무게(가치 / 기준)로 등급 기준을 나눈다: 기호품 4/22, 전자기기 20/32
     local need = StoryEngine.Quests.pointsNeed({ { "Base.CigarettePack", 2 }, { "Base.Generator", 1 } }, 5)
     local by = {}
     for _, n in ipairs(need) do by[n[1]] = n[2] end
-    H.eq(by["cat:comfort"], 4)
-    H.eq(by["cat:electronics"], 20)
+    H.eq(by["cat:comfort"], 5, "22 x 0.18 / 0.81")
+    H.eq(by["cat:electronics"], 25, "32 x 0.63 / 0.81")
 end
 
 function T.any_gun_worth_the_points_is_accepted()
     local p, ps = setup()
-    local q = ask(p, ps, { { "Base.HuntingRifle", 1 } })
+    local q = ask(p, ps, { { "Base.HuntingRifle", 1 } }, 3)
     H.eq(q.need[1][1], "cat:firearm")
+    H.eq(q.need[1][2], 34, "tier 3 firearm base")
     H.give(p, "Base.Pistol")
     local ok = StoryEngine.Quests.submit(p, q.id)
-    H.ok(not ok, "one pistol (30) is not worth a hunting rifle (40)")
+    H.ok(not ok, "one pistol (30) is not worth a tier 3 gun request (34)")
     H.give(p, "Base.Pistol")
     H.ok(StoryEngine.Quests.submit(p, q.id), "two pistols are")
     H.eq(count(p, "Base.Pistol"), 0)
@@ -170,9 +173,9 @@ function T.any_food_worth_the_points_is_accepted()
     H.eq(q.need[1][1], "cat:food", "the request asks for food points")
     for _ = 1, 2 do H.give(p, "Base.CannedChili") end
     for _ = 1, 4 do H.give(p, "Base.Crisps") end
-    H.ok(StoryEngine.Quests.submit(p, q.id), "chili and crisps cover 5 points")
+    H.eq(q.need[1][2], 4, "tier 1 food base")
+    H.ok(StoryEngine.Quests.submit(p, q.id), "chili and crisps cover 4 points")
     H.eq(q.state, "completed")
-    H.eq(count(p, "Base.CannedChili") + count(p, "Base.Crisps"), 0, "all of it went (5 points exactly)")
 end
 
 function T.chosen_items_must_cover_the_points()
@@ -184,7 +187,7 @@ function T.chosen_items_must_cover_the_points()
     H.ok(not ok and why == "missing_items", "3 points is not enough")
     H.eq(count(p, "Base.CannedChili"), 4, "nothing taken when short")
     H.ok(StoryEngine.Quests.submit(p, q.id, ids))
-    H.eq(count(p, "Base.CannedChili"), 0, "the chosen cans went")
+    H.eq(count(p, "Base.CannedChili"), 1, "only as many chosen cans as the 4 points need")
 end
 
 function T.not_enough_food_is_refused()
@@ -194,6 +197,51 @@ function T.not_enough_food_is_refused()
     local ok, why = StoryEngine.Quests.submit(p, q.id)
     H.ok(not ok and why == "missing_items")
     H.eq(count(p, "Base.Crisps"), 1)
+end
+
+function T.points_follow_the_tier_scale()
+    setup()
+    local Q = StoryEngine.Quests
+    for t = 1, 5 do
+        H.eq(Q.pointsNeed({ { "Base.TinnedBeans", 3 } }, t)[1][2], Q.POINT_BASE.food[t], "food tier " .. t)
+        H.eq(Q.pointsNeed({ { "Base.Pills", 9 } }, t)[1][2], Q.POINT_BASE.medical[t], "the count does not matter")
+    end
+    -- 자재와 섞이면 자재 몫만큼 줄어든다: 의약품 4/8, 못 상자 2 x 4/8
+    local need = Q.pointsNeed({ { "Base.Pills", 1 }, { "Base.NailsBox", 2 } }, 2)
+    H.eq(need[1][1], "Base.NailsBox")
+    H.eq(need[2][2], 3, "8 x 0.5 / 1.5 = 2.7")
+end
+
+function T.minimum_tier_never_above_the_requested_items()
+    setup()
+    SandboxVars.StoryEngine.RequestMinTier = nil      -- 기본: 부탁 등급 -1
+    H.defineItem("Base.Hammer", "tools", 2, 1)
+    H.defineItem("Base.Sledgehammer", "tools", 20, 5)
+    local Q = StoryEngine.Quests
+    H.eq(Q.pointsNeed({ { "Base.Sledgehammer", 1 } }, 4)[1][3], 3, "tier 4 request: tier 3 or better")
+    H.eq(Q.pointsNeed({ { "Base.Hammer", 1 } }, 4)[1][3], nil, "a hammer (tier 1) is always enough to count")
+    H.eq(Q.pointsNeed({ { "Base.Sledgehammer", 1 }, { "Base.Hammer", 1 } }, 5)[1][3], nil, "the lowest item sets it")
+end
+
+function T.batteries_stay_items_candles_are_comforts_firewood_is_a_material()
+    setup()
+    H.defineItem("Base.Battery", "misc", 2)
+    H.defineItem("Base.Candle", "misc", 2)
+    local V = StoryEngine.Value
+    H.eq(V.pointKind("Base.Battery"), "comfort")
+    H.eq(V.pointKind("Base.Candle"), "comfort")
+    H.eq(V.pointOf("Base.Candle"), 0.5)
+    -- 배터리는 기호품 점수로 낼 수는 있지만, 배터리를 청한 부탁은 배터리 그대로 받는다
+    local bat = StoryEngine.Quests.pointsNeed({ { "Base.Battery", 3 } }, 1)
+    H.eq(bat[1][1], "Base.Battery")
+    H.eq(bat[1][2], 3)
+    H.eq(StoryEngine.Quests.pointsNeed({ { "Base.Candle", 6 } }, 1)[1][1], "cat:comfort", "candles still become points")
+    H.defineItem("Base.Firewood", "melee", 3, 1)
+    H.ok(V.isRaw("Base.Firewood"), "firewood is a raw material")
+    H.eq(V.pointKind("Base.Firewood"), nil, "not 'any melee weapon'")
+    local need = StoryEngine.Quests.pointsNeed({ { "Base.Firewood", 6 } }, 2)
+    H.eq(need[1][1], "Base.Firewood")
+    H.eq(need[1][2], 6)
 end
 
 return T
