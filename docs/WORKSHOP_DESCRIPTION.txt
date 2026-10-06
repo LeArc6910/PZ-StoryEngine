@@ -17,7 +17,7 @@ Radio contacts you can talk to, an AI director that throws events at you, quests
 [*][b]New:[/b] holidays (Korean or American, by game language) with feasts, gifts and holiday food; friends who turned, to put to rest; a new character can find what the last one left behind
 [*]Survival journal written every in-game midnight from what you actually did; memoirs with remembrances from the living; read other players' journals
 [*]Characters standing together talk to each other (multiplayer); inner monologue when alone
-[*]Uses items from other mods (tested with Vanilla Foods Expanded and Modern Firearms System); optional Project A-Life [ALIFE NPCS] armed backup and raiders
+[*]Sorts items from other mods automatically (tested with VFE and MFS); optional Project A-Life [ALIFE NPCS] armed backup and raiders
 [/list]
 
 [h2]Works without extra software[/h2]
@@ -60,7 +60,7 @@ Source: [url=https://github.com/LeArc6910/PZ-StoryEngine]mod[/url], [url=https:/
 [*][b]새 기능:[/b] 명절(게임 언어에 따라 한국·미국)의 잔치·선물·세뱃돈·명절 음식, 좀비가 된 아는 사람을 보내 주는 부탁, 새 캐릭터가 앞 캐릭터의 유품 찾기
 [*]실제로 한 일로 매일 자정에 쓰는 생존 일지, 추모가 달리는 회고록, 다른 플레이어 일지 열람
 [*]함께 있는 캐릭터끼리 대화(멀티), 혼자일 때는 혼잣말
-[*]다른 모드 아이템 사용(VFE, MFS 확인), Project A-Life [ALIFE NPCS] 선택 연동(무장 지원·습격)
+[*]다른 모드 아이템 자동 분류(VFE, MFS 확인), Project A-Life [ALIFE NPCS] 선택 연동(무장 지원·습격)
 [/list]
 
 [h2]브릿지 (AI 기능, 선택)[/h2]
