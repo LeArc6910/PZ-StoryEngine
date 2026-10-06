@@ -56,3 +56,23 @@ end
 function StoryEngine.nowMs()
     return getTimestampMs()
 end
+
+-- Project A-Life NPC 의 몸인가 (A-Life NPC 는 좀비 기반이라 좀비 목록에 섞여 있다, 2026-10-07).
+-- A-Life 자체 클라이언트 코드(ALifeAutoAllAdapter.uidOf)와 같은 표시를 본다: modData 의 ProjectALifeOwned /
+-- ProjectALifeActor / ProjectALifeUID, 없으면 클라이언트에도 전해지는 애니메이션 변수 ALifeUID
+function StoryEngine.isALifeNpc(zombie)
+    if not zombie then return false end
+    local found = false
+    pcall(function()
+        local data = zombie:getModData()
+        if type(data) == "table" and (data.ProjectALifeOwned == true or data.ProjectALifeActor == true
+            or data.ProjectALifeUID ~= nil) then
+            found = true
+        end
+        if not found then
+            local v = zombie:GetVariable("ALifeUID")
+            if v ~= nil and v ~= "" then found = true end
+        end
+    end)
+    return found
+end
