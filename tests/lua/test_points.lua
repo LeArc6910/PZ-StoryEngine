@@ -244,4 +244,32 @@ function T.batteries_stay_items_candles_are_comforts_firewood_is_a_material()
     H.eq(need[1][2], 6)
 end
 
+function T.item_mode_food_melee_guns_only()
+    setup()
+    SandboxVars.StoryEngine.RequestItemMode = 2
+    local Q = StoryEngine.Quests
+    local need = Q.pointsNeed({ { "Base.TinnedBeans", 3 }, { "Base.Pills", 1 } }, 2)
+    H.eq(need[1][1], "Base.Pills", "medical stays the exact item")
+    H.eq(need[1][2], 1)
+    H.eq(need[2][1], "cat:food")
+    H.eq(need[2][2], 5, "food base 8 x (4.5/8) / (4.5/8 + 4/8) = 4.2")
+    H.eq(Q.pointsNeed({ { "Base.HuntingKnife", 1 } }, 3)[1][1], "cat:melee")
+end
+
+function T.item_mode_exact_items()
+    local p, ps = setup()
+    SandboxVars.StoryEngine.RequestItemMode = 3
+    local Q = StoryEngine.Quests
+    local need = Q.pointsNeed({ { "Base.TinnedBeans", 3 }, { "Base.HuntingRifle", 1 } }, 4)
+    H.eq(need[1][1], "Base.TinnedBeans")
+    H.eq(need[1][2], 3)
+    H.eq(need[2][1], "Base.HuntingRifle")
+    H.eq(Q.pointsNeed({ { "Base.TinnedBeans", 3 } }, 3, true)[1][1], "cat:food", "plain requests still take points")
+    local q = ask(p, ps, { { "Base.TinnedBeans", 2 } })
+    for _ = 1, 4 do H.give(p, "Base.CannedChili") end
+    H.ok(not StoryEngine.Quests.submit(p, q.id), "other food does not count")
+    for _ = 1, 2 do H.give(p, "Base.TinnedBeans") end
+    H.ok(StoryEngine.Quests.submit(p, q.id), "the exact cans do")
+end
+
 return T
