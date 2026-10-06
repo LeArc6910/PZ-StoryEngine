@@ -218,6 +218,13 @@ option StoryEngine.GiftChance
 	page = StoryEngineBalance, translation = StoryEngine_GiftChance,
 }
 
+option StoryEngine.RequestItemMode
+{
+	type = enum, numValues = 3, default = 1,
+	page = StoryEngineBalance, translation = StoryEngine_RequestItemMode,
+	valueTranslation = StoryEngine_RequestItemMode,
+}
+
 option StoryEngine.RequestPointsMult
 {
 	type = double, min = 0.5, max = 4.0, default = 1.5,

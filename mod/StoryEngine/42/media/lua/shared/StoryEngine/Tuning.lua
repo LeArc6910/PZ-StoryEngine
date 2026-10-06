@@ -17,7 +17,7 @@ Tuning.DEFAULTS = {
     TrustStart = 0, TrustGainMult = 1, TrustLossMult = 1, SuspiciousRequests = 3, Spillover = true,
     RequestGapDays = 4, RequestServerGapDays = 2, QuestTimeMult = 1, RewardMult = 1,
     StageMidDay = 31, StageLateDay = 91, PriceMult = 1, GiftChance = 35,
-    RequestPointsMult = 1.5, RequestMinTier = 3,
+    RequestItemMode = 1, RequestPointsMult = 1.5, RequestMinTier = 3,
     -- 특기 대기 (2026-10-05): 범위 1 서버 전체 / 2 개인별 / 3 둘 다, 일수
     SpecialtyScope_ray = 1, SpecialtyScope_casey = 2, SpecialtyScope_doc = 2, SpecialtyScope_pike = 2,
     SpecialtyScope_dewey = 2, SpecialtyScope_guard = 2, SpecialtyScope_rats = 2, SpecialtyScope_hunter = 2,

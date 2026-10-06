@@ -247,13 +247,30 @@ Quests.EXACT_ITEMS = { ["Base.Battery"] = true }
 -- 등급 하한 = 부탁 등급 -1 (RequestMinTier) 이되 원래 청한 물건 중 가장 낮은 등급보다 높지 않다 (청한 그 물건은 늘 낼 수 있게).
 -- 탄약의 하한은 청한 구경의 등급.
 -- plain = 난이도(배율·하한·기준)를 걸지 않는다 (헬기 추락처럼 현장 상자의 물건으로 채우게 만든 부탁)
+-- 샌드박스 RequestItemMode (2026-10-06): 1 품목 점수 / 2 음식·근접 무기·총만 점수(MODE2_KINDS) / 3 정해진 물건 그대로.
+-- plain 부탁은 방식과 상관없이 점수 (현장 상자로 채우게 만든 부탁이라)
+Quests.MODE2_KINDS = { food = true, melee = true, firearm = true }
+function Quests.itemMode()
+    local m = StoryEngine.Tuning and StoryEngine.Tuning.num("RequestItemMode") or 1
+    m = math.floor(tonumber(m) or 1)
+    if m < 1 or m > 3 then m = 1 end
+    return m
+end
+
 function Quests.pointsNeed(items, tier, plain)
     local V = StoryEngine.Value
     local out, sums, lows, order = {}, {}, {}, {}
+    local mode = plain and 1 or Quests.itemMode()
+    if mode == 3 then
+        for _, n in ipairs(items or {}) do out[#out + 1] = { n[1], n[2], n[3] } end
+        return out
+    end
     local matWeight = 0
     local t = tier and math.max(1, math.min(5, math.floor(tier))) or nil
     for _, n in ipairs(items or {}) do
         local kind = not Quests.pointCat(n) and not Quests.EXACT_ITEMS[n[1]] and V.pointKind(n[1]) or nil
+        local keptKind = nil
+        if kind and mode == 2 and not Quests.MODE2_KINDS[kind] then kind, keptKind = nil, kind end
         if kind then
             if not sums[kind] then order[#order + 1] = kind end
             sums[kind] = (sums[kind] or 0) + V.pointOf(n[1]) * (n[2] or 1)
@@ -261,7 +278,10 @@ function Quests.pointsNeed(items, tier, plain)
             if it then lows[kind] = math.min(lows[kind] or it, it) end
         else
             out[#out + 1] = { n[1], n[2], n[3] }
-            if t and not Quests.pointCat(n) then
+            if t and keptKind then
+                -- 방식 2 에서 그대로 받는 점수 품목 물건: 그 품목 기준으로 수고를 센다
+                matWeight = matWeight + V.pointOf(n[1]) * (n[2] or 1) / Quests.POINT_BASE[keptKind][t]
+            elseif t and not Quests.pointCat(n) then
                 matWeight = matWeight + (Quests.MATERIAL_VALUE[n[1]] or Quests.MATERIAL_DEFAULT) * (n[2] or 1)
                     / Quests.MATERIAL_BASE[t]
             end
