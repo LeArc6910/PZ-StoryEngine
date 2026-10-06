@@ -25,6 +25,24 @@ function T.snipe_kills_nearest_outdoor_zombies()
     H.eq(done.kills, 1)
 end
 
+-- A-Life NPC 는 좀비 목록에 섞여 있지만 저격하지 않는다 (2026-10-07)
+function T.snipe_skips_alife_npcs()
+    H.addPlayer("tester", "Gerald", "Kar")
+    local npc = H.newZombie(10002, 10000, true)
+    npc.mod.ProjectALifeUID = "actor-1"
+    local tagged = H.newZombie(10003, 10000, true)
+    function tagged:GetVariable(name) return name == "ALifeUID" and "actor-2" or "" end
+    local zed = H.newZombie(10010, 10000, true)
+    StoryEngine.Client.handlers.specSnipe({ faction = "hunter", count = 3, minutes = 60, radius = 30 })
+    for _ = 1, 70 do
+        H.advance(1)
+        for _ = 1, 10 do H.fire("OnTick") end
+    end
+    H.eq(npc.dead, false, "A-Life NPC (modData) left alone")
+    H.eq(tagged.dead, false, "A-Life NPC (animation variable) left alone")
+    H.eq(zed.dead, true, "the real zombie behind them is shot")
+end
+
 local function healDones()
     local n = 0
     for _, c in ipairs(H.toServer or {}) do if c.command == "specHealDone" then n = n + 1 end end

@@ -103,7 +103,8 @@ local function nearestTarget(p, radius)
     local px, py = p:getX(), p:getY()
     for i = 0, list:size() - 1 do
         local z = list:get(i)
-        if z and not z:isDead() and z:isOutside() then
+        -- A-Life NPC(아군 지원 대원·일반 생존자·적 습격대 모두)는 쏘지 않는다
+        if z and not z:isDead() and z:isOutside() and not StoryEngine.isALifeNpc(z) then
             local dx, dy = z:getX() - px, z:getY() - py
             local d = dx * dx + dy * dy
             if d <= bestD then best, bestD = z, d end
