@@ -189,8 +189,10 @@ end
 local function scoutHops(first, count, exclude)
     local out, from = {}, first
     for _ = 2, count do
-        local found = Quests.findBuilding(from.x, from.y, Work.SCOUT_HOP[1], Work.SCOUT_HOP[2], exclude)
-            or Quests.findBuilding(from.x, from.y, Work.SCOUT_HOP[2], Work.SCOUT_HOP[2] * 2, exclude)
+        local keep = StoryEngine.Danger and StoryEngine.Danger.KEEP_QUEST or nil
+        local found = Quests.findBuilding(from.x, from.y, Work.SCOUT_HOP[1], Work.SCOUT_HOP[2], exclude, nil, keep)
+            or Quests.findBuilding(from.x, from.y, Work.SCOUT_HOP[2], Work.SCOUT_HOP[2] * 2, exclude, nil, keep)
+            or Quests.findBuilding(from.x, from.y, Work.SCOUT_HOP[1], Work.SCOUT_HOP[2] * 2, exclude)
         if not found then break end
         exclude[found.key] = true
         local def = found.def

@@ -2085,5 +2085,16 @@
     "IGUI_StoryEngine_Waive_Error_taken": "이미 물품을 가져가서 사양할 수 없다",
     "IGUI_StoryEngine_Waive_Error_letter": "편지가 함께 있어 사양할 수 없다. 가서 챙기자.",
     "IGUI_StoryEngine_Waive_Error_not_waivable": "사양할 수 없는 보급이다",
-    "IGUI_StoryEngine_Waive_Error_no_radio": "양방향 무전기가 없다"
+    "IGUI_StoryEngine_Waive_Error_no_radio": "양방향 무전기가 없다",
+    "IGUI_StoryEngine_Tip_CatTier": "%1 %2등급",
+    "IGUI_StoryEngine_Tip_Kind": "분류: %1",
+    "IGUI_StoryEngine_Mini_Title": "무전",
+    "IGUI_StoryEngine_Mini_Open": "큰 창",
+    "IGUI_StoryEngine_Mini_OpenTip": "마지막 무전의 채널로 큰 창을 연다",
+    "IGUI_StoryEngine_Mini_Empty": "새 무전이 오면 여기에 보인다.",
+    "IGUI_StoryEngine_Keys_Title": "AI Story Engine",
+    "IGUI_StoryEngine_Keys_Open": "스토리 엔진 창 열기·닫기",
+    "IGUI_StoryEngine_Keys_OpenTip": "교신·퀘스트·일지·거점 창",
+    "IGUI_StoryEngine_Keys_Mini": "간소화 무전 창 켜기·끄기",
+    "IGUI_StoryEngine_Keys_MiniTip": "무전 내용만 보이는 작은 창"
 }

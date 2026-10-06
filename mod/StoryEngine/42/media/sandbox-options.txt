@@ -178,13 +178,13 @@ option StoryEngine.RequestServerGapDays
 
 option StoryEngine.QuestTimeMult
 {
-	type = double, min = 0.25, max = 4.0, default = 1.0,
+	type = double, min = 0.25, max = 10.0, default = 1.0,
 	page = StoryEngineBalance, translation = StoryEngine_QuestTimeMult,
 }
 
 option StoryEngine.RewardMult
 {
-	type = double, min = 0.25, max = 3.0, default = 1.0,
+	type = double, min = 0.1, max = 10.0, default = 1.0,
 	page = StoryEngineBalance, translation = StoryEngine_RewardMult,
 }
 
@@ -221,7 +221,7 @@ option StoryEngine.RequestItemMode
 
 option StoryEngine.RequestPointsMult
 {
-	type = double, min = 0.5, max = 4.0, default = 1.5,
+	type = double, min = 0.1, max = 10.0, default = 1.5,
 	page = StoryEngineBalance, translation = StoryEngine_RequestPointsMult,
 }
 
@@ -236,6 +236,12 @@ option StoryEngine.ZombieMult
 {
 	type = double, min = 0.25, max = 5.0, default = 1.0,
 	page = StoryEngineDanger, translation = StoryEngine_ZombieMult,
+}
+
+option StoryEngine.SafehouseRadius
+{
+	type = integer, min = 0, max = 200, default = 30,
+	page = StoryEngineDanger, translation = StoryEngine_SafehouseRadius,
 }
 
 option StoryEngine.HuntSizeMult

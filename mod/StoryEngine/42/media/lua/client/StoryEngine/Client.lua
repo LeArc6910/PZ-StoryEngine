@@ -250,6 +250,8 @@ function Client.handlers.radioMessage(args)
     if not last or not last.n or not msg.n or msg.n > last.n then
         list[#list + 1] = msg
         while #list > 100 do table.remove(list, 1) end
+        -- 간소화 무전 창 (MiniRadio.lua)
+        if StoryEngineMiniRadio then pcall(StoryEngineMiniRadio.push, fid, msg) end
     end
     Cache.messages[fid] = list
     local ch = Cache.channels[fid] or { id = fid }
@@ -656,6 +658,7 @@ local function fillDebugMenu(context, worldobjects, playerNum)
     check:addOption(label("ContextMenu_StoryEngine_Status"), worldobjects, send("debugStatus"), playerNum)
     check:addOption(label("ContextMenu_StoryEngine_Sync"), worldobjects, send("debugSync"), playerNum)
     check:addOption(label("ContextMenu_StoryEngine_Quests"), worldobjects, send("debugQuests"), playerNum)
+    check:addOption(label("ContextMenu_StoryEngine_DebugDanger"), worldobjects, send("debugDanger"), playerNum)
     check:addOption(label("ContextMenu_StoryEngine_ItemPool"), worldobjects, send("debugItems"), playerNum)
 
     -- 디렉터·퀘스트
@@ -760,6 +763,10 @@ local function onFillWorldObjectContextMenu(playerNum, context, worldobjects, te
     context:addOption(getText("ContextMenu_StoryEngine_QuestLog"), worldobjects, function() StoryEngineMainWindow.open("quests") end)
     context:addOption(getText("ContextMenu_StoryEngine_Journal"), worldobjects, function() StoryEngineMainWindow.open("journal") end)
     context:addOption(getText("ContextMenu_StoryEngine_Life_Open"), worldobjects, function() StoryEngineMainWindow.open("life") end)
+    if StoryEngineMiniRadio then
+        context:addOption(getText(StoryEngineMiniRadio.instance and "ContextMenu_StoryEngine_MiniHide"
+            or "ContextMenu_StoryEngine_MiniShow"), worldobjects, function() StoryEngineMiniRadio.toggle() end)
+    end
     if Client.showDebugMenu() then fillDebugMenu(context, worldobjects, playerNum) end
 end
 

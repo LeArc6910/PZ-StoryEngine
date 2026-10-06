@@ -5,6 +5,7 @@
     "ContextMenu_StoryEngine_WriteJournal": "StoryEngine: 지금 일지 쓰기",
     "ContextMenu_StoryEngine_Director": "StoryEngine: 디렉터 실행",
     "ContextMenu_StoryEngine_Supply": "StoryEngine: 보급 강제",
+    "ContextMenu_StoryEngine_DebugDanger": "StoryEngine: 여기 좀비 밀집도 (마굴 기준)",
     "ContextMenu_StoryEngine_Quests": "StoryEngine: 퀘스트 상태",
     "ContextMenu_StoryEngine_QuestLog": "퀘스트",
     "ContextMenu_StoryEngine_Radio": "무전 교신",
@@ -79,5 +80,7 @@
     "ContextMenu_StoryEngine_DebugRecover": "유품 회수 (바로)",
     "ContextMenu_StoryEngine_DebugHoliday": "명절",
     "ContextMenu_StoryEngine_DebugHolidayAnnounce": "%1 예고",
-    "ContextMenu_StoryEngine_DebugHolidayFeast": "%1 잔치"
+    "ContextMenu_StoryEngine_DebugHolidayFeast": "%1 잔치",
+    "ContextMenu_StoryEngine_MiniShow": "간소화 무전 창 켜기",
+    "ContextMenu_StoryEngine_MiniHide": "간소화 무전 창 끄기"
 }
