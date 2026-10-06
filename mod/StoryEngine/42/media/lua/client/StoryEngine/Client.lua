@@ -670,7 +670,6 @@ local function fillDebugMenu(context, worldobjects, playerNum)
     npc:addOption(label("ContextMenu_StoryEngine_Story", npcName), worldobjects, toServer("debugStory", { faction = fid }))
     npc:addOption(label("ContextMenu_StoryEngine_Contact"), worldobjects, send("debugContact"), playerNum)
     npc:addOption(label("ContextMenu_StoryEngine_DebugNamed"), worldobjects, toServer("debugNamed", { faction = fid }))
-    npc:addOption(label("ContextMenu_StoryEngine_DebugRecover"), worldobjects, send("debugRecover"), playerNum)
     npc:addOption(label("ContextMenu_StoryEngine_Scene"), worldobjects, send("debugScene"), playerNum)
     npc:addOption(label("ContextMenu_StoryEngine_Letter", npcName), worldobjects, toServer("debugLetter", { faction = fid }))
     npc:addOption(label("ContextMenu_StoryEngine_LetterFarewell", npcName), worldobjects,

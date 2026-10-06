@@ -110,31 +110,6 @@ function Letters.create(q, ps, fid, reason, extra, now)
     return rec
 end
 
--- 유품 회수(Recover.lua)의 수첩: 죽은 캐릭터의 마지막 일기 몇 장을 그대로 (AI 없음). deadPs 가 없으면 빈 수첩
-Letters.MEMORIAL_PAGES = 3
-function Letters.createMemorial(q, ps, deadPs, death, now)
-    local s = state()
-    s.seq = s.seq + 1
-    local id = "L" .. StoryEngine.intToString(s.seq)
-    local pages = {}
-    local journal = deadPs and deadPs.journal or {}
-    for i = #journal, 1, -1 do
-        local e = journal[i]
-        if (e.kind == "daily" or e.kind == "memoir") and #pages < Letters.MEMORIAL_PAGES then
-            table.insert(pages, 1, { date = e.date, text = e.text and string.sub(e.text, 1, Letters.MAX_TEXT) or nil,
-                                     lt = e.lt, lts = e.lts, memoir = e.kind == "memoir" or nil })
-        end
-    end
-    local rec = { id = id, memorial = death.name, pages = pages, to = ps.name, toKey = ps.key, status = "ready",
-                  day = Store.dayIndex(now.dayKey), qid = q.id, readBy = {} }
-    s.list[id] = rec
-    s.byQuest[q.id] = id
-    q.items[#q.items + 1] = Letters.ITEM
-    q.letterId = id
-    log("memorial note", id, death.name, #pages, "pages in", q.id)
-    return rec
-end
-
 -- 보급을 만들 때 (Quests.create, 물건을 놓기 전): 실을 편지가 있으면 q.items 에 더한다
 function Letters.attach(q, ps, now)
     if not Letters.enabled() or q.kind ~= "supply_drop" then return nil end

@@ -47,8 +47,6 @@ Lines.COUNT = {
     work_done = 1, work_paid = 1, favor_call = 1,
     -- 아는 얼굴의 좀비 (Named.lua): 부탁(이름, 마을, 방향, 거리), 끝난 뒤 감사(이름)
     named_ask = 1, named_thanks = 1,
-    -- 유품 회수 (Recover.lua): 알려 주기(죽은 사람, 마을, 방향, 거리), 찾은 뒤(죽은 사람)
-    recover_ask = 1, recover_found = 1,
     -- 명절 (Holiday.lua): 예고, 잔치 (명절 이름)
     holiday_soon = 1, holiday_feast = 1,
 }

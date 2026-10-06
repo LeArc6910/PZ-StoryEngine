@@ -36,7 +36,6 @@ require "StoryEngine/Ops"
 require "StoryEngine/Saga"
 require "StoryEngine/Work"
 require "StoryEngine/Named"
-require "StoryEngine/Recover"
 require "StoryEngine/Holiday"
 StoryEngine.Tuning.safeApply()
 
@@ -246,14 +245,6 @@ function Commands.debugNamed(player, args)
     local q, why = Named.propose(player, StoryEngine.Store.player(player), pick, StoryEngine.Sensor.now())
     reply(player, "debugStatus", { text = "named " .. pick.id .. ": " .. (q and q.id or tostring(why)) .. " | "
         .. Named.statusText() })
-end
-
--- 디버그: 유품 회수. 같은 계정의 죽음이 있으면 바로 퀘스트
-function Commands.debugRecover(player, args)
-    if not canUseDebug(player) then return end
-    local ps = StoryEngine.Store.player(player)
-    local q = StoryEngine.Recover.start(player, ps, StoryEngine.Sensor.now())
-    reply(player, "debugStatus", { text = "recover: " .. (q and q.id or "no recent death of this account with a position") })
 end
 
 -- 디버그: 명절 예고·잔치 바로 (args.id, args.stage = announce|feast). 지금 언어의 명절 목록에서 찾는다
