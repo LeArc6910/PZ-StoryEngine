@@ -740,6 +740,11 @@ local function fillDebugMenu(context, worldobjects, playerNum)
     npc:addOption(label("ContextMenu_StoryEngine_DebugVoice"), worldobjects, toServer("debugVoice", { faction = fid }))
     npc:addOption(label("ContextMenu_StoryEngine_DebugEpisode"), worldobjects, toServer("debugEpisode", {}))
     npc:addOption(label("ContextMenu_StoryEngine_DebugCouncil"), worldobjects, toServer("debugCouncil", {}))
+    local aiSub = subMenu(context, npc, label("ContextMenu_StoryEngine_DebugAiTale", npcName))
+    for _, k in ipairs({ "any", "quiet", "items", "horde" }) do
+        aiSub:addOption(label("ContextMenu_StoryEngine_DebugAiTale_" .. k), worldobjects,
+            toServer("debugAiTale", { faction = fid, kind = k }))
+    end
     npc:addOption(label("ContextMenu_StoryEngine_Scene"), worldobjects, send("debugScene"), playerNum)
     npc:addOption(label("ContextMenu_StoryEngine_Letter", npcName), worldobjects, toServer("debugLetter", { faction = fid }))
     npc:addOption(label("ContextMenu_StoryEngine_LetterFarewell", npcName), worldobjects,

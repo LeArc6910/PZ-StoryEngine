@@ -499,3 +499,9 @@ option StoryEngine.BroadcastRerun
 	type = boolean, default = true,
 	page = StoryEngineAI, translation = StoryEngine_BroadcastRerun,
 }
+
+option StoryEngine.AiSideStories
+{
+	type = boolean, default = true,
+	page = StoryEngineAI, translation = StoryEngine_AiSideStories,
+}

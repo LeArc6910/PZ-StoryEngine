@@ -2427,6 +2427,8 @@ function Stories.node(fid, id)
     for _, n in ipairs(Stories.ARCS[fid] or {}) do
         if n.id == id then return n end
     end
+    -- AI 곁가지 노드는 세이브에 있다 (AiTales.lua 가 채운다)
+    if Stories.extraNode then return Stories.extraNode(fid, id) end
     return nil
 end
 
