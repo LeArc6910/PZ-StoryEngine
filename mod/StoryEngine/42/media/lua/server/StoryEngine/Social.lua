@@ -96,6 +96,8 @@ function Social.story(fid)
         -- 시작 시점을 흩어 모두가 같은 날 넘어가지 않게 한다
         ch.story = { node = arc and arc[1].id or nil, since = Sensor.now().t - ZombRand(2 * 24 * 60),
                      told = false, flags = {}, past = {} }
+        -- 인물 탭의 지나온 일: 처음 이야기 (Chronicle.lua)
+        if StoryEngine.Chronicle and arc and arc[1] then pcall(StoryEngine.Chronicle.onBeat, fid, arc[1]) end
     end
     ch.story.flags = ch.story.flags or {}
     ch.story.past = ch.story.past or {}
@@ -118,6 +120,10 @@ function Social.moveTo(fid, id, now)
     if cur then Store.push(st.past, cur.beat, 4) end
     st.node, st.since, st.told, st.questId = id, now.t, false, nil
     log("story", fid, "->", id)
+    if StoryEngine.Chronicle then
+        local ok, err = pcall(StoryEngine.Chronicle.onBeat, fid, nxt)
+        if not ok then log("chronicle beat error:", err) end
+    end
     if StoryEngine.Life then
         local ok, err = pcall(StoryEngine.Life.onBeat, fid, nxt)
         if not ok then log("life beat error:", err) end
@@ -339,6 +345,9 @@ function Social.onChoice(q, opt, player)
     for _, o in ipairs(q.options) do
         local st = Social.story(o.faction)
         local role = Stories.crisisRole(q.crisis, opt.faction, o.faction)
+        if StoryEngine.Chronicle then
+            StoryEngine.Chronicle.add(o.faction, { k = "crisis", crisis = q.crisis, role = role, by = opt.faction })
+        end
         if role == "chosen" then
             st.flags[q.crisis .. "_helped"] = true
             if StoryEngine.Fate then StoryEngine.Fate.onStoryResult(o.faction, true) end
@@ -402,6 +411,9 @@ function Social.onChoiceIgnored(q)
     local Trust = StoryEngine.Trust
     for _, o in ipairs(q.options or {}) do
         Social.story(o.faction).flags[q.crisis .. "_ignored"] = true
+        if StoryEngine.Chronicle then
+            StoryEngine.Chronicle.add(o.faction, { k = "crisis", crisis = q.crisis, role = "ignored" })
+        end
         if Trust then Trust.apply(o.faction, -1, "crisis_ignored", q.id) end
         StoryEngine.Radio.react(o.faction, "event", "Nobody answered when you asked for help: "
             .. tostring(q.situation) .. " React in character, briefly.",

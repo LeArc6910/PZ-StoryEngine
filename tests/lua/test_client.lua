@@ -208,4 +208,89 @@ function T.mini_radio_feed_keeps_only_talk()
     H.eq(#Mini.feed, Mini.MAX, "keeps the latest only")
 end
 
+-- 특기 퀵 메뉴 (QuickSpecialty.lua, 2026-10-07)
+local function fakeMenu()
+    local m = { options = {}, subs = {} }
+    function m:addOption(name, target, fn) local o = { name = name, target = target, fn = fn }; self.options[#self.options + 1] = o; return o end
+    function m:addSubMenu(opt, sub) opt.sub = sub end
+    return m
+end
+
+function T.quick_specialty_menu_lists_contacts()
+    H.addPlayer("tester", "Gerald", "Kar")
+    local Q = StoryEngineQuickSpecialty
+    StoryEngine.Cache.life = {
+        { id = "hunter", spec = { tier = 2 }, res = {} },
+        { id = "doc", spec = { tier = 1, reason = "cooldown", wait = 5 }, res = {} },
+        { id = "ray", spec = { tier = 1 }, res = { food = 50 } },
+        { id = "casey", spec = { tier = 1 }, res = { food = 10, medical = 50, safety = 50, morale = 50 } },
+    }
+    ISContextMenu = { getNew = function() return fakeMenu() end }
+    ISToolTip = { new = function() return { initialise = function() end, setVisible = function() end } end }
+    local m = fakeMenu()
+    Q.fill(m)
+    H.eq(#m.options, 4)
+    H.ok(not m.options[1].notAvailable, "hank is ready")
+    H.ok(m.options[2].notAvailable, "june is on cooldown")
+    H.ok(m.options[3].sub and #m.options[3].sub.options >= 1, "ray asks who gets the supplies")
+    H.toServer = {}
+    m.options[1].fn(m.options[1].target)
+    local sent = nil
+    for _, c in ipairs(H.toServer) do if c.command == "specialtyRequest" then sent = c.args end end
+    H.ok(sent and sent.faction == "hunter", "requests the specialty")
+    -- 목록이 없으면 받은 뒤 연다
+    StoryEngine.Cache.life = {}
+    Q.open()
+    H.ok(Q.pending, "waits for the camp list")
+end
+
+-- 특기 아이콘 (2026-10-07): 접힌 버튼의 숫자와 펼친 줄
+function T.quick_dock_rows_and_hotkey()
+    H.addPlayer("tester", "Gerald", "Kar")
+    local Q = StoryEngineQuickSpecialty
+    local life = {
+        { id = "hunter", spec = { tier = 2 }, res = {} },
+        { id = "doc", spec = { tier = 1, reason = "cooldown", wait = 5 }, res = {} },
+        { id = "guard", spec = { tier = 0, reason = "low_trust" }, res = {} },
+        { id = "pike", fate = "dead", res = {} },
+        { id = "ray", spec = { tier = 1 }, res = { food = 50 } },
+    }
+    local rows = Q.rowsOf(life)
+    H.eq(#rows, 4, "dead contacts get no row")
+    H.eq(Q.readyCount(rows), 2, "hank and ray are ready")
+    H.eq(rows[1].id, "hunter")
+    H.ok(rows[1].usable and string.find(rows[1].left, "**", 1, true), "tier stars next to the name")
+    H.ok(not rows[2].usable and rows[2].right ~= rows[1].right, "doc shows the wait")
+    H.ok(string.find(rows[3].tip, "IGUI_StoryEngine_Spec_Error_low_trust", 1, true), "why it is blocked")
+    H.ok(not Q.dockShown(), "nothing built in tests")
+    -- 단축키는 아이콘을 펼친다
+    local toggled = 0
+    local old = Q.toggleDock
+    Q.toggleDock = function() toggled = toggled + 1 end
+    Keyboard = { KEY_K = 37, KEY_SEMICOLON = 39, KEY_APOSTROPHE = 40 }
+    ISChat = { focused = false }
+    StoryEngineMiniRadio.onKey(Keyboard.KEY_APOSTROPHE)
+    Q.toggleDock = old
+    H.eq(toggled, 1)
+end
+
+-- 메인 창 아이콘 (2026-10-07): 창이 닫혀 있는 동안 새로 온 NPC 무전을 센다
+function T.main_icon_counts_unread_npc_messages()
+    H.addPlayer("tester", "Gerald", "Kar")
+    local M = StoryEngineMainIcon
+    M.unread = 0
+    local saved = StoryEngineMainWindow.instance
+    StoryEngineMainWindow.instance = nil
+    local h = StoryEngine.Client.handlers
+    h.radioMessage({ faction = "ray", msg = { n = 9001, from = "npc", text = "hi" } })
+    h.radioMessage({ faction = "ray", msg = { n = 9002, from = "player", name = "Gerald", text = "yo" } })
+    h.radioMessage({ faction = "ray", msg = { n = 9003, from = "system", text = "x" } })
+    H.eq(M.unread, 1, "only contact lines count")
+    StoryEngineMainWindow.instance = { refresh = function() end }
+    h.radioMessage({ faction = "ray", msg = { n = 9004, from = "npc", text = "again" } })
+    H.eq(M.unread, 1, "not while the window is open")
+    StoryEngineMainWindow.instance = saved
+    H.ok(StoryEngineQuickDock.GRIP == StoryEngineFloatBar.GRIP, "the skills icon shares the bar")
+end
+
 return T

@@ -35,6 +35,7 @@ require "StoryEngine/Grid"
 require "StoryEngine/Ops"
 require "StoryEngine/Saga"
 require "StoryEngine/Work"
+require "StoryEngine/Chronicle"
 require "StoryEngine/Named"
 require "StoryEngine/Holiday"
 StoryEngine.Tuning.safeApply()
@@ -428,6 +429,11 @@ function Commands.tradeOptions(player, args)
     local fid = tostring(args.faction or "")
     if not StoryEngine.Trade.FACTIONS[fid] then return end
     reply(player, "tradeOptions", StoryEngine.Trade.options(fid, StoryEngine.Store.player(player)))
+end
+
+-- 인물 탭 (Chronicle.lua): NPC 프로필 변형과 지나온 일
+function Commands.npcProfiles(player, args)
+    reply(player, "npcProfiles", { npcs = StoryEngine.Chronicle.payload() })
 end
 
 -- 일거리 청하기 (Work.volunteer): 보수 없이 일해 주고 신뢰도를 얻는다

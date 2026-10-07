@@ -82,5 +82,10 @@
     "ContextMenu_StoryEngine_DebugHolidayAnnounce": "Announce %1",
     "ContextMenu_StoryEngine_DebugHolidayFeast": "Celebrate %1",
     "ContextMenu_StoryEngine_MiniShow": "Show compact radio window",
-    "ContextMenu_StoryEngine_MiniHide": "Hide compact radio window"
+    "ContextMenu_StoryEngine_MiniHide": "Hide compact radio window",
+    "ContextMenu_StoryEngine_QuickSpecialty": "Quick specialty",
+    "ContextMenu_StoryEngine_QuickDockShow": "Show the skills icon",
+    "ContextMenu_StoryEngine_QuickDockHide": "Hide the skills icon",
+    "ContextMenu_StoryEngine_MainIconShow": "Show the radio icon",
+    "ContextMenu_StoryEngine_MainIconHide": "Hide the radio icon"
 }

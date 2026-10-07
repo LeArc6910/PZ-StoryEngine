@@ -502,6 +502,11 @@ function H.bootClient()
     local mt = getmetatable(Dummy)
     local num = function() return 10 end
     mt.__add, mt.__sub, mt.__mul, mt.__div, mt.__unm = num, num, num, num, num
+    -- 바닐라 UI 클래스의 derive: 클래스마다 따로인 표 (Dummy 하나에 필드가 섞이지 않게).
+    -- 클래스에 없는 필드는 nil (instance 같은 필드가 Dummy 로 참이 되지 않게), 바닐라 메서드는 Dummy 것
+    rawset(Dummy, "derive", function(_, name)
+        return setmetatable({ Type = name }, { __index = function(_, k) return rawget(Dummy, k) end })
+    end)
     local dirs = { "shared", "client" }
     local loadedC = {}
     require = function(name)

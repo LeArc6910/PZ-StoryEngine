@@ -85,6 +85,7 @@ function Trust.apply(fid, delta, reason, questId, byKey, src)
     local before = ch.trust
     ch.trust = math.max(0, math.min(100, ch.trust + delta))
     local applied = ch.trust - before
+    if applied > 0 and StoryEngine.Chronicle then pcall(StoryEngine.Chronicle.onTrust, fid, before, ch.trust) end
     log("trust", fid, before, "->", ch.trust, reason, src or "")
     if applied ~= 0 then
         Radio.push(fid, { from = "system", trust = applied, reason = reason, quest = questId, src = src,
