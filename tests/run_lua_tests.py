@@ -128,8 +128,9 @@ def line_key_errors() -> list[str]:
     for group, n in table("Lines.BANTER").items():
         for i in range(1, n + 1):
             keys += [f"IGUI_StoryEngine_Banter_{group}_{i}_a", f"IGUI_StoryEngine_Banter_{group}_{i}_b"]
-    stories = (LUA_ROOT / "server" / "StoryEngine" / "Stories.lua").read_text(encoding="utf-8").split("Stories.CRISES")[0]
+    stories = (LUA_ROOT / "server" / "StoryEngine" / "Stories.lua").read_text(encoding="utf-8").split("Stories.CRISES = {")[0]
     keys += ["IGUI_StoryEngine_Story_" + n for n in re.findall(r'\{ id = "(\w+)"', stories)]
+    keys += ["IGUI_StoryEngine_Tale_" + n for n in re.findall(r'\{ id = "(\w+)"', stories)]
     journal = (LUA_ROOT / "server" / "StoryEngine" / "Journal.lua").read_text(encoding="utf-8")
     notes = re.search(r"Journal.DIARY_NOTES = \{(.*?)\n\}", journal, re.S).group(1)
     keys += ["IGUI_StoryEngine_Diary_note_" + n for n in set(re.findall(r'= "(\w+)"', notes))]

@@ -300,7 +300,7 @@ function T.people_tab_main_story_box()
     getText = function(key, ...)
         local parts = { key }
         for i = 1, select("#", ...) do parts[#parts + 1] = tostring(select(i, ...)) end
-        if string.find(key, "IGUI_StoryEngine_Story_", 1, true) then return "scene " .. string.sub(key, 24) end
+        if string.find(key, "IGUI_StoryEngine_Tale_", 1, true) then return "tale " .. string.sub(key, 23) end
         return table.concat(parts, "|")
     end
     local text = P.storyText("ray", { arc = "ray2a", chapter = 2, node = "ray2a_2", final = false, asking = true,
@@ -311,10 +311,10 @@ function T.people_tab_main_story_box()
     local first = string.find(text, "IGUI_StoryEngine_Arc_ray1", 1, true)
     local second = string.find(text, "IGUI_StoryEngine_Arc_ray2a", 1, true)
     H.ok(first and second and first < second, "both stories, oldest first")
-    H.ok(string.find(text, "scene ray_1", 1, true) and string.find(text, "scene ray2a_1", 1, true), "every scene from the start")
-    H.ok(string.find(text, "D12", 1, true), "with the day")
+    H.ok(string.find(text, "tale ray_1 tale ray_6a", 1, true), "the first story as one paragraph")
+    H.ok(string.find(text, "tale ray2a_1%s+<SPACE>%s+<RGB:1,1,0.95>%s+tale ray2a_2"), "the current scene stands out")
+    H.ok(not string.find(text, "D12", 1, true), "no day numbers")
     H.ok(string.find(text, "IGUI_StoryEngine_People_Tone_good", 1, true), "how the first story ended")
-    H.ok(string.find(text, "IGUI_StoryEngine_People_Now", 1, true), "the current scene is marked")
     H.ok(string.find(text, "IGUI_StoryEngine_People_Asking", 1, true), "asking for help")
     local ended = P.storyText("ray", { arc = "ray1", chapter = 1, node = "ray_6a", final = true, tone = "good", nextDays = 9 })
     H.ok(string.find(ended, "IGUI_StoryEngine_People_NextStory|9", 1, true), "days until the next story")

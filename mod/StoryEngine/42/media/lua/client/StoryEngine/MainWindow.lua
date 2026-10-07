@@ -1508,7 +1508,8 @@ local function arcTitle(arc)
 end
 
 -- 인물 탭 "큰 이야기" (서버 Social.storyInfo): 처음부터 지금까지. 이야기마다 제목·몇 번째·진행 중 또는 결말,
--- 그 아래 지나온 장면을 날짜와 그 사람의 말로 (지금 장면은 밝게 "지금"), 도움을 청하는 중인지, 다음 이야기까지 며칠.
+-- 그 아래 지나온 장면을 플레이어 입장의 일지처럼 이어 쓴 글 (IGUI_StoryEngine_Tale_<노드>, 어느 장면으로 갔는지가
+-- 곧 도왔는지·못 도왔는지라 결과가 담겨 있다. 지금 장면은 밝게), 도움을 청하는 중인지, 다음 이야기까지 며칠.
 -- 색 바꿈 태그 옆 공백은 지워지므로 띄어쓰기는 <SPACE> 로
 function StoryEnginePeoplePanel.storyText(fid, st)
     if not st then return nil end
@@ -1545,22 +1546,22 @@ function StoryEnginePeoplePanel.storyText(fid, st)
         parts[#parts + 1] = " <RGB:1,0.86,0.55> " .. UI.escape(arcTitle(g.arc)) .. " <SPACE> <RGB:0.7,0.7,0.65> "
             .. UI.escape(getText("IGUI_StoryEngine_People_Chapter_" .. StoryEngine.intToString(chapter))) .. " <SPACE> - <SPACE> "
             .. " <RGB:" .. stateColor .. "> " .. UI.escape(stateText) .. " <LINE> "
+        -- 지나온 장면을 한 문단으로 (지금 장면은 밝게)
+        local before, nowText = {}, nil
         for si, e in ipairs(g.scenes) do
-            local key = "IGUI_StoryEngine_Story_" .. tostring(e.node)
-            local scene = getText(key)
-            if scene ~= key then
-                local now = current and si == #g.scenes
-                local day = e.day and ("D" .. StoryEngine.intToString(e.day)) or "-"
-                parts[#parts + 1] = " <INDENT:12> <RGB:0.6,0.6,0.55> " .. UI.escape(day) .. " <SPACE> "
-                if now then
-                    parts[#parts + 1] = " <RGB:0.55,0.85,1> " .. UI.escape(getText("IGUI_StoryEngine_People_Now")) .. " <SPACE> "
-                        .. " <RGB:1,1,0.95> "
-                else
-                    parts[#parts + 1] = " <RGB:0.8,0.8,0.76> "
-                end
-                parts[#parts + 1] = UI.escape(getText("IGUI_StoryEngine_People_Quote", scene)) .. " <LINE> <INDENT:0> "
+            local key = "IGUI_StoryEngine_Tale_" .. tostring(e.node)
+            local tale = getText(key)
+            if tale ~= key then
+                if current and si == #g.scenes and not st.final then nowText = tale else before[#before + 1] = tale end
             end
         end
+        parts[#parts + 1] = " <INDENT:12> "
+        if #before > 0 then
+            parts[#parts + 1] = " <RGB:0.85,0.85,0.8> " .. UI.escape(table.concat(before, " "))
+            if nowText then parts[#parts + 1] = " <SPACE> " end
+        end
+        if nowText then parts[#parts + 1] = " <RGB:1,1,0.95> " .. UI.escape(nowText) end
+        parts[#parts + 1] = " <LINE> <INDENT:0> "
     end
     if st.asking then
         parts[#parts + 1] = " <RGB:0.5,0.9,0.5> " .. UI.escape(getText("IGUI_StoryEngine_People_Asking")) .. " <LINE> "
