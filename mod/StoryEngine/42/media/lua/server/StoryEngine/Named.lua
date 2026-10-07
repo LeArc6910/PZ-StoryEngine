@@ -63,6 +63,15 @@ Named.PEOPLE = {
           .. "He turned after a job went wrong; you will not admit it hurts." },
     { id = "earl", name = "Earl Tate", npc = "hunter", outfit = "Hunter", female = 0, item = "Base.HuntingKnife",
       bio = "Earl Tate, your hunting partner for forty years. His knife has a bone handle he carved himself." },
+    -- 두 번째 이야기에서만 (storyOnly: 무작위로는 나오지 않는다, Stories.SEQUELS 의 quest.person)
+    { id = "annie", name = "Annie", npc = "ray", outfit = "Student", female = 100, item = "Base.Ring_Left_RingFinger_Silver",
+      storyOnly = true,
+      bio = "Your daughter Annie. She fled the Louisville shelter with a group heading south and turned on the road. She "
+          .. "wore a yellow raincoat and the silver ring her mother left her." },
+    { id = "ruth", name = "Ruth Hale", npc = "pike", outfit = "Teacher", female = 100, item = "Base.Necklace_Gold",
+      storyOnly = true,
+      bio = "Ruth Hale, who taught Sunday school at your church and was one of the three people lost the night the dead "
+          .. "broke in. She always wore her grandmother's gold necklace." },
 }
 Named.byId = {}
 for _, p in ipairs(Named.PEOPLE) do Named.byId[p.id] = p end
@@ -89,7 +98,8 @@ function Named.candidates()
     local s = state()
     local first, rest = {}, {}
     for _, p in ipairs(Named.PEOPLE) do
-        local ok = not s.used[p.id] and not Factions.isGone(p.npc) and Radio.channel(p.npc).trust >= Named.MIN_TRUST
+        local ok = not p.storyOnly and not s.used[p.id] and not Factions.isGone(p.npc)
+            and Radio.channel(p.npc).trust >= Named.MIN_TRUST
         if ok and p.requires then
             local st = StoryEngine.Social and StoryEngine.Social.story(p.npc)
             ok = st ~= nil and st.node == p.requires
@@ -102,7 +112,9 @@ function Named.candidates()
 end
 
 -- 부탁한다. 반환: 퀘스트 | nil, 이유
-function Named.propose(player, ps, person, now)
+-- opts.story = { faction, node }: 이야기 부탁 (Social.advance). opts.why: 그 사정을 AI 에게 덧붙인다
+function Named.propose(player, ps, person, now, opts)
+    opts = opts or {}
     local found = Quests.findForTier(math.floor(player:getX()), math.floor(player:getY()), Named.TIER,
         { [ps.home and ps.home.building or ""] = true })
     if not found then return nil, "no_building" end
@@ -121,7 +133,7 @@ function Named.propose(player, ps, person, now)
         x = math.floor((room:getX() + room:getX2()) / 2), y = math.floor((room:getY() + room:getY2()) / 2), z = 0,
         cx = cx, cy = cy, bx1 = def:getX(), by1 = def:getY(), bx2 = def:getX2(), by2 = def:getY2(),
         radius = Quests.RADIUS, distance = math.floor(found.distance),
-        origin = { source = "director", faction = person.npc, initiator = "npc",
+        origin = { source = opts.story and "story" or "director", faction = person.npc, initiator = "npc", story = opts.story,
                    day = Store.dayIndex(now.dayKey), date = now.date, clock = now.clock },
         target = ps.key, targetName = ps.name,
         state = "proposed", createdT = now.t, respondBy = now.t + Quests.RESPOND_MIN, spawned = false,
@@ -133,7 +145,8 @@ function Named.propose(player, ps, person, now)
     Radio.react(person.npc, "request", "Someone you knew has turned and wanders near " .. town .. ", about "
         .. StoryEngine.intToString(distance) .. " tiles to the " .. dirEn .. " of the players (from them): " .. person.bio
         .. " Ask the players to find them, put them to rest and bring back what they carried. Speak from the heart, "
-        .. "briefly. Payment: a modest supply cache.",
+        .. "briefly. Payment: a modest supply cache."
+        .. (opts.why and (" This is part of what is going on in your life right now: " .. opts.why .. ".") or ""),
         StoryEngine.Lines.fallback(person.npc, "named_ask", "Someone I knew is out there, turned. Please put them to rest.",
             { { t = "key", v = "IGUI_StoryEngine_Named_" .. person.id .. "_name" }, { t = "town", v = place.town },
               { t = "dir", v = code }, { t = "num", v = distance } }), ps)

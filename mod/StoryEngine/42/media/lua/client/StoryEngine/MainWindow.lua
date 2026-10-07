@@ -1491,8 +1491,55 @@ local function chronicleLine(fid, e)
         local t = getText(key)
         if t == key then return nil end
         return day .. t, "0.75,0.85,0.75"
+    elseif k == "arc" then
+        return day .. getText("IGUI_StoryEngine_Chron_arc", getText("IGUI_StoryEngine_Arc_Quote",
+            getText("IGUI_StoryEngine_Arc_" .. tostring(e.arc)))), "0.95,0.75,0.4"
     end
     return nil
+end
+
+local TONE_COLOR = { good = "0.5,0.9,0.5", mixed = "0.95,0.8,0.45", bad = "0.95,0.5,0.45" }
+
+local function arcTitle(arc)
+    return getText("IGUI_StoryEngine_Arc_Quote", getText("IGUI_StoryEngine_Arc_" .. tostring(arc)))
+end
+
+-- 인물 탭 위쪽 "큰 이야기" 칸 (서버 Social.storyInfo): 지금 이야기 제목·몇 번째·진행 중인지 결말인지,
+-- 그 사람이 지금 말하는 장면, 도움을 청하는 중인지, 다음 이야기까지 며칠, 지난 이야기와 그 결말
+function StoryEnginePeoplePanel.storyText(fid, st)
+    if not st then return nil end
+    local parts = {}
+    parts[#parts + 1] = " <RGB:1,0.78,0.35> <H2> " .. UI.escape(getText("IGUI_StoryEngine_People_BigStory")) .. " <LINE> "
+    local state
+    if st.final then
+        state = getText("IGUI_StoryEngine_People_Tone_" .. tostring(st.tone or "mixed"))
+    else
+        state = getText("IGUI_StoryEngine_People_StoryOngoing")
+    end
+    parts[#parts + 1] = " <RGB:1,0.86,0.55> " .. UI.escape(arcTitle(st.arc)) .. "  <RGB:0.7,0.7,0.65> "
+        .. UI.escape(getText("IGUI_StoryEngine_People_Chapter_" .. StoryEngine.intToString(st.chapter or 1)) .. "  -  ")
+        .. " <RGB:" .. (st.final and (TONE_COLOR[st.tone] or TONE_COLOR.mixed) or "0.55,0.85,1") .. "> " .. UI.escape(state)
+        .. " <LINE> "
+    local key = "IGUI_StoryEngine_Story_" .. tostring(st.node)
+    local scene = getText(key)
+    if scene ~= key then
+        parts[#parts + 1] = " <RGB:0.95,0.95,0.9> " .. UI.escape(getText("IGUI_StoryEngine_People_Says", UI.npcName(fid), scene))
+            .. " <LINE> "
+    end
+    if st.asking then
+        parts[#parts + 1] = " <RGB:0.5,0.9,0.5> " .. UI.escape(getText("IGUI_StoryEngine_People_Asking")) .. " <LINE> "
+    end
+    if st.final and st.nextDays then
+        parts[#parts + 1] = " <RGB:0.55,0.85,1> " .. UI.escape(getText("IGUI_StoryEngine_People_NextStory",
+            StoryEngine.intToString(math.max(1, st.nextDays)))) .. " <LINE> "
+    elseif st.final then
+        parts[#parts + 1] = " <RGB:0.7,0.7,0.65> " .. UI.escape(getText("IGUI_StoryEngine_People_StoryOver")) .. " <LINE> "
+    end
+    for _, a in ipairs(st.past or {}) do
+        parts[#parts + 1] = " <RGB:0.7,0.7,0.65> " .. UI.escape(getText("IGUI_StoryEngine_People_PastStory", arcTitle(a.arc),
+            getText("IGUI_StoryEngine_People_Tone_" .. tostring(a.tone or "mixed")))) .. " <LINE> "
+    end
+    return table.concat(parts)
 end
 
 function StoryEnginePeoplePanel:createChildren()
@@ -1500,6 +1547,13 @@ function StoryEnginePeoplePanel:createChildren()
     self.list:setAnchorBottom(true)
     self:addChild(self.list)
     local x = PAD * 2 + LIST_W
+    -- 큰 이야기 칸: 주황 테두리·배경으로 강조
+    self.storyBox = newRichText(x, PAD, self.width - x - PAD, 120)
+    self.storyBox.background = true
+    self.storyBox.backgroundColor = { r = 0.28, g = 0.18, b = 0.04, a = 0.55 }
+    self.storyBox.borderColor = { r = 0.95, g = 0.7, b = 0.3, a = 0.85 }
+    self.storyBox:setAnchorRight(true)
+    self:addChild(self.storyBox)
     self.text = newRichText(x, PAD, self.width - x - PAD, self.height - PAD * 2)
     self.text:setAnchorRight(true)
     self.text:setAnchorBottom(true)
@@ -1532,6 +1586,24 @@ function StoryEnginePeoplePanel:refresh()
     if not fid then return end
     local n = peopleOf(fid) or { profile = {}, chronicle = {} }
     local prof = n.profile or {}
+    -- 큰 이야기 칸 (있으면 위에, 아래 글은 그만큼 내려간다)
+    local x = PAD * 2 + LIST_W
+    local boxText = StoryEnginePeoplePanel.storyText(fid, n.story)
+    local top = PAD
+    if boxText and self.storyBox then
+        self.storyBox:setVisible(true)
+        self.storyBox:setText(boxText)
+        self.storyBox:paginate()
+        local h = math.min(math.max(60, self.storyBox:getScrollHeight() + 6), math.floor(self.height * 0.45))
+        self.storyBox:setHeight(h)
+        self.storyBox:setYScroll(0)
+        top = PAD + h + PAD
+    elseif self.storyBox then
+        self.storyBox:setVisible(false)
+    end
+    self.text:setX(x)
+    self.text:setY(top)
+    self.text:setHeight(self.height - top - PAD)
     local parts = {}
     local function row(label, value)
         if value and value ~= "" then
@@ -1548,7 +1620,7 @@ function StoryEnginePeoplePanel:refresh()
     row("IGUI_StoryEngine_People_Gender", profileText(fid, "gender"))
     row("IGUI_StoryEngine_People_Family", profileText(fid, "family", prof.family))
     row("IGUI_StoryEngine_People_Home", profileText(fid, "home", prof.home))
-    row("IGUI_StoryEngine_People_Job", profileText(fid, "job"))
+    row("IGUI_StoryEngine_People_Job", profileText(fid, "job", prof.job))
     local f = Factions.byId[fid]
     row("IGUI_StoryEngine_People_Radio", f and getText("IGUI_StoryEngine_Radio_ListSub", f.freq) or nil)
     if n.trust then row("IGUI_StoryEngine_People_Trust", StoryEngine.intToString(n.trust)) end

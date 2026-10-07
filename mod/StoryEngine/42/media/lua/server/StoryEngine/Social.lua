@@ -104,13 +104,27 @@ function Social.story(fid)
     return ch.story
 end
 
+-- 다음 노드: 문자열, 또는 { default, flags = { 플래그 = id }, list = { { 플래그, id }, ... } (앞에서부터),
+-- when = { { npc, node | arc, go } } (다른 NPC 가 지금 그 노드·그 이야기에 있으면 — 이야기끼리 얽힘) }
 local function resolveNext(nextSpec, flags)
     if type(nextSpec) ~= "table" then return nextSpec end
+    for _, w in ipairs(nextSpec.when or {}) do
+        if not Factions.isGone(w.npc) then
+            local other = Social.story(w.npc).node
+            if other and ((w.node and other == w.node) or (w.arc and Stories.arcOf(w.npc, other) == w.arc)) then
+                return w.go
+            end
+        end
+    end
+    for _, pair in ipairs(nextSpec.list or {}) do
+        if flags[pair[1]] then return pair[2] end
+    end
     for flag, id in pairs(nextSpec.flags or {}) do
         if flags[flag] then return id end
     end
     return nextSpec.default
 end
+Social.resolveNext = resolveNext
 
 function Social.moveTo(fid, id, now)
     local st = Social.story(fid)
@@ -118,8 +132,13 @@ function Social.moveTo(fid, id, now)
     local nxt = Stories.node(fid, id)
     if not nxt then return end
     if cur then Store.push(st.past, cur.beat, 4) end
-    st.node, st.since, st.told, st.questId = id, now.t, false, nil
+    st.node, st.since, st.told, st.questId, st.crisisAsked = id, now.t, false, nil, nil
     log("story", fid, "->", id)
+    -- 결말: 다음 이야기가 있으면 그 날을 정해 둔다 (Stories.SEQUEL_DAYS)
+    if nxt.final and nxt.sequel then
+        local r = Stories.SEQUEL_DAYS
+        st.sequelAt = now.t + (r[1] + ZombRand(r[2] - r[1] + 1)) * 24 * 60
+    end
     if StoryEngine.Chronicle then
         local ok, err = pcall(StoryEngine.Chronicle.onBeat, fid, nxt)
         if not ok then log("chronicle beat error:", err) end
@@ -132,16 +151,38 @@ function Social.moveTo(fid, id, now)
         local ok, err = pcall(StoryEngine.Bonds.onBeat, nxt)
         if not ok then log("bond beat error:", err) end
     end
-    if nxt.final and StoryEngine.Fate then
+    if nxt.final and StoryEngine.Fate and not nxt.chapter then
         local ok, err = pcall(StoryEngine.Fate.onStoryFinal, fid, nxt)
         if not ok then log("fate final error:", err) end
     end
+    -- 두 번째 이야기의 결말이 죽음·떠남이면 하루 뒤 정말로 (Fate.onStoryFate)
+    if nxt.fate and StoryEngine.Fate then
+        local ok, err = pcall(StoryEngine.Fate.onStoryFate, fid, nxt)
+        if not ok then log("fate story2 error:", err) end
+    end
+end
+
+-- 첫 이야기 결말 뒤 두 번째 이야기를 연다
+function Social.startSequel(fid, now)
+    local st = Social.story(fid)
+    local node = Stories.node(fid, st.node)
+    if not node or not node.sequel or not Stories.node(fid, node.sequel) then return false end
+    st.arcs = st.arcs or {}
+    st.arcs[#st.arcs + 1] = { arc = Stories.arcOf(fid, node.id), ending = node.id, tone = node.tone,
+                              day = Store.dayIndex(now.dayKey), wins = st.wins, losses = st.losses }
+    st.wins, st.losses, st.sequelAt = nil, nil, nil
+    if StoryEngine.Chronicle then
+        StoryEngine.Chronicle.add(fid, { k = "arc", arc = Stories.arcOf(fid, node.sequel), prev = Stories.arcOf(fid, node.id) })
+    end
+    log("story sequel", fid, node.id, "->", node.sequel)
+    Social.moveTo(fid, node.sequel, now)
+    return true
 end
 
 -- 이 NPC 에게 답을 기다리거나 진행 중인 부탁이 있는가
 local function openQuestFor(fid)
     for _, q in pairs(Store.data().quests) do
-        if q.origin and q.origin.faction == fid and (q.kind == "deliver" or q.kind == "horde")
+        if q.origin and q.origin.faction == fid and (q.kind == "deliver" or q.kind == "horde" or q.kind == "named")
             and (q.state == "proposed" or q.state == "accepted") then
             return q
         end
@@ -149,28 +190,101 @@ local function openQuestFor(fid)
     return nil
 end
 
+-- 이야기 부탁을 낸다: 물건(기본) / 소탕(kind = "horde") / 아는 얼굴의 좀비(kind = "named").
+-- 소탕 건물을 못 찾았거나 아는 얼굴의 좀비가 꺼져 있으면 물건 부탁(spec.items)으로
+local function proposeStoryQuest(player, ps, fid, node, now)
+    local spec = node.quest
+    local story = { faction = fid, node = node.id }
+    local q
+    if spec.kind == "horde" then
+        q = StoryEngine.Quests.proposeHorde(player, ps, fid, spec.tier, now, { story = story, why = spec.why })
+    elseif spec.kind == "named" and StoryEngine.Named and StoryEngine.Named.enabled() then
+        local person = StoryEngine.Named.byId[spec.person]
+        if person then q = StoryEngine.Named.propose(player, ps, person, now, { story = story, why = spec.why }) end
+    end
+    if not q and spec.items then
+        q = StoryEngine.Quests.proposeCustom(player, ps, fid, spec, now, { story = story })
+    end
+    return q
+end
+
+-- 위기 노드: 결과가 나왔는가 (이 NPC 의 플래그로)
+local function crisisSettled(flags, id)
+    for _, suffix in ipairs({ "_done", "_failed", "_spared", "_snubbed", "_ignored" }) do
+        if flags[id .. suffix] then return true end
+    end
+    return false
+end
+
 function Social.advance(fid, now)
     if Factions.isGone(fid) then return end
     local st = Social.story(fid)
     local node = Stories.node(fid, st.node)
-    if not node or node.final then return end
+    if not node then return end
+    if node.final then
+        -- 결말 뒤 두 번째 이야기 (예전 세이브는 결말에 머문 지금부터 센다)
+        if node.sequel then
+            if not st.sequelAt then
+                local r = Stories.SEQUEL_DAYS
+                st.sequelAt = math.max(st.since or now.t, now.t - r[1] * 24 * 60) + (r[1] + ZombRand(r[2] - r[1] + 1)) * 24 * 60
+            end
+            if now.t >= st.sequelAt then Social.startSequel(fid, now) end
+        end
+        return
+    end
+    if node.crisis then
+        local id = node.crisis
+        if not st.crisisAsked then
+            if now.t - st.since < (node.days or 1) * 24 * 60 then return end
+            local ok, why = Social.startCrisis(now, id)
+            if ok then
+                st.crisisAsked, st.told = id, true
+                log("story crisis", fid, node.id, id)
+            elseif why ~= "no_players" then
+                -- 위기를 열 수 없다 (관련 NPC 가 떠났거나 이미 쓴 위기): 아무도 답하지 않은 것으로
+                st.crisisAsked = id
+                st.flags[id .. "_ignored"] = true
+                log("story crisis skipped", fid, id, why)
+            end
+            return
+        end
+        if crisisSettled(st.flags, id) then Social.moveTo(fid, resolveNext(node.next, st.flags), now) end
+        return
+    end
     if node.quest then
         if st.questId then return end
         if now.t - st.since < (node.days or 1) * 24 * 60 then return end
         if openQuestFor(fid) then return end
         local player, ps = randomTarget()
         if not player then return end
-        local q = StoryEngine.Quests.proposeCustom(player, ps, fid, node.quest, now,
-            { story = { faction = fid, node = node.id } })
+        local q = proposeStoryQuest(player, ps, fid, node, now)
         if q then
             st.questId, st.told = q.id, true    -- 부탁하는 무전이 곧 이야기다
-            log("story quest", fid, node.id, q.id)
+            log("story quest", fid, node.id, q.id, q.kind)
         end
         return
     end
     if now.t - st.since >= (node.days or 2) * 24 * 60 then
         Social.moveTo(fid, resolveNext(node.next, st.flags), now)
     end
+end
+
+-- 인물 탭 "큰 이야기" (Chronicle.payload): 지금 이야기·몇 번째·지금 장면·끝났는지·다음 이야기까지·지난 이야기
+function Social.storyInfo(fid, now)
+    local st = Social.story(fid)
+    local node = Stories.node(fid, st.node)
+    if not node then return nil end
+    now = now or Sensor.now()
+    local info = { arc = Stories.arcOf(fid, node.id), chapter = node.chapter or 1, node = node.id,
+                   final = node.final == true, tone = node.tone, asking = (st.questId or st.crisisAsked) and true or nil,
+                   past = {} }
+    if node.final and node.sequel and st.sequelAt then
+        info.nextDays = math.max(0, math.ceil((st.sequelAt - now.t) / (24 * 60)))
+    end
+    for _, a in ipairs(st.arcs or {}) do
+        info.past[#info.past + 1] = { arc = a.arc, ending = a.ending, tone = a.tone, day = a.day }
+    end
+    return info
 end
 
 -- 무전 요청에 넣는 이 NPC 의 사정과 다른 NPC 에 대한 생각
@@ -269,10 +383,10 @@ function Social.onQuest(q, outcome)
         if outcome == "completed" then
             if StoryEngine.Fate then StoryEngine.Fate.onStoryResult(tag.faction, true) end
             if StoryEngine.Projects then StoryEngine.Projects.onStoryWin(tag.faction, q.targetName) end
-            Social.moveTo(tag.faction, node.win, now)
+            Social.moveTo(tag.faction, resolveNext(node.win, st.flags), now)
         elseif outcome == "failed" or outcome == "declined" or outcome == "ignored" then
             if StoryEngine.Fate then StoryEngine.Fate.onStoryResult(tag.faction, false) end
-            Social.moveTo(tag.faction, node.lose, now)
+            Social.moveTo(tag.faction, resolveNext(node.lose, st.flags), now)
         end
     end
     if tag and tag.crisis and outcome ~= "accepted" then
@@ -345,6 +459,8 @@ function Social.onChoice(q, opt, player)
     for _, o in ipairs(q.options) do
         local st = Social.story(o.faction)
         local role = Stories.crisisRole(q.crisis, opt.faction, o.faction)
+        -- 누구를 골랐는지 (두 번째 이야기가 갈린다: <위기>_chose_<npc>)
+        st.flags[q.crisis .. "_chose_" .. opt.faction] = true
         if StoryEngine.Chronicle then
             StoryEngine.Chronicle.add(o.faction, { k = "crisis", crisis = q.crisis, role = role, by = opt.faction })
         end
