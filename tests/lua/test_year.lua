@@ -192,7 +192,12 @@ function T.every_new_node_leads_somewhere()
         for _, pair in ipairs(spec.list or {}) do out[#out + 1] = pair[2] end
         return out
     end
-    for fid, list in pairs(Stories.CHAPTER3) do
+    local groups = {}
+    for fid, list in pairs(Stories.CHAPTER3) do groups[#groups + 1] = { fid, list } end
+    for fid, list in pairs(Stories.CHAPTER4) do groups[#groups + 1] = { fid, list } end
+    for k, list in pairs(Stories.VOICE_CHAPTERS) do groups[#groups + 1] = { k == "rats_dutch" and "rats" or k, list } end
+    for _, g in ipairs(groups) do
+        local fid, list = g[1], g[2]
         for _, n in ipairs(list) do
             if n.final then
                 H.ok(n.tone, n.id .. " needs a tone")
@@ -210,11 +215,68 @@ function T.every_new_node_leads_somewhere()
     for id, e in pairs(Stories.ENDINGS) do
         local fid = string.match(id, "^(%a+)")
         H.ok(Stories.node(fid, id), "ending " .. id)
-        if e.sequel then H.ok(Stories.node(fid, e.sequel), id .. " -> " .. e.sequel) end
+        for _, seq in ipairs(e.sequel and ids(e.sequel) or {}) do H.ok(Stories.node(fid, seq), id .. " -> " .. seq) end
     end
     for vid, def in pairs(Stories.VOICES) do
-        H.ok(Stories.node(def.npc, def.start), vid .. " start")
+        local first = Stories.node(def.npc, def.start)
+        H.ok(first, vid .. " start")
+        H.ok(first.next and Stories.node(def.npc, first.next), vid .. " leads into the taking-over chapter")
     end
+end
+
+-- 2회차: 4장 첫 장면은 함께 사는 사람으로, hitAll·hurt, 휘태커가 떠나면 코왈스키, 후임 대사
+function T.chapter_four_opens_by_who_lives_with_ray()
+    setup()
+    local Social = StoryEngine.Social
+    local st = at("ray", "ray3_1a")
+    H.ok(st.flags.ray_annie)
+    st = at("ray", "ray3_6a")
+    st.sequelAt = now().t
+    Social.advance("ray", now())
+    H.eq(st.node, "ray4_1a", "Annie is there for the winter")
+    local cst = at("casey", "casey3_6b")
+    cst.sequelAt = now().t
+    Social.advance("casey", now())
+    H.eq(cst.node, "casey4_1b")
+end
+
+function T.story_events_can_hit_everyone_and_hurt_a_contact()
+    setup()
+    local Life = StoryEngine.Life
+    Life.daily()
+    local before = Life.get("ray", "morale")
+    at("casey", "casey4_4x")
+    H.eq(Life.get("ray", "morale"), before - 5, "the county felt the silence")
+    at("dewey", "dewey4_4x")
+    H.eq(StoryEngine.Specialty.status("dewey").reason, "hurt", "pinned under the truck")
+    H.advanceDays(8)
+    H.ok(StoryEngine.Specialty.status("dewey").reason ~= "hurt", "healed after a week")
+end
+
+function T.whitaker_leaves_for_knox_and_kowalski_takes_over()
+    setup()
+    local Social = StoryEngine.Social
+    local st = at("guard", "guard4_3")
+    st.crisisAsked = "knox"
+    st.flags.knox_done = true
+    Social.advance("guard", now())
+    H.eq(st.node, "guard4_4l")
+    H.advanceDays(1)
+    H.fire("EveryTenMinutes")
+    H.eq(StoryEngine.Life.npc("guard").fate.kind, "gone")
+    H.advanceDays(11)
+    H.fire("EveryTenMinutes")
+    H.eq(StoryEngine.Voices.of("guard"), "kowalski")
+    local kst = Social.story("guard")
+    H.eq(kst.node, "kowalski1_1")
+    kst.since = now().t - 3 * 24 * 60
+    Social.advance("guard", now())
+    H.eq(kst.node, "kowalski1_2", "the taking-over chapter goes on")
+    -- AI 없을 때 후임 대사
+    local lt = StoryEngine.Lines.lt("guard", "q_thanks")
+    H.ok(string.find(lt.key, "IGUI_StoryEngine_Line_kowalski_q_thanks_", 1, true), "his own line")
+    local other = StoryEngine.Lines.lt("guard", "horde")
+    H.ok(string.find(other.key, "IGUI_StoryEngine_Line_guard_horde_", 1, true), "the camp's lines for the rest")
 end
 
 return T

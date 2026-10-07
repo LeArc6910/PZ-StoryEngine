@@ -125,6 +125,10 @@ def line_key_errors() -> list[str]:
             if kind in only and fid not in only[kind]:
                 continue
             keys += [f"IGUI_StoryEngine_Line_{fid}_{kind}_{i}" for i in range(1, n + 1)]
+    voices = re.findall(r'"(\w+)"', re.search(r"^Lines.VOICES = \{(.*?)\}", lines, re.M).group(1))
+    for voice in voices:
+        for kind, n in table("Lines.VOICE_COUNT").items():
+            keys += [f"IGUI_StoryEngine_Line_{voice}_{kind}_{i}" for i in range(1, n + 1)]
     for group, n in table("Lines.BANTER").items():
         for i in range(1, n + 1):
             keys += [f"IGUI_StoryEngine_Banter_{group}_{i}_a", f"IGUI_StoryEngine_Banter_{group}_{i}_b"]

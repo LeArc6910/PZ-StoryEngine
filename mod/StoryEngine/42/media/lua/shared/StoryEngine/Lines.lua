@@ -59,6 +59,14 @@ Lines.ONLY = {
     work_fetch = { ray = true, casey = true, doc = true, dewey = true, rats = true },
 }
 
+-- 후임 목소리(Voices.lua)의 대사 종류별 문장 수: IGUI_StoryEngine_Line_<후임>_<종류>_<n>.
+-- 여기 없는 종류는 앞 사람(그 채널의 처음 NPC) 대사를 쓴다
+Lines.VOICE_COUNT = {
+    q_accepted = 1, q_declined = 1, q_ignored = 1, q_thanks = 1, q_failed = 1, request = 1,
+    offer = 1, refuse = 1, offline_reply = 1, chat_checkin = 2, chat_morning = 1, chat_evening = 1,
+}
+Lines.VOICES = { "martha", "nora", "sam", "esther", "lenny", "kowalski", "red", "dutch", "caleb" }
+
 -- 이 NPC 대사가 없을 때 쓰는 공통 문장 (예전 키)
 Lines.ALT = {
     supply_drop = "IGUI_StoryEngine_RadioSay_supply_drop", fetch = "IGUI_StoryEngine_RadioSay_fetch",
@@ -124,6 +132,12 @@ end
 
 function Lines.lt(fid, kind, args)
     local alt = Lines.ALT[kind]
+    local voice = StoryEngine.Factions and StoryEngine.Factions.voice and StoryEngine.Factions.voice[fid]
+    if voice and Lines.VOICE_COUNT[kind] then
+        local key = "IGUI_StoryEngine_Line_" .. tostring(voice) .. "_" .. kind .. "_"
+            .. StoryEngine.intToString(roll(Lines.VOICE_COUNT[kind]))
+        return { key = key, alt = alt, args = args }
+    end
     if not Lines.has(fid, kind) then
         return alt and { key = alt, args = args } or nil
     end
