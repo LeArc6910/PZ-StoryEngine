@@ -490,7 +490,9 @@ end
 function H.boot()
     require "StoryEngine/Commands"
     StoryEngine.Client = { dispatch = function(command, args) H.sent[#H.sent + 1] = { command = command, args = args } end }
+    local decorate = StoryEngine.Bridge.decorate
     StoryEngine.Bridge.request = function(module, payload, callback, opts)
+        if decorate then payload = decorate(payload) end
         H.bridge[#H.bridge + 1] = { module = module, payload = payload, callback = callback }
         return "req" .. tostring(#H.bridge)
     end

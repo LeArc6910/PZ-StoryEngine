@@ -27,7 +27,13 @@ for _, f in ipairs(Factions.list) do Factions.byId[f.id] = f end
 function Factions.isGone(id) return false end
 function Factions.fateOf(id) return nil end
 
+-- 후임 목소리 (Voices.lua, 2026-10-07): 앞 사람이 죽거나 떠난 뒤 같은 주파수를 이어받은 사람. [채널] = 후임 id.
+-- 서버는 Voices 가, 클라이언트는 npcVoices 알림이 채운다. 이름은 IGUI_StoryEngine_Voice_<후임>
+Factions.voice = {}
+
 function Factions.name(id)
+    local v = Factions.voice[id]
+    if v then return getText("IGUI_StoryEngine_Voice_" .. tostring(v)) end
     return getText("IGUI_StoryEngine_Faction_" .. tostring(id))
 end
 

@@ -324,4 +324,20 @@ function T.people_tab_main_story_box()
     getText = realGetText
 end
 
+-- 큰 이야기: 곁가지·이어받은 이야기 장 표시, 저장된 서술(AI 곁가지 자리)
+function T.people_tab_side_story_labels()
+    local P = StoryEnginePeoplePanel
+    local text = P.storyText("ray", { arc = "rayx1", chapter = "ep", node = "rayx1_2", final = false,
+        path = { { node = "ray3_6a", arc = "ray3", chapter = 3 },
+                 { node = "rayx1_1", arc = "rayx1", chapter = "ep", tale = "A dog followed us home.", title = "The Dog" },
+                 { node = "rayx1_2", arc = "rayx1", chapter = "ep", tale = "The dog stayed." } } })
+    H.ok(string.find(text, "IGUI_StoryEngine_People_Chapter_3", 1, true), "chapter three")
+    H.ok(string.find(text, "IGUI_StoryEngine_People_Chapter_ep", 1, true), "side story")
+    H.ok(string.find(text, "A dog followed us home.", 1, true), "stored narration is used")
+    H.ok(string.find(text, "IGUI_StoryEngine_Arc_Quote|The Dog", 1, true), "stored title is used")
+    H.ok(not string.find(text, "IGUI_StoryEngine_People_BigStory", 1, true) == false)
+    H.ok(not string.find(P.storyText("ray", { arc = "ray1", node = "ray_1", path = {} }, true), "BigStory", 1, true),
+        "no header for an earlier voice")
+end
+
 return T

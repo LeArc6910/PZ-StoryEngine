@@ -94,6 +94,7 @@ end
 function T.story_quests_can_be_a_horde_or_a_known_face()
     mockBuildings()
     local p = setup()
+    StoryEngine.Social.forceAsk = true       -- 부탁 몰림 방지는 따로 시험한다
     local Social = StoryEngine.Social
     at("ray", "ray2a_2")
     Social.advance("ray", now())
@@ -117,6 +118,7 @@ function T.story_quests_can_be_a_horde_or_a_known_face()
     end
     Social.onQuest(nq, "failed")
     H.eq(Social.story("ray").node, "ray2a_7x")
+    Social.forceAsk = nil
 end
 
 function T.stories_cross_when_another_contact_is_somewhere()
@@ -232,7 +234,7 @@ function T.every_sequel_node_leads_somewhere()
         end
     end
     for id, e in pairs(Stories.ENDINGS) do
-        local fid = string.match(id, "^(%a+)_")
+        local fid = string.match(id, "^(%a+)")
         H.ok(Stories.node(fid, id) and Stories.node(fid, e.sequel), id)
     end
 end
