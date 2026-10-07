@@ -1556,7 +1556,9 @@ function Quests.pickMarket(player, qid, index)
 end
 
 -- NPC 의 소탕 부탁. 위치를 먼저 정해 두고, 수락하면 무리를 배치한다.
-function Quests.proposeHorde(player, ps, fid, tier, now)
+-- opts.story = { faction, node }: 이야기 부탁 (Social.advance). opts.why: 그 사정을 AI 에게 덧붙인다
+function Quests.proposeHorde(player, ps, fid, tier, now, opts)
+    opts = opts or {}
     tier = math.max(1, math.min(Quests.MAX_TIER, math.floor(tier or 1)))
     local exclude = {}
     if ps.home and ps.home.building then exclude[ps.home.building] = true end
@@ -1582,9 +1584,9 @@ function Quests.proposeHorde(player, ps, fid, tier, now)
         bx1 = def:getX(), by1 = def:getY(), bx2 = def:getX2(), by2 = def:getY2(),
         radius = Quests.RADIUS, distance = math.floor(found.distance),
         size = size, killsNeeded = math.ceil(size * Quests.HORDE_CLEAR), killed = 0,
-        origin = { source = "director", faction = fid, initiator = "npc",
+        origin = { source = opts.story and "story" or "director", faction = fid, initiator = "npc", story = opts.story,
                    day = Store.dayIndex(now.dayKey), date = now.date, clock = now.clock },
-        target = ps.key, targetName = ps.name,
+        target = ps.key, targetName = ps.name, why = opts.why,
         state = "proposed", createdT = now.t, respondBy = now.t + Quests.RESPOND_MIN,
         spawned = false,
     }
@@ -1599,7 +1601,8 @@ function Quests.proposeHorde(player, ps, fid, tier, now)
     Radio.react(fid, "request", "A horde of about " .. StoryEngine.intToString(size) .. " dead has gathered around "
         .. spot .. ". It is about " .. StoryEngine.intToString(distance) .. " tiles to the " .. dirEn .. " of the players (measured from them, "
         .. "not from you). Ask them to clear it out. Payment: a " .. tierWord .. " supply cache left near the spot. "
-        .. "Use the town name as given.",
+        .. "Use the town name as given."
+        .. (opts.why and (" This is part of what is going on in your life right now: " .. opts.why .. ".") or ""),
         StoryEngine.Lines.fallback(fid, "horde", "About " .. StoryEngine.intToString(size)
             .. " dead are gathered around a building near " .. place.town .. ", about " .. StoryEngine.intToString(distance)
             .. " tiles " .. dirEn .. " of you. Can you clear them out? I will leave you something for it.",

@@ -5,7 +5,8 @@
 --
 -- 지나온 일(Radio.channel(fid).chronicle, 최근 MAX 개): 이야기 장면(beat), 위기에서의 처지(crisis), 신뢰도 문턱
 -- (trust 20/40/60/80, 처음 넘을 때 한 번), 장기 프로젝트(project), 운명(fate), 캐릭터의 죽음(death),
--- 행적 일부(rec: 복구 작전·큰 사건·살아남음 — Life.record 에서). 표시 문장은 클라이언트가 번역한다.
+-- 행적 일부(rec: 복구 작전·큰 사건·살아남음 — Life.record 에서), 새 큰 이야기의 시작(arc, Social.startSequel).
+-- 표시 문장은 클라이언트가 번역한다. 인물 탭 위쪽 "큰 이야기" 칸은 Social.storyInfo (payload 의 story).
 
 if isClient() then return end
 
@@ -84,6 +85,7 @@ function Chronicle.payload()
             id = f.id, freq = f.freq, trust = ch.trust, profile = st.profile or {},
             fate = fate and fate.kind or nil, fateReason = fate and fate.reason or nil, fateDay = fate and fate.day or nil,
             project = StoryEngine.Projects and StoryEngine.Projects.info(f.id) or nil,
+            story = Social and Social.storyInfo(f.id) or nil,
             chronicle = list,
         }
     end

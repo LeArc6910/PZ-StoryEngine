@@ -240,7 +240,7 @@ function Commands.debugNamed(player, args)
     local fid = tostring(args.faction or "")
     local pick = nil
     for _, p in ipairs(Named.PEOPLE) do
-        if not pick and p.npc == fid and not p.requires then pick = p end
+        if not pick and p.npc == fid and not p.requires and not p.storyOnly then pick = p end
     end
     pick = pick or Named.PEOPLE[1]
     local q, why = Named.propose(player, StoryEngine.Store.player(player), pick, StoryEngine.Sensor.now())
@@ -604,6 +604,7 @@ function Commands.debugStory(player, args)
     if StoryEngine.Factions.byId[fid] then
         local st = Social.story(fid)
         st.since = now.t - 30 * 24 * 60
+        st.sequelAt = now.t          -- 결말에 있으면 두 번째 이야기를 바로
         Social.advance(fid, now)
     end
     reply(player, "debugStatus", { text = Social.debugStatus() })

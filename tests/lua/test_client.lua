@@ -293,4 +293,22 @@ function T.main_icon_counts_unread_npc_messages()
     H.ok(StoryEngineQuickDock.GRIP == StoryEngineFloatBar.GRIP, "the skills icon shares the bar")
 end
 
+-- 인물 탭 "큰 이야기" 칸 (2026-10-07)
+function T.people_tab_main_story_box()
+    local P = StoryEnginePeoplePanel
+    local text = P.storyText("ray", { arc = "ray2a", chapter = 2, node = "ray2a_1", final = false, asking = true,
+                                      past = { { arc = "ray1", tone = "good" } } })
+    H.ok(string.find(text, "IGUI_StoryEngine_People_BigStory", 1, true), "titled")
+    H.ok(string.find(text, "IGUI_StoryEngine_Arc_ray2a", 1, true), "the story's name")
+    H.ok(string.find(text, "IGUI_StoryEngine_People_Chapter_2", 1, true), "second story")
+    H.ok(string.find(text, "IGUI_StoryEngine_People_Asking", 1, true), "asking for help")
+    H.ok(string.find(text, "IGUI_StoryEngine_People_PastStory", 1, true) and string.find(text, "Tone_good", 1, true),
+        "the earlier story and how it ended")
+    local ended = P.storyText("ray", { arc = "ray1", chapter = 1, node = "ray_6a", final = true, tone = "good", nextDays = 9 })
+    H.ok(string.find(ended, "IGUI_StoryEngine_People_NextStory|9", 1, true), "days until the next story")
+    local over = P.storyText("ray", { arc = "ray2a", chapter = 2, node = "ray2a_5a", final = true, tone = "good" })
+    H.ok(string.find(over, "IGUI_StoryEngine_People_StoryOver", 1, true))
+    H.eq(P.storyText("ray", nil), nil)
+end
+
 return T

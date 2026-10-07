@@ -129,6 +129,26 @@ function Fate.onStoryFinal(fid, node)
     log("fate scheduled", fid, Fate.DOOM[fid].kind)
 end
 
+-- 두 번째 이야기의 결말이 죽음·떠남 (Social.moveTo, 노드의 fate = { kind, text }). 첫 이야기와 달리 성적과 무관하게
+-- 그 결말에 들어서면 정해진다. 샌드박스로 이야기 원인을 끄면 "크게 다쳤지만 살아 있음"
+function Fate.onStoryFate(fid, node)
+    if Fate.isGone(fid) or not node or not node.fate then return end
+    local now = Sensor.now()
+    if not Fate.causeOn("story") then
+        for _, r in ipairs(Life.RESOURCES) do
+            if Life.get(fid, r) < Life.SELF_MIN then Life.change(fid, r, Life.SELF_MIN - Life.get(fid, r), "survived") end
+        end
+        Life.record(fid, "survived", nil, 0)
+        Radio.react(fid, "event", "You came very close to the end: " .. node.fate.text
+            .. " But it did not happen; you are still here, badly shaken. Tell the players.",
+            StoryEngine.Lines.fallback(fid, "survived", "It nearly finished us. We are still here, barely."), nil)
+        log("fate story2 survived", fid, node.id)
+        return
+    end
+    pending()[fid] = { dueT = now.t + Fate.DELAY_MIN, kind = node.fate.kind, reason = "story2:" .. node.id }
+    log("fate scheduled", fid, node.fate.kind, node.id)
+end
+
 -- ---------------------------------------------------------------- 고갈
 
 -- 하루가 끝날 때 (Life.daily 가 부른다)
@@ -166,6 +186,9 @@ end
 
 local function fateText(fid, kind, reason)
     if reason == "story" and Fate.DOOM[fid] then return Fate.DOOM[fid].text end
+    local nodeId = reason and string.match(reason, "^story2:(.+)$")
+    local node = nodeId and Stories.node(fid, nodeId)
+    if node and node.fate then return node.fate.text end
     if reason == "fever" then return nameOf(fid) .. " died of the fever that swept the county." end
     return nameOf(fid) .. "'s people ran out of everything and left their place to find somewhere else. They are off the air."
 end
