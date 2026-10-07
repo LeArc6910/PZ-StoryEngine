@@ -292,7 +292,8 @@ function Social.season()
 end
 
 -- 곁가지(Stories.EPISODES)를 이 NPC 에게 지금 열 수 있는가. when = { season = {..}, trust = n, alive = {..},
--- arcs = {..} (이 NPC 가 지나온 이야기 중 하나), nodes = {..} (지금 큰 이야기 노드), voice = id | false, world = 조건 }
+-- arcs = {..} (이 NPC 가 지나온 이야기 중 하나), nodes = {..} (지금 큰 이야기 노드), anyFlag = {..} (이 NPC 플래그 중 하나),
+-- voice = id | false, world = 조건 }
 function Social.episodeOk(def, fid, now)
     local w = def.when or {}
     local st = Social.story(fid)
@@ -316,6 +317,11 @@ function Social.episodeOk(def, fid, now)
     if w.nodes then
         local ok = false
         for _, x in ipairs(w.nodes) do if st.node == x then ok = true end end
+        if not ok then return false end
+    end
+    if w.anyFlag then
+        local ok = false
+        for _, x in ipairs(w.anyFlag) do if (st.flags or {})[x] then ok = true end end
         if not ok then return false end
     end
     if w.arcs then
