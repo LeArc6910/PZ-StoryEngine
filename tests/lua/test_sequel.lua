@@ -188,6 +188,18 @@ function T.people_tab_gets_the_main_story()
     H.eq(pike.story.arc, "pike2a")
     H.eq(pike.story.chapter, 2)
     H.eq(pike.story.past[1].arc, "pike1")
+    -- 처음부터 지금까지 지나온 장면
+    local nodes = {}
+    for _, e in ipairs(pike.story.path) do nodes[#nodes + 1] = e.node end
+    local joined = table.concat(nodes, ",")
+    H.ok(string.find(joined, "pike_5a,pike2a_1", 1, true), "the ending, then the new story: " .. joined)
+    H.eq(pike.story.path[#pike.story.path].arc, "pike2a")
+    -- 예전 세이브: 기록이 없으면 지나온 일의 장면으로
+    local st = Social.story("hunter")
+    st.path = nil
+    Social.moveTo("hunter", "hunter_2", now())
+    local hp = Social.storyInfo("hunter", now()).path
+    H.eq(hp[#hp].node, "hunter_2")
     H.eq(StoryEngine.Stories.arcOf("ray", "ray_end_bad"), "ray1")
     H.eq(StoryEngine.Stories.arcOf("hunter", "hunter2b_5x"), "hunter2b")
 end

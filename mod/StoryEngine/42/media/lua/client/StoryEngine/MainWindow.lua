@@ -1441,6 +1441,9 @@ end
 -- 가족·사는 곳은 이야기 노드에 따라 바뀐다 (profile 변형 -> IGUI_StoryEngine_Profile_<npc>_<칸>_<변형>)
 
 StoryEnginePeoplePanel = derivePanel("StoryEnginePeoplePanel")
+StoryEnginePeoplePanel.LABELS = { "IGUI_StoryEngine_People_Age", "IGUI_StoryEngine_People_Gender", "IGUI_StoryEngine_People_Family",
+    "IGUI_StoryEngine_People_Home", "IGUI_StoryEngine_People_Job", "IGUI_StoryEngine_People_Radio",
+    "IGUI_StoryEngine_People_Trust", "IGUI_StoryEngine_People_Project" }
 
 local function peopleOf(fid)
     for _, n in ipairs(Cache.people or {}) do
@@ -1504,27 +1507,60 @@ local function arcTitle(arc)
     return getText("IGUI_StoryEngine_Arc_Quote", getText("IGUI_StoryEngine_Arc_" .. tostring(arc)))
 end
 
--- 인물 탭 위쪽 "큰 이야기" 칸 (서버 Social.storyInfo): 지금 이야기 제목·몇 번째·진행 중인지 결말인지,
--- 그 사람이 지금 말하는 장면, 도움을 청하는 중인지, 다음 이야기까지 며칠, 지난 이야기와 그 결말
+-- 인물 탭 "큰 이야기" (서버 Social.storyInfo): 처음부터 지금까지. 이야기마다 제목·몇 번째·진행 중 또는 결말,
+-- 그 아래 지나온 장면을 날짜와 그 사람의 말로 (지금 장면은 밝게 "지금"), 도움을 청하는 중인지, 다음 이야기까지 며칠.
+-- 색 바꿈 태그 옆 공백은 지워지므로 띄어쓰기는 <SPACE> 로
 function StoryEnginePeoplePanel.storyText(fid, st)
     if not st then return nil end
     local parts = {}
     parts[#parts + 1] = " <RGB:1,0.78,0.35> <H2> " .. UI.escape(getText("IGUI_StoryEngine_People_BigStory")) .. " <LINE> "
-    local state
-    if st.final then
-        state = getText("IGUI_StoryEngine_People_Tone_" .. tostring(st.tone or "mixed"))
-    else
-        state = getText("IGUI_StoryEngine_People_StoryOngoing")
+    -- 지나온 장면을 이야기별로 묶는다 (나온 순서대로)
+    local groups, byArc = {}, {}
+    for _, e in ipairs(st.path or {}) do
+        local arc = e.arc or st.arc
+        if not byArc[arc] then
+            byArc[arc] = { arc = arc, scenes = {} }
+            groups[#groups + 1] = byArc[arc]
+        end
+        local list = byArc[arc].scenes
+        if not list[#list] or list[#list].node ~= e.node then list[#list + 1] = e end
     end
-    parts[#parts + 1] = " <RGB:1,0.86,0.55> " .. UI.escape(arcTitle(st.arc)) .. "  <RGB:0.7,0.7,0.65> "
-        .. UI.escape(getText("IGUI_StoryEngine_People_Chapter_" .. StoryEngine.intToString(st.chapter or 1)) .. "  -  ")
-        .. " <RGB:" .. (st.final and (TONE_COLOR[st.tone] or TONE_COLOR.mixed) or "0.55,0.85,1") .. "> " .. UI.escape(state)
-        .. " <LINE> "
-    local key = "IGUI_StoryEngine_Story_" .. tostring(st.node)
-    local scene = getText(key)
-    if scene ~= key then
-        parts[#parts + 1] = " <RGB:0.95,0.95,0.9> " .. UI.escape(getText("IGUI_StoryEngine_People_Says", UI.npcName(fid), scene))
-            .. " <LINE> "
+    if not byArc[st.arc] then
+        byArc[st.arc] = { arc = st.arc, scenes = { { node = st.node } } }
+        groups[#groups + 1] = byArc[st.arc]
+    end
+    local tones = {}
+    for _, a in ipairs(st.past or {}) do tones[a.arc] = a.tone or "mixed" end
+    for gi, g in ipairs(groups) do
+        local current = g.arc == st.arc
+        local chapter = current and (st.chapter or 1) or gi
+        local stateText, stateColor
+        if current and not st.final then
+            stateText, stateColor = getText("IGUI_StoryEngine_People_StoryOngoing"), "0.55,0.85,1"
+        else
+            local tone = current and (st.tone or "mixed") or tones[g.arc] or "mixed"
+            stateText, stateColor = getText("IGUI_StoryEngine_People_Tone_" .. tone), TONE_COLOR[tone] or TONE_COLOR.mixed
+        end
+        if gi > 1 then parts[#parts + 1] = " <LINE> " end
+        parts[#parts + 1] = " <RGB:1,0.86,0.55> " .. UI.escape(arcTitle(g.arc)) .. " <SPACE> <RGB:0.7,0.7,0.65> "
+            .. UI.escape(getText("IGUI_StoryEngine_People_Chapter_" .. StoryEngine.intToString(chapter))) .. " <SPACE> - <SPACE> "
+            .. " <RGB:" .. stateColor .. "> " .. UI.escape(stateText) .. " <LINE> "
+        for si, e in ipairs(g.scenes) do
+            local key = "IGUI_StoryEngine_Story_" .. tostring(e.node)
+            local scene = getText(key)
+            if scene ~= key then
+                local now = current and si == #g.scenes
+                local day = e.day and ("D" .. StoryEngine.intToString(e.day)) or "-"
+                parts[#parts + 1] = " <INDENT:12> <RGB:0.6,0.6,0.55> " .. UI.escape(day) .. " <SPACE> "
+                if now then
+                    parts[#parts + 1] = " <RGB:0.55,0.85,1> " .. UI.escape(getText("IGUI_StoryEngine_People_Now")) .. " <SPACE> "
+                        .. " <RGB:1,1,0.95> "
+                else
+                    parts[#parts + 1] = " <RGB:0.8,0.8,0.76> "
+                end
+                parts[#parts + 1] = UI.escape(getText("IGUI_StoryEngine_People_Quote", scene)) .. " <LINE> <INDENT:0> "
+            end
+        end
     end
     if st.asking then
         parts[#parts + 1] = " <RGB:0.5,0.9,0.5> " .. UI.escape(getText("IGUI_StoryEngine_People_Asking")) .. " <LINE> "
@@ -1535,10 +1571,6 @@ function StoryEnginePeoplePanel.storyText(fid, st)
     elseif st.final then
         parts[#parts + 1] = " <RGB:0.7,0.7,0.65> " .. UI.escape(getText("IGUI_StoryEngine_People_StoryOver")) .. " <LINE> "
     end
-    for _, a in ipairs(st.past or {}) do
-        parts[#parts + 1] = " <RGB:0.7,0.7,0.65> " .. UI.escape(getText("IGUI_StoryEngine_People_PastStory", arcTitle(a.arc),
-            getText("IGUI_StoryEngine_People_Tone_" .. tostring(a.tone or "mixed")))) .. " <LINE> "
-    end
     return table.concat(parts)
 end
 
@@ -1547,13 +1579,6 @@ function StoryEnginePeoplePanel:createChildren()
     self.list:setAnchorBottom(true)
     self:addChild(self.list)
     local x = PAD * 2 + LIST_W
-    -- 큰 이야기 칸: 주황 테두리·배경으로 강조
-    self.storyBox = newRichText(x, PAD, self.width - x - PAD, 120)
-    self.storyBox.background = true
-    self.storyBox.backgroundColor = { r = 0.28, g = 0.18, b = 0.04, a = 0.55 }
-    self.storyBox.borderColor = { r = 0.95, g = 0.7, b = 0.3, a = 0.85 }
-    self.storyBox:setAnchorRight(true)
-    self:addChild(self.storyBox)
     self.text = newRichText(x, PAD, self.width - x - PAD, self.height - PAD * 2)
     self.text:setAnchorRight(true)
     self.text:setAnchorBottom(true)
@@ -1586,28 +1611,18 @@ function StoryEnginePeoplePanel:refresh()
     if not fid then return end
     local n = peopleOf(fid) or { profile = {}, chronicle = {} }
     local prof = n.profile or {}
-    -- 큰 이야기 칸 (있으면 위에, 아래 글은 그만큼 내려간다)
-    local x = PAD * 2 + LIST_W
-    local boxText = StoryEnginePeoplePanel.storyText(fid, n.story)
-    local top = PAD
-    if boxText and self.storyBox then
-        self.storyBox:setVisible(true)
-        self.storyBox:setText(boxText)
-        self.storyBox:paginate()
-        local h = math.min(math.max(60, self.storyBox:getScrollHeight() + 6), math.floor(self.height * 0.45))
-        self.storyBox:setHeight(h)
-        self.storyBox:setYScroll(0)
-        top = PAD + h + PAD
-    elseif self.storyBox then
-        self.storyBox:setVisible(false)
-    end
-    self.text:setX(x)
-    self.text:setY(top)
-    self.text:setHeight(self.height - top - PAD)
     local parts = {}
+    -- 이름 칸 너비 (가장 긴 이름 + 여백). 값은 그 자리부터 (색 바꿈 태그 옆 공백은 지워지므로 <SETX:>)
+    local labelW = 0
+    local tm = getTextManager()
+    for _, key in ipairs(StoryEnginePeoplePanel.LABELS) do
+        local ok, w = pcall(function() return tm:MeasureStringX(self.text.defaultFont or UIFont.NewSmall, getText(key)) end)
+        if ok and type(w) == "number" and w > labelW then labelW = w end
+    end
+    local valueX = StoryEngine.intToString(math.floor(labelW + 16))
     local function row(label, value)
         if value and value ~= "" then
-            parts[#parts + 1] = " <RGB:0.65,0.65,0.6> " .. UI.escape(getText(label)) .. "  <RGB:0.92,0.92,0.88> "
+            parts[#parts + 1] = " <RGB:0.65,0.65,0.6> " .. UI.escape(getText(label)) .. " <SETX:" .. valueX .. "> <RGB:0.92,0.92,0.88> "
                 .. UI.escape(value) .. " <LINE> "
         end
     end
@@ -1632,10 +1647,14 @@ function StoryEnginePeoplePanel:refresh()
     end
     parts[#parts + 1] = " <LINE> <RGB:0.95,0.75,0.4> " .. UI.escape(getText("IGUI_StoryEngine_People_Story"))
         .. " <LINE> <RGB:0.88,0.88,0.84> " .. UI.escape(profileText(fid, "bio")) .. " <LINE> "
+    -- 큰 이야기: 처음부터 지금까지 (이야기 소개 아래)
+    local storyText = StoryEnginePeoplePanel.storyText(fid, n.story)
+    if storyText then parts[#parts + 1] = " <LINE> " .. storyText end
     parts[#parts + 1] = " <LINE> <RGB:0.95,0.75,0.4> " .. UI.escape(getText("IGUI_StoryEngine_People_History")) .. " <LINE> "
     local any = false
     for _, e in ipairs(n.chronicle or {}) do
-        local ok, text, color = pcall(chronicleLine, fid, e)
+        local ok, text, color = false, nil, nil
+        if e.k ~= "beat" and e.k ~= "arc" then ok, text, color = pcall(chronicleLine, fid, e) end
         if ok and text then
             any = true
             parts[#parts + 1] = " <RGB:" .. (color or "0.85,0.85,0.85") .. "> " .. UI.escape(text) .. " <LINE> "

@@ -293,22 +293,35 @@ function T.main_icon_counts_unread_npc_messages()
     H.ok(StoryEngineQuickDock.GRIP == StoryEngineFloatBar.GRIP, "the skills icon shares the bar")
 end
 
--- 인물 탭 "큰 이야기" 칸 (2026-10-07)
+-- 인물 탭 "큰 이야기" (2026-10-07): 처음부터 지금까지, 이야기별로 묶은 장면
 function T.people_tab_main_story_box()
     local P = StoryEnginePeoplePanel
-    local text = P.storyText("ray", { arc = "ray2a", chapter = 2, node = "ray2a_1", final = false, asking = true,
-                                      past = { { arc = "ray1", tone = "good" } } })
+    local realGetText = getText
+    getText = function(key, ...)
+        local parts = { key }
+        for i = 1, select("#", ...) do parts[#parts + 1] = tostring(select(i, ...)) end
+        if string.find(key, "IGUI_StoryEngine_Story_", 1, true) then return "scene " .. string.sub(key, 24) end
+        return table.concat(parts, "|")
+    end
+    local text = P.storyText("ray", { arc = "ray2a", chapter = 2, node = "ray2a_2", final = false, asking = true,
+        past = { { arc = "ray1", tone = "good" } },
+        path = { { node = "ray_1", day = 1, arc = "ray1" }, { node = "ray_6a", day = 12, arc = "ray1" },
+                 { node = "ray2a_1", day = 20, arc = "ray2a" }, { node = "ray2a_2", day = 22, arc = "ray2a" } } })
     H.ok(string.find(text, "IGUI_StoryEngine_People_BigStory", 1, true), "titled")
-    H.ok(string.find(text, "IGUI_StoryEngine_Arc_ray2a", 1, true), "the story's name")
-    H.ok(string.find(text, "IGUI_StoryEngine_People_Chapter_2", 1, true), "second story")
+    local first = string.find(text, "IGUI_StoryEngine_Arc_ray1", 1, true)
+    local second = string.find(text, "IGUI_StoryEngine_Arc_ray2a", 1, true)
+    H.ok(first and second and first < second, "both stories, oldest first")
+    H.ok(string.find(text, "scene ray_1", 1, true) and string.find(text, "scene ray2a_1", 1, true), "every scene from the start")
+    H.ok(string.find(text, "D12", 1, true), "with the day")
+    H.ok(string.find(text, "IGUI_StoryEngine_People_Tone_good", 1, true), "how the first story ended")
+    H.ok(string.find(text, "IGUI_StoryEngine_People_Now", 1, true), "the current scene is marked")
     H.ok(string.find(text, "IGUI_StoryEngine_People_Asking", 1, true), "asking for help")
-    H.ok(string.find(text, "IGUI_StoryEngine_People_PastStory", 1, true) and string.find(text, "Tone_good", 1, true),
-        "the earlier story and how it ended")
     local ended = P.storyText("ray", { arc = "ray1", chapter = 1, node = "ray_6a", final = true, tone = "good", nextDays = 9 })
     H.ok(string.find(ended, "IGUI_StoryEngine_People_NextStory|9", 1, true), "days until the next story")
     local over = P.storyText("ray", { arc = "ray2a", chapter = 2, node = "ray2a_5a", final = true, tone = "good" })
     H.ok(string.find(over, "IGUI_StoryEngine_People_StoryOver", 1, true))
     H.eq(P.storyText("ray", nil), nil)
+    getText = realGetText
 end
 
 return T
