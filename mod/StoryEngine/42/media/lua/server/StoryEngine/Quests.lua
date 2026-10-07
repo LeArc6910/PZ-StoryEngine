@@ -1257,7 +1257,12 @@ function Quests.storyFallback(fid, q, story)
         "Could you find me " .. Quests.needText(q) .. "? I will pay you back. Answer me on the radio.",
         { { t = "need", v = q.need } })
     if type(fb) == "table" and story and story.node then
-        fb.pre = { text = tostring(q.why or ""), lt = StoryEngine.Lines.story(story.node) }
+        local node = StoryEngine.Stories and StoryEngine.Stories.node(fid, story.node)
+        if node and node.say then
+            fb.pre = { text = node.say }        -- AI 곁가지 (AiTales.lua): 번역 키 대신 저장된 말
+        else
+            fb.pre = { text = tostring(q.why or ""), lt = StoryEngine.Lines.story(story.node) }
+        end
     end
     return fb
 end

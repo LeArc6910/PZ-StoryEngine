@@ -90,5 +90,10 @@
     "ContextMenu_StoryEngine_MainIconHide": "Hide the radio icon",
     "ContextMenu_StoryEngine_DebugVoice": "Successor takes over now (radio tab contact)",
     "ContextMenu_StoryEngine_DebugEpisode": "Pick a side story now",
-    "ContextMenu_StoryEngine_DebugCouncil": "County council: start / next stage"
+    "ContextMenu_StoryEngine_DebugCouncil": "County council: start / next stage",
+    "ContextMenu_StoryEngine_DebugAiTale": "Ask the AI for a side story from %1",
+    "ContextMenu_StoryEngine_DebugAiTale_any": "Any kind",
+    "ContextMenu_StoryEngine_DebugAiTale_quiet": "Quiet side story",
+    "ContextMenu_StoryEngine_DebugAiTale_items": "Side story asking for items",
+    "ContextMenu_StoryEngine_DebugAiTale_horde": "Side story asking to clear a horde"
 }

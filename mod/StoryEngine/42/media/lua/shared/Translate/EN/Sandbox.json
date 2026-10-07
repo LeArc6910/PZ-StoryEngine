@@ -185,5 +185,7 @@
     "Sandbox_StoryEngine_SpecialtyDays_hunter_tooltip": "In-game days before this specialty can be used again (default 3). 0 means no wait.\nThe 'Specialty wait multiplier' (including difficulty presets) is applied on top.",
     "Sandbox_StoryEngine_SpecialtyScope_option1": "Server-wide",
     "Sandbox_StoryEngine_SpecialtyScope_option2": "Per player",
-    "Sandbox_StoryEngine_SpecialtyScope_option3": "Both (others wait 1 day)"
+    "Sandbox_StoryEngine_SpecialtyScope_option3": "Both (others wait 1 day)",
+    "Sandbox_StoryEngine_AiSideStories": "AI side stories",
+    "Sandbox_StoryEngine_AiSideStories_tooltip": "When a contact has used up the written side stories (or none fit), and the AI bridge is connected, the AI writes a new short side story. The game decides the kind (a quiet moment, a request for items, a horde to clear), the items and the rewards; the AI only writes the story. The text stays in the language most players used at the time."
 }

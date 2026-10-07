@@ -32,6 +32,7 @@ require "StoryEngine/Letters"
 require "StoryEngine/Legacy"
 require "StoryEngine/Voices"
 require "StoryEngine/Council"
+require "StoryEngine/AiTales"
 require "StoryEngine/Tuning"
 require "StoryEngine/Grid"
 require "StoryEngine/Ops"
@@ -656,6 +657,22 @@ function Commands.debugEpisode(player, args)
     reply(player, "debugStatus", { text = "episode: " .. tostring(id or "none fits") })
 end
 
+-- 디버그: 교신 탭에서 고른 NPC 에게 AI 곁가지를 지금 청한다 (AiTales.lua). args.kind = quiet | items | horde
+function Commands.debugAiTale(player, args)
+    if not canUseDebug(player) then return end
+    local fid = tostring(args.faction or "")
+    if not StoryEngine.Factions.byId[fid] or fid == "open" then
+        reply(player, "debugStatus", { text = "ai tale: pick a contact on the radio tab first" })
+        return
+    end
+    local Social = StoryEngine.Social
+    local st = Social.story(fid)
+    if st.ep then Social.endEpisode(fid, StoryEngine.Sensor.now()) end
+    local kind = (args.kind == "quiet" or args.kind == "items" or args.kind == "horde") and args.kind or nil
+    local ok, why = StoryEngine.AiTales.request(fid, StoryEngine.Sensor.now(), kind)
+    reply(player, "debugStatus", { text = "ai tale " .. fid .. ": " .. (ok and ("asked " .. tostring(why)) or tostring(why)) })
+end
+
 -- 거래 대가 제출: args.items = 아이템 ID 목록
 function Commands.tradePay(player, args)
     local ids = {}
@@ -693,6 +710,7 @@ function Commands.debugStatus(player, args)
         .. " | " .. StoryEngine.World.statusText() .. " | " .. StoryEngine.Letters.statusText()
         .. " | " .. StoryEngine.Ops.statusText() .. " | " .. StoryEngine.Saga.statusText()
         .. " | " .. StoryEngine.Work.statusText() .. " | " .. StoryEngine.Named.statusText()
+        .. " | " .. StoryEngine.AiTales.statusText()
         .. " | " .. StoryEngine.Holiday.statusText() })
 end
 

@@ -356,6 +356,8 @@ function Social.pickEpisode(now)
     s.episodeDay = day
     local pace = Social.pace()
     local cands, total = {}, 0
+    local AiTales = StoryEngine.AiTales
+    local aiOk = AiTales and AiTales.ready()
     for _, f in ipairs(Factions.list) do
         local fid = f.id
         local st = Social.story(fid)
@@ -363,6 +365,7 @@ function Social.pickEpisode(now)
         local free = node and node.final and not node.episode and not Factions.isGone(fid)
             and not (st.epEndT and now.t - st.epEndT < Social.EPISODE_GAP_DAYS * pace * 24 * 60)
         if free then
+            local any = false
             for _, def in ipairs(Stories.EPISODES) do
                 local npc = def.npc
                 local fits = npc == fid
@@ -372,8 +375,15 @@ function Social.pickEpisode(now)
                 if fits and Social.episodeOk(def, fid, now) then
                     local w = def.weight or 1
                     cands[#cands + 1] = { fid = fid, def = def, w = w }
-                    total = total + w
+                    total, any = total + w, true
                 end
+            end
+            -- 정해 둔 곁가지가 남지 않은 NPC: 브릿지가 있으면 AI 곁가지 (AiTales.lua)
+            local roomy = aiOk and (not (node.sequel and st.sequelAt)
+                or (st.sequelAt - now.t) >= (AiTales.DAYS + 2) * pace * 24 * 60)
+            if not any and roomy then
+                cands[#cands + 1] = { fid = fid, ai = true, w = 1 }
+                total = total + 1
             end
         end
     end
@@ -382,6 +392,10 @@ function Social.pickEpisode(now)
     for _, c in ipairs(cands) do
         roll = roll - c.w
         if roll <= 0 then
+            if c.ai then
+                local ok, arc = AiTales.request(c.fid, now)
+                return ok and ("ai:" .. tostring(arc)) or nil
+            end
             Social.startEpisode(c.fid, c.def, now)
             return c.def.id
         end
@@ -519,7 +533,8 @@ function Social.storyInfo(fid, now)
         local n = Stories.node(fid, e.node)
         -- tale·title: AI 곁가지(나중, docs/STORY_YEAR_PLAN.md D)는 번역 키 대신 글을 그대로 저장한다
         info.path[#info.path + 1] = { node = e.node, day = e.day, arc = Stories.arcOf(fid, e.node),
-                                      chapter = n and n.chapter or e.chapter or 1, tale = e.tale, title = e.title }
+                                      chapter = n and n.chapter or e.chapter or 1,
+                                      tale = e.tale or (n and n.tale), title = e.title or (n and n.title) }
     end
     return info
 end
@@ -859,6 +874,9 @@ Social.CONTACT_LINES = { miss = "chat_miss", checkin = "chat_checkin", news = "c
 function Social.contactFallback(c)
     local Lines = StoryEngine.Lines
     if c.reason == "story" and c.line then
+        -- AI 곁가지 장면은 번역 키가 없고 그 NPC 의 말을 그대로 저장해 둔다 (AiTales.lua)
+        local node = Stories.node(c.fid, c.line)
+        if node and node.say then return { text = node.say } end
         return { text = c.topic, lt = Lines.story(c.line) }
     end
     local kind = (c.reason == "timely" and c.line) or Social.CONTACT_LINES[c.reason] or "chat_checkin"

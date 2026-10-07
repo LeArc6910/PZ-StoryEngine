@@ -185,5 +185,7 @@
     "Sandbox_StoryEngine_SpecialtyDays_hunter_tooltip": "이 특기를 쓴 뒤 다시 쓰기까지의 게임 일수 (기본 3일). 0이면 바로 다시 쓸 수 있다.\n'특기 대기 배율'(난이도 프리셋 포함)이 이 값에 곱해진다.",
     "Sandbox_StoryEngine_SpecialtyScope_option1": "서버 전체",
     "Sandbox_StoryEngine_SpecialtyScope_option2": "개인별",
-    "Sandbox_StoryEngine_SpecialtyScope_option3": "둘 다 (다른 사람은 1일)"
+    "Sandbox_StoryEngine_SpecialtyScope_option3": "둘 다 (다른 사람은 1일)",
+    "Sandbox_StoryEngine_AiSideStories": "AI 곁가지 이야기",
+    "Sandbox_StoryEngine_AiSideStories_tooltip": "정해 둔 곁가지 이야기를 다 썼거나 맞는 것이 없는 NPC에게, AI 브릿지가 연결되어 있을 때 AI가 짧은 곁가지를 새로 쓴다. 종류(조용한 일·물건 부탁·소탕 부탁)와 부탁 물건·보상은 게임이 정하고 AI는 이야기만 쓴다. 글은 그때 접속자가 가장 많이 쓰는 언어로 남는다."
 }

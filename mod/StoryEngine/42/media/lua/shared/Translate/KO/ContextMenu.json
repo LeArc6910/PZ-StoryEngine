@@ -90,5 +90,10 @@
     "ContextMenu_StoryEngine_MainIconHide": "무전 아이콘 숨기기",
     "ContextMenu_StoryEngine_DebugVoice": "후임 목소리가 바로 이어받기 (교신 탭 상대)",
     "ContextMenu_StoryEngine_DebugEpisode": "곁가지 이야기 지금 고르기",
-    "ContextMenu_StoryEngine_DebugCouncil": "카운티 회의 열기 / 다음 단계로"
+    "ContextMenu_StoryEngine_DebugCouncil": "카운티 회의 열기 / 다음 단계로",
+    "ContextMenu_StoryEngine_DebugAiTale": "%1에게 AI 곁가지 청하기",
+    "ContextMenu_StoryEngine_DebugAiTale_any": "무작위 종류",
+    "ContextMenu_StoryEngine_DebugAiTale_quiet": "조용한 곁가지",
+    "ContextMenu_StoryEngine_DebugAiTale_items": "물건 부탁 곁가지",
+    "ContextMenu_StoryEngine_DebugAiTale_horde": "소탕 부탁 곁가지"
 }
