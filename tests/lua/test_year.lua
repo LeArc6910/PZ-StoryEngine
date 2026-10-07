@@ -151,7 +151,8 @@ function T.side_stories_fill_the_wait()
     local ep = { id = "raytest1", npc = "ray", when = { trust = 10 }, nodes = {
         { id = "raytest1_1", days = 1, next = "raytest1_2", beat = "A dog follows you home." },
         { id = "raytest1_2", final = true, tone = "good", beat = "The dog stays." } } }
-    Stories.EPISODES[#Stories.EPISODES + 1] = ep
+    local saved = Stories.EPISODES
+    Stories.EPISODES = { ep }
     for _, n in ipairs(ep.nodes) do
         n.chapter, n.episode = "ep", ep.id
         Stories.ARCS.ray[#Stories.ARCS.ray + 1] = n
@@ -179,7 +180,7 @@ function T.side_stories_fill_the_wait()
         if e.node == "raytest1_1" and e.chapter == "ep" then seen = true end
     end
     H.ok(seen)
-    Stories.EPISODES[#Stories.EPISODES] = nil
+    Stories.EPISODES = saved
 end
 
 -- 3장·후임 노드가 모두 이어져 있는가
@@ -397,6 +398,57 @@ function T.a_council_without_help_falls_apart()
     Council.tick(now())
     H.eq(s.result, "failed")
     H.eq(Social.story("pike").node, "pike5_9b")
+end
+
+-- 4회차 곁가지: 모두 이어지고 결말이 있으며, NPC 마다 다섯 개 이상, 후임마다 두 개
+function T.every_side_story_is_complete()
+    local Stories = StoryEngine.Stories
+    local per, voices = {}, {}
+    for _, def in ipairs(Stories.EPISODES) do
+        local ids = {}
+        for _, n in ipairs(def.nodes) do ids[n.id] = n end
+        for _, n in ipairs(def.nodes) do
+            H.ok(Stories.node(def.npc, n.id) == n, n.id .. " is attached")
+            H.eq(Stories.arcOf(def.npc, n.id), def.id, n.id .. " belongs to its side story")
+            H.eq(n.episode, def.id)
+            if n.final then
+                H.ok(n.tone, n.id .. " has a tone")
+            else
+                for _, x in ipairs({ n.next, n.win, n.lose }) do H.ok(ids[x], n.id .. " leads to " .. tostring(x)) end
+                if n.quest then H.ok(n.win and n.lose and #n.quest.items > 0, n.id .. " can be asked") end
+            end
+        end
+        local w = def.when or {}
+        if w.voice then voices[w.voice] = (voices[w.voice] or 0) + 1
+        else per[def.npc] = (per[def.npc] or 0) + 1 end
+    end
+    for _, f in ipairs(StoryEngine.Factions.list) do
+        if f.id ~= "open" then H.ok((per[f.id] or 0) >= 5, f.id .. " has five side stories") end
+    end
+    for v in pairs(Stories.VOICES) do H.eq(voices[v], 2, v .. " has two side stories") end
+end
+
+function T.side_story_conditions()
+    setup()
+    local Social, Stories = StoryEngine.Social, StoryEngine.Stories
+    local function def(id)
+        for _, d in ipairs(Stories.EPISODES) do if d.id == id then return d end end
+    end
+    local season, voiceOf = Social.season, StoryEngine.Voices.of
+    Social.season = function() return "winter" end
+    local sled = def("rayep4")
+    H.eq(Social.episodeOk(sled, "ray", now()), false, "nobody at the farm to build a sled for")
+    Social.story("ray").flags.ray_lily = true
+    H.eq(Social.episodeOk(sled, "ray", now()), true, "Lily lives at the farm")
+    Social.season = function() return "summer" end
+    H.eq(Social.episodeOk(sled, "ray", now()), false, "no snow in summer")
+    H.eq(Social.episodeOk(def("rayep1"), "ray", now()), true)
+    -- 후임의 곁가지는 그 후임에게만, 처음 사람의 곁가지는 후임에게 안 열린다
+    H.eq(Social.episodeOk(def("marthaep1"), "ray", now()), false)
+    StoryEngine.Voices.of = function(fid) if fid == "ray" then return "martha" end end
+    H.eq(Social.episodeOk(def("marthaep1"), "ray", now()), true)
+    H.eq(Social.episodeOk(def("rayep1"), "ray", now()), false)
+    Social.season, StoryEngine.Voices.of = season, voiceOf
 end
 
 return T
