@@ -13,8 +13,8 @@ Radio contacts you can talk to, an AI director that throws events at you, quests
 [*]Trade list showing each contact's tiers and bundles; pay with goods, a random job (clearing, guarding, scouting, delivering; progress called overhead), credit or a favor
 [*]AI director: supply drops, storms, requests, hordes that follow you, helicopters, threats from hostile groups
 [*]Quests with deadlines and tiers, shared by everyone on the server; rewards in real containers, marked on the map
-[*]Power and water repair operations, multi-day events (helicopter crash, migration, fever, radio blackout), evening news on radio 105.4 MHz, letters, holidays, turned friends, difficulty presets
-[*][b]New:[/b] a second main story per contact, following how the first ended (some end in death); a people tab; floating radio and skills icons; unpaid work for trust
+[*]Power and water repair operations, multi-day events (helicopter crash, migration, fever, radio blackout), radio news on 105.4 MHz, letters, holidays, difficulty presets
+[*][b]New:[/b] a year of stories: each contact's story runs over five chapters through the seasons and can end in death, 60+ side stories (new ones written by the AI with the bridge), successors who take over a lost contact's radio, a county council finale
 [*]Survival journal written every in-game midnight from what you actually did; memoirs with remembrances from the living; read other players' journals
 [*]Characters standing together talk to each other (multiplayer); inner monologue when alone
 [*]Sorts items from other mods automatically (tested with VFE and MFS); optional Project A-Life [ALIFE NPCS] armed backup and raiders
@@ -34,7 +34,7 @@ A small Windows program that runs next to the game on the [b]host / server PC on
 Download: [url=https://github.com/LeArc6910/PZ-StoryEngine-Bridge/releases/latest]StoryEngine Bridge - GitHub Releases[/url]
 
 [h2]AI-generated content[/h2]
-Radio talk, scenes, news, letters, journals, memoirs, conversations, monologue and director decisions can be written live by an AI model. Prompts keep them in character, but no person reviews them and they may be wrong or unexpected. Rewards, trust and quest results are decided by the mod, not the AI.
+Radio talk, stories, news, letters, journals, monologue and director decisions can be written live by an AI model. Prompts keep them in character, but no person reviews them and they may be wrong or unexpected. Rewards, trust and quest results are decided by the mod, not the AI.
 
 [h2]Compatibility[/h2]
 Build 42.20 or newer. Single player and multiplayer (in-game host tested).
@@ -56,8 +56,8 @@ Source: [url=https://github.com/LeArc6910/PZ-StoryEngine]mod[/url], [url=https:/
 [*]상대별 등급·묶음을 보고 고르는 거래 목록(3일마다 새 재고). 대가는 물건, 무작위 일(소탕·경비·정찰·배달, 진행은 머리 위 무전), 외상, 빚으로
 [*]AI 디렉터: 보급, 폭풍, 부탁, 쫓아오는 좀비 무리, 헬기, 적대 세력의 협박
 [*]기한·등급이 있는 퀘스트(서버 전체 공유), 보상은 실제 보관함에 놓이고 지도에 표시
-[*]전기·수도 복구 작전, 여러 날 이어지는 사건(헬기 추락, 대이동, 열병, 통신 두절), 라디오 105.4 MHz 저녁 방송, 편지, 명절, 좀비가 된 지인, 난이도 프리셋
-[*][b]새 기능:[/b] 첫 결말에 따라 갈리는 두 번째 큰 이야기(죽음으로 끝나기도), 인물 탭, 무전·특기 플로팅 아이콘, 보수 없이 일해 신뢰 얻기
+[*]전기·수도 복구 작전, 여러 날 이어지는 사건(헬기 추락, 대이동, 열병, 통신 두절), 라디오 105.4 MHz 저녁 방송, 편지, 명절, 난이도 프리셋
+[*][b]새 기능:[/b] 계절 따라 다섯 장으로 이어지는 1년 이야기(죽음으로 끝나기도), 곁가지 60여 개(브릿지가 있으면 AI가 새로 씀), 떠난 상대의 무전을 잇는 후임, 카운티 회의
 [*]실제로 한 일로 매일 자정에 쓰는 생존 일지, 추모가 달리는 회고록, 다른 플레이어 일지 열람
 [*]함께 있는 캐릭터끼리 대화(멀티), 혼자일 때는 혼잣말
 [*]다른 모드 아이템 자동 분류(VFE, MFS 확인), Project A-Life [ALIFE NPCS] 선택 연동(무장 지원·습격)
@@ -73,7 +73,7 @@ Source: [url=https://github.com/LeArc6910/PZ-StoryEngine]mod[/url], [url=https:/
 다운로드: [url=https://github.com/LeArc6910/PZ-StoryEngine-Bridge/releases/latest]GitHub Releases[/url] (소스 포함, SHA256 확인)
 
 [h2]AI 생성 콘텐츠[/h2]
-무전, 장면, 방송, 편지, 일지, 회고록, 대화, 혼잣말, 디렉터 판단은 AI가 실시간으로 쓸 수 있습니다. 사람이 검토하지 않아 틀리거나 예상과 다를 수 있습니다. 보상·신뢰도·퀘스트 결과는 모드가 정합니다.
+무전, 이야기, 방송, 편지, 일지, 혼잣말, 디렉터 판단은 AI가 실시간으로 쓸 수 있습니다. 사람이 검토하지 않아 틀리거나 예상과 다를 수 있습니다. 보상·신뢰도·퀘스트 결과는 모드가 정합니다.
 
 [h2]호환[/h2]
 Build 42.20 이상. 싱글·멀티(인게임 호스트 확인).
