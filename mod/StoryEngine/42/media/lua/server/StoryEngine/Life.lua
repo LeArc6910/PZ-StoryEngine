@@ -227,6 +227,7 @@ function Life.record(fid, kind, who, delta, extra)
     for k, v in pairs(extra or {}) do e[k] = v end
     Store.push(n.log, e, Life.RECORD_MAX)
     n.counts[kind] = (n.counts[kind] or 0) + 1
+    if StoryEngine.Chronicle then pcall(StoryEngine.Chronicle.onRecord, fid, kind, who) end
     -- 이름별로도 센다: 캐릭터가 죽은 뒤 NPC 가 그 사람과 함께한 일을 기억한다 (Legacy.lua)
     if StoryEngine.Legacy then StoryEngine.Legacy.count(n, kind, who) end
     if kind == "quest_failed" or kind == "quest_ignored" or kind == "trade_failed" then

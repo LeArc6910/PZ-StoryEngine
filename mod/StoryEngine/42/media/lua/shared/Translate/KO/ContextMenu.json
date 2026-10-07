@@ -82,5 +82,10 @@
     "ContextMenu_StoryEngine_DebugHolidayAnnounce": "%1 예고",
     "ContextMenu_StoryEngine_DebugHolidayFeast": "%1 잔치",
     "ContextMenu_StoryEngine_MiniShow": "간소화 무전 창 켜기",
-    "ContextMenu_StoryEngine_MiniHide": "간소화 무전 창 끄기"
+    "ContextMenu_StoryEngine_MiniHide": "간소화 무전 창 끄기",
+    "ContextMenu_StoryEngine_QuickSpecialty": "특기 빠른 사용",
+    "ContextMenu_StoryEngine_QuickDockShow": "특기 아이콘 보이기",
+    "ContextMenu_StoryEngine_QuickDockHide": "특기 아이콘 숨기기",
+    "ContextMenu_StoryEngine_MainIconShow": "무전 아이콘 보이기",
+    "ContextMenu_StoryEngine_MainIconHide": "무전 아이콘 숨기기"
 }

@@ -249,6 +249,41 @@ function UI.saveWindow(name, win)
     end)
 end
 
+-- 작은 화면 설정 (켜 둔 창 등): StoryEngine/ui.txt 의 "이름=값" 줄
+UI.PREF_FILE = "StoryEngine/ui.txt"
+
+local function readPrefs()
+    if UI.prefsLoaded then return UI.prefs end
+    UI.prefsLoaded, UI.prefs = true, {}
+    pcall(function()
+        local r = getFileReader(UI.PREF_FILE, false)
+        if not r then return end
+        local line = r:readLine()
+        while line do
+            local k, v = string.match(line, "^([%w_]+)=(.*)$")
+            if k then UI.prefs[k] = v end
+            line = r:readLine()
+        end
+        r:close()
+    end)
+    return UI.prefs
+end
+
+function UI.pref(key)
+    return readPrefs()[key]
+end
+
+function UI.setPref(key, value)
+    local prefs = readPrefs()
+    prefs[key] = value ~= nil and tostring(value) or nil
+    pcall(function()
+        local wr = getFileWriter(UI.PREF_FILE, true, false)
+        if not wr then return end
+        for k, v in pairs(prefs) do wr:write(k .. "=" .. v .. "\n") end
+        wr:close()
+    end)
+end
+
 -- 이 클라이언트의 게임 언어 코드 (KO, EN, ...)
 function UI.lang()
     local ok, name = pcall(function() return tostring(Translator.getLanguage():name()) end)

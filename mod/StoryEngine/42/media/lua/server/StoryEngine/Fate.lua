@@ -47,7 +47,7 @@ Fate.DOOM = {
     casey = { kind = "gone", text = "After their father died, Casey Liu stopped broadcasting and left the radio shack in Valley Station. The frequency is silent." },
     doc = { kind = "dead", text = "June Adler caught the fever from her own patients and died in the Riverside clinic." },
     pike = { kind = "dead", text = "The dead broke into the March Ridge church at night. Brother Pike held the door so the others could run, and did not survive." },
-    dewey = { kind = "gone", text = "Dewey Hollis drove his unfinished truck out of the county and never came back on the air." },
+    dewey = { kind = "gone", text = "Dewey Hollis drove her unfinished truck out of the county and never came back on the air." },
     guard = { kind = "gone", text = "Sergeant Whitaker's squad abandoned the Knox boundary camp and pulled out north. Their frequency went dead." },
     rats = { kind = "dead", text = "Dutch took over the Coalfield Crew, and Vic was killed in the fight." },
     hunter = { kind = "gone", text = "Hank Tolliver walked into the woods for the winter and never came back." },
@@ -197,6 +197,7 @@ function Fate.apply(fid, kind, reason)
     if kind == "gone" and StoryEngine.Letters then StoryEngine.Letters.queue(fid, "farewell", text) end
     local n = Life.npc(fid)
     n.fate = { kind = kind, reason = reason, day = Store.dayIndex(now.dayKey), t = now.t }
+    if StoryEngine.Chronicle then StoryEngine.Chronicle.add(fid, { k = "fate", kind = kind }) end
     pending()[fid] = nil
     Radio.push(fid, { from = "system", fate = kind, clock = now.clock })
     log("fate", fid, kind, reason)
@@ -235,6 +236,7 @@ end
 function Fate.revive(fid)
     local n = Life.npc(fid)
     n.fate, n.starve = nil, nil
+    if StoryEngine.Chronicle then StoryEngine.Chronicle.add(fid, { k = "revived" }) end
     pending()[fid] = nil
     for _, r in ipairs(Life.RESOURCES) do n.res[r] = Life.base(fid, r) end
     if StoryEngine.Social then

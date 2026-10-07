@@ -1436,6 +1436,146 @@ function StoryEngineJournalPanel:showMemoir()
     self.text:setYScroll(0)
 end
 
+-- ================================================================ people tab (2026-10-07)
+-- NPC 인물 이야기: 이름·나이·성별·가족·사는 곳·하던 일·이야기, 그리고 지나온 일 (서버 Chronicle.lua).
+-- 가족·사는 곳은 이야기 노드에 따라 바뀐다 (profile 변형 -> IGUI_StoryEngine_Profile_<npc>_<칸>_<변형>)
+
+StoryEnginePeoplePanel = derivePanel("StoryEnginePeoplePanel")
+
+local function peopleOf(fid)
+    for _, n in ipairs(Cache.people or {}) do
+        if n.id == fid then return n end
+    end
+    return nil
+end
+
+local function profileText(fid, field, variant)
+    if variant then
+        local key = "IGUI_StoryEngine_Profile_" .. fid .. "_" .. field .. "_" .. tostring(variant)
+        local t = getText(key)
+        if t ~= key then return t end
+    end
+    local key = "IGUI_StoryEngine_Profile_" .. fid .. "_" .. field
+    local t = getText(key)
+    if t == key then return "" end
+    return t
+end
+
+local function chronicleLine(fid, e)
+    local day = "D" .. StoryEngine.intToString(e.day or 0) .. "  "
+    local k = e.k
+    if k == "beat" then
+        local key = "IGUI_StoryEngine_Story_" .. tostring(e.node)
+        local t = getText(key)
+        if t == key then return nil end
+        return day .. getText("IGUI_StoryEngine_Chron_beat", UI.npcName(fid), t), "0.85,0.85,0.8"
+    elseif k == "trust" then
+        return day .. getText("IGUI_StoryEngine_Chron_trust_" .. StoryEngine.intToString(e.v or 0)), "0.5,0.85,0.5"
+    elseif k == "crisis" then
+        local title = getText("IGUI_StoryEngine_Crisis_" .. tostring(e.crisis) .. "_title")
+        local color = (e.role == "snubbed" or e.role == "ignored") and "0.95,0.55,0.45" or "0.95,0.8,0.45"
+        return day .. getText("IGUI_StoryEngine_Chron_crisis_" .. tostring(e.role), title), color
+    elseif k == "project" then
+        local name = getText("IGUI_StoryEngine_Project_Name_" .. fid)
+        if e.done then return day .. getText("IGUI_StoryEngine_Chron_project_done", name), "0.5,0.85,0.5" end
+        return day .. getText("IGUI_StoryEngine_Chron_project_pct", name, StoryEngine.intToString(e.pct or 0)), "0.75,0.85,0.75"
+    elseif k == "fate" then
+        return day .. getText("IGUI_StoryEngine_Chron_fate_" .. tostring(e.kind)), "0.75,0.6,0.9"
+    elseif k == "revived" then
+        return day .. getText("IGUI_StoryEngine_Chron_revived"), "0.75,0.6,0.9"
+    elseif k == "death" then
+        return day .. getText("IGUI_StoryEngine_Chron_death_" .. StoryEngine.intToString(e.close or 0), tostring(e.who or "?")),
+            "0.7,0.7,0.75"
+    elseif k == "rec" then
+        local key = "IGUI_StoryEngine_Life_Rec_" .. tostring(e.kind)
+        local t = getText(key)
+        if t == key then return nil end
+        return day .. t, "0.75,0.85,0.75"
+    end
+    return nil
+end
+
+function StoryEnginePeoplePanel:createChildren()
+    self.list = newList(PAD, PAD, LIST_W, self.height - PAD * 2, self, StoryEnginePeoplePanel.onSelect)
+    self.list:setAnchorBottom(true)
+    self:addChild(self.list)
+    local x = PAD * 2 + LIST_W
+    self.text = newRichText(x, PAD, self.width - x - PAD, self.height - PAD * 2)
+    self.text:setAnchorRight(true)
+    self.text:setAnchorBottom(true)
+    self:addChild(self.text)
+end
+
+function StoryEnginePeoplePanel:onSelect(fid)
+    if not fid then return end
+    Cache.peopleFaction = fid
+    self:refresh()
+end
+
+function StoryEnginePeoplePanel:refresh()
+    self.list:clear()
+    if not Cache.peopleFaction then Cache.peopleFaction = Factions.list[1] and Factions.list[1].id end
+    local selectedIndex = 0
+    for i, f in ipairs(Factions.list) do
+        local n = peopleOf(f.id)
+        local sub = getText("IGUI_StoryEngine_Radio_ListSub", f.freq)
+        local color = nil
+        if n and n.fate then
+            sub = getText("IGUI_StoryEngine_Fate_" .. tostring(n.fate))
+            color = COLOR_DECLINED
+        end
+        self.list:addItem(Factions.name(f.id), { title = Factions.name(f.id), sub = sub, value = f.id, color = color })
+        if f.id == Cache.peopleFaction then selectedIndex = i end
+    end
+    self.list.selected = selectedIndex
+    local fid = Cache.peopleFaction
+    if not fid then return end
+    local n = peopleOf(fid) or { profile = {}, chronicle = {} }
+    local prof = n.profile or {}
+    local parts = {}
+    local function row(label, value)
+        if value and value ~= "" then
+            parts[#parts + 1] = " <RGB:0.65,0.65,0.6> " .. UI.escape(getText(label)) .. "  <RGB:0.92,0.92,0.88> "
+                .. UI.escape(value) .. " <LINE> "
+        end
+    end
+    parts[#parts + 1] = " <H2> " .. UI.escape(Factions.name(fid)) .. " <LINE> "
+    if n.fate then
+        parts[#parts + 1] = " <RGB:0.75,0.6,0.9> " .. UI.escape(getText("IGUI_StoryEngine_Fate_Line_" .. tostring(n.fate),
+            Factions.name(fid)) .. "  (D" .. StoryEngine.intToString(n.fateDay or 0) .. ")") .. " <LINE> "
+    end
+    row("IGUI_StoryEngine_People_Age", profileText(fid, "age"))
+    row("IGUI_StoryEngine_People_Gender", profileText(fid, "gender"))
+    row("IGUI_StoryEngine_People_Family", profileText(fid, "family", prof.family))
+    row("IGUI_StoryEngine_People_Home", profileText(fid, "home", prof.home))
+    row("IGUI_StoryEngine_People_Job", profileText(fid, "job"))
+    local f = Factions.byId[fid]
+    row("IGUI_StoryEngine_People_Radio", f and getText("IGUI_StoryEngine_Radio_ListSub", f.freq) or nil)
+    if n.trust then row("IGUI_StoryEngine_People_Trust", StoryEngine.intToString(n.trust)) end
+    if n.project then
+        local p = n.project
+        row("IGUI_StoryEngine_People_Project", getText("IGUI_StoryEngine_Project_Name_" .. fid) .. "  "
+            .. (p.done and getText("IGUI_StoryEngine_People_ProjectDone")
+                or (StoryEngine.intToString(p.percent or 0) .. "%")))
+    end
+    parts[#parts + 1] = " <LINE> <RGB:0.95,0.75,0.4> " .. UI.escape(getText("IGUI_StoryEngine_People_Story"))
+        .. " <LINE> <RGB:0.88,0.88,0.84> " .. UI.escape(profileText(fid, "bio")) .. " <LINE> "
+    parts[#parts + 1] = " <LINE> <RGB:0.95,0.75,0.4> " .. UI.escape(getText("IGUI_StoryEngine_People_History")) .. " <LINE> "
+    local any = false
+    for _, e in ipairs(n.chronicle or {}) do
+        local ok, text, color = pcall(chronicleLine, fid, e)
+        if ok and text then
+            any = true
+            parts[#parts + 1] = " <RGB:" .. (color or "0.85,0.85,0.85") .. "> " .. UI.escape(text) .. " <LINE> "
+        end
+    end
+    if not any then
+        parts[#parts + 1] = " <RGB:0.6,0.6,0.6> " .. UI.escape(getText("IGUI_StoryEngine_People_NoHistory")) .. " <LINE> "
+    end
+    self.text:setText(table.concat(parts))
+    self.text:paginate()
+end
+
 -- ================================================================ life tab (거점: NPC 생활 상태)
 
 StoryEngineLifePanel = derivePanel("StoryEngineLifePanel")
@@ -1733,7 +1873,7 @@ end
 
 StoryEngineMainWindow = ISCollapsableWindow:derive("StoryEngineMainWindow")
 StoryEngineMainWindow.instance = nil
-StoryEngineMainWindow.TABS = { "radio", "quests", "journal", "life" }
+StoryEngineMainWindow.TABS = { "radio", "quests", "journal", "life", "people" }
 
 function StoryEngineMainWindow:createChildren()
     ISCollapsableWindow.createChildren(self)
@@ -1752,6 +1892,7 @@ function StoryEngineMainWindow:createChildren()
         quests = StoryEngineQuestPanel:new(0, 0, self.width, vh),
         journal = StoryEngineJournalPanel:new(0, 0, self.width, vh),
         life = StoryEngineLifePanel:new(0, 0, self.width, vh),
+        people = StoryEnginePeoplePanel:new(0, 0, self.width, vh),
     }
     for _, key in ipairs(StoryEngineMainWindow.TABS) do
         local p = self.panels[key]
@@ -1811,6 +1952,7 @@ function StoryEngineMainWindow.open(key)
     request("questList")
     request("journalList", { key = Cache.journalKey, memoir = Cache.journalMemoir or nil })
     request("lifeList")
+    request("npcProfiles")
 end
 
 -- 열려 있을 때만 새로 그린다.

@@ -145,6 +145,10 @@ function Legacy.onDeath(name, town)
             .. name .. " and you: " .. (e.what ~= "" and e.what or "a few words over the radio") .. ". " .. depth
             .. " Do not invent things you did together beyond that."
         if StoryEngine.Life then StoryEngine.Life.record(e.fid, "player_died", name, 0) end
+        if StoryEngine.Chronicle then
+            StoryEngine.Chronicle.add(e.fid, { k = "death", who = name,
+                close = e.score >= Legacy.CLOSE and 2 or (e.score >= Legacy.KNEW and 1 or 0) })
+        end
         Radio.react(e.fid, "event", topic, StoryEngine.Lines.fallback(e.fid, "player_died", name .. " is gone.",
             { { t = "s", v = name } }))
     end

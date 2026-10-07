@@ -104,6 +104,7 @@ local function complete(fid, who)
     local p = Projects.of(fid)
     local now = Sensor.now()
     p.done, p.doneDay = true, Store.dayIndex(now.dayKey)
+    if StoryEngine.Chronicle then StoryEngine.Chronicle.add(fid, { k = "project", done = true, who = who }) end
     local def = Projects.DEF[fid]
     log("project done", fid, who or "")
     Life.record(fid, "project_done", who, 0)
@@ -146,6 +147,7 @@ function Projects.add(fid, points, who, why)
     for i, stage in ipairs(Projects.STAGES) do
         if pct(before) < stage and pct(p.points) >= stage and (p.stage or 0) < i then
             p.stage = i
+            if StoryEngine.Chronicle then StoryEngine.Chronicle.add(fid, { k = "project", pct = percent(p) }) end
             Radio.react(fid, "event", "Progress on your big project (" .. def.name .. "): about "
                 .. StoryEngine.intToString(percent(p)) .. "% done, thanks to the players. Tell them how it is going.",
                 StoryEngine.Lines.fallback(fid, "project_progress", "The project is coming along.",

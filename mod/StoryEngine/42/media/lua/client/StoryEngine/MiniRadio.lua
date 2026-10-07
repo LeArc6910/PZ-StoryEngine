@@ -5,7 +5,7 @@
 -- 반투명, 크기·위치 기억(UI.windowRect "mini"), 켜 둔 채 게임을 끄면 다음에도 켜진다(StoryEngine/ui.txt).
 --
 -- 단축키 (바닐라 B42 모드 옵션 PZAPI.ModOptions, 옵션 화면의 "모드" 탭에서 바꿀 수 있다):
---   큰 창 열기·닫기 기본 K, 간소화 무전 창 켜기·끄기 기본 ; (세미콜론). 채팅이나 무전 입력 칸에 글을 쓰는 중에는 무시
+--   큰 창 열기·닫기 기본 K, 간소화 무전 창 켜기·끄기 기본 ; (세미콜론), 특기 아이콘 펼치기·접기 기본 ' (작은따옴표). 채팅이나 무전 입력 칸에 글을 쓰는 중에는 무시
 
 require "ISUI/ISCollapsableWindow"
 require "ISUI/ISRichTextPanel"
@@ -19,7 +19,6 @@ local UI = StoryEngine.UI
 StoryEngineMiniRadio = ISCollapsableWindow:derive("StoryEngineMiniRadio")
 StoryEngineMiniRadio.MAX = 40
 StoryEngineMiniRadio.feed = {}
-StoryEngineMiniRadio.STATE_FILE = "StoryEngine/ui.txt"
 
 local function line(entry)
     local m, fid = entry.msg, entry.faction
@@ -115,27 +114,11 @@ function StoryEngineMiniRadio:new(x, y, w, h)
 end
 
 local function saveState(open)
-    pcall(function()
-        local wr = getFileWriter(StoryEngineMiniRadio.STATE_FILE, true, false)
-        if not wr then return end
-        wr:write("miniRadio=" .. (open and "1" or "0") .. "\n")
-        wr:close()
-    end)
+    UI.setPref("miniRadio", open and "1" or "0")
 end
 
 local function loadState()
-    local open = false
-    pcall(function()
-        local r = getFileReader(StoryEngineMiniRadio.STATE_FILE, false)
-        if not r then return end
-        local l = r:readLine()
-        while l do
-            if string.match(l, "^miniRadio=1") then open = true end
-            l = r:readLine()
-        end
-        r:close()
-    end)
-    return open
+    return UI.pref("miniRadio") == "1"
 end
 
 function StoryEngineMiniRadio.show()
@@ -176,6 +159,9 @@ if PZAPI and PZAPI.ModOptions and PZAPI.ModOptions.create then
         o:addKeyBind("openWindow", getText("IGUI_StoryEngine_Keys_Open"), Keyboard.KEY_K, getText("IGUI_StoryEngine_Keys_OpenTip"))
         o:addKeyBind("miniRadio", getText("IGUI_StoryEngine_Keys_Mini"), Keyboard.KEY_SEMICOLON,
             getText("IGUI_StoryEngine_Keys_MiniTip"))
+        -- 특기 퀵 메뉴 (QuickSpecialty.lua, 2026-10-07)
+        o:addKeyBind("quickSpecialty", getText("IGUI_StoryEngine_Keys_Quick"), Keyboard.KEY_APOSTROPHE,
+            getText("IGUI_StoryEngine_Keys_QuickTip"))
         return o
     end)
     if ok then StoryEngineMiniRadio.options = opts end
@@ -214,6 +200,8 @@ function StoryEngineMiniRadio.onKey(key)
         end
     elseif key == keyOf("miniRadio", Keyboard.KEY_SEMICOLON) then
         StoryEngineMiniRadio.toggle()
+    elseif key == keyOf("quickSpecialty", Keyboard.KEY_APOSTROPHE) and StoryEngineQuickSpecialty then
+        StoryEngineQuickSpecialty.toggleDock()
     end
 end
 

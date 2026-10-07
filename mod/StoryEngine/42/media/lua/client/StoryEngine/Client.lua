@@ -252,6 +252,8 @@ function Client.handlers.radioMessage(args)
         while #list > 100 do table.remove(list, 1) end
         -- 간소화 무전 창 (MiniRadio.lua)
         if StoryEngineMiniRadio then pcall(StoryEngineMiniRadio.push, fid, msg) end
+        -- 메인 창 아이콘의 새 무전 수 (FloatIcon.lua)
+        if StoryEngineMainIcon then pcall(StoryEngineMainIcon.onRadio, msg) end
     end
     Cache.messages[fid] = list
     local ch = Cache.channels[fid] or { id = fid }
@@ -346,6 +348,15 @@ end
 function Client.handlers.lifeList(args)
     Cache.life = args.npcs or {}
     StoryEngineMainWindow.refreshIfOpen("life")
+    if StoryEngineQuickSpecialty and StoryEngineQuickSpecialty.onLifeList then
+        pcall(StoryEngineQuickSpecialty.onLifeList)
+    end
+end
+
+-- 인물 탭 (Chronicle.lua)
+function Client.handlers.npcProfiles(args)
+    Cache.people = args.npcs or {}
+    StoryEngineMainWindow.refreshIfOpen("people")
 end
 
 function Client.handlers.lifeDonateResult(args)
@@ -763,6 +774,24 @@ local function onFillWorldObjectContextMenu(playerNum, context, worldobjects, te
     context:addOption(getText("ContextMenu_StoryEngine_QuestLog"), worldobjects, function() StoryEngineMainWindow.open("quests") end)
     context:addOption(getText("ContextMenu_StoryEngine_Journal"), worldobjects, function() StoryEngineMainWindow.open("journal") end)
     context:addOption(getText("ContextMenu_StoryEngine_Life_Open"), worldobjects, function() StoryEngineMainWindow.open("life") end)
+    if StoryEngineQuickSpecialty then
+        -- 특기 빠른 사용 (QuickSpecialty.lua): 하위 메뉴로 바로
+        local opt = context:addOption(getText("ContextMenu_StoryEngine_QuickSpecialty"), worldobjects, nil)
+        local sub = ISContextMenu:getNew(context)
+        context:addSubMenu(opt, sub)
+        pcall(StoryEngineQuickSpecialty.fill, sub)
+        Net.toServer(getSpecificPlayer(playerNum) or getPlayer(), "lifeList", {})
+        -- 특기 아이콘 보이기·숨기기
+        context:addOption(getText(StoryEngineQuickSpecialty.dockShown() and "ContextMenu_StoryEngine_QuickDockHide"
+            or "ContextMenu_StoryEngine_QuickDockShow"), worldobjects, function()
+            if StoryEngineQuickSpecialty.dockShown() then StoryEngineQuickSpecialty.hideDock()
+            else StoryEngineQuickSpecialty.showDock() end
+        end)
+    end
+    if StoryEngineMainIcon then
+        context:addOption(getText(StoryEngineMainIcon.instance and "ContextMenu_StoryEngine_MainIconHide"
+            or "ContextMenu_StoryEngine_MainIconShow"), worldobjects, function() StoryEngineMainIcon.toggle() end)
+    end
     if StoryEngineMiniRadio then
         context:addOption(getText(StoryEngineMiniRadio.instance and "ContextMenu_StoryEngine_MiniHide"
             or "ContextMenu_StoryEngine_MiniShow"), worldobjects, function() StoryEngineMiniRadio.toggle() end)
