@@ -335,6 +335,16 @@ function Client.handlers.projectDone(args)
 end
 
 -- NPC 가 죽거나 떠났다 (Fate.lua): 알림, 목록 새로 받기
+-- 카운티 회의 알림 (서버 Council.lua)
+function Client.handlers.councilNotice(args)
+    local player = getPlayer()
+    if not player then return end
+    local key = "IGUI_StoryEngine_Council_Notice_" .. tostring(args.stage)
+    if args.result then key = key .. "_" .. tostring(args.result) end
+    if args.result == "failed" then HaloTextHelper.addBadText(player, getText(key))
+    else HaloTextHelper.addGoodText(player, getText(key)) end
+end
+
 -- 후임 목소리 이름표 (서버 Voices.lua): 채널 -> 후임 id
 function Client.handlers.npcVoices(args)
     local voice = StoryEngine.Factions.voice
@@ -729,6 +739,7 @@ local function fillDebugMenu(context, worldobjects, playerNum)
     npc:addOption(label("ContextMenu_StoryEngine_DebugNamed"), worldobjects, toServer("debugNamed", { faction = fid }))
     npc:addOption(label("ContextMenu_StoryEngine_DebugVoice"), worldobjects, toServer("debugVoice", { faction = fid }))
     npc:addOption(label("ContextMenu_StoryEngine_DebugEpisode"), worldobjects, toServer("debugEpisode", {}))
+    npc:addOption(label("ContextMenu_StoryEngine_DebugCouncil"), worldobjects, toServer("debugCouncil", {}))
     npc:addOption(label("ContextMenu_StoryEngine_Scene"), worldobjects, send("debugScene"), playerNum)
     npc:addOption(label("ContextMenu_StoryEngine_Letter", npcName), worldobjects, toServer("debugLetter", { faction = fid }))
     npc:addOption(label("ContextMenu_StoryEngine_LetterFarewell", npcName), worldobjects,

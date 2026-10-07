@@ -31,6 +31,7 @@ require "StoryEngine/World"
 require "StoryEngine/Letters"
 require "StoryEngine/Legacy"
 require "StoryEngine/Voices"
+require "StoryEngine/Council"
 require "StoryEngine/Tuning"
 require "StoryEngine/Grid"
 require "StoryEngine/Ops"
@@ -626,6 +627,23 @@ function Commands.debugVoice(player, args)
     if not Fate.isGone(fid) then Fate.apply(fid, "gone", "debug") end
     local ok = Voices.take(fid)
     reply(player, "debugStatus", { text = "voice " .. fid .. ": " .. tostring(ok) .. " | " .. Voices.statusText() })
+end
+
+-- 디버그: 카운티 회의를 지금 열거나 다음 단계로 (Council.lua)
+function Commands.debugCouncil(player, args)
+    if not canUseDebug(player) then return end
+    local Council = StoryEngine.Council
+    local now = StoryEngine.Sensor.now()
+    local s = Council.state()
+    if not s.stage or s.stage == "done" then
+        if s.stage == "done" then s.stage = nil end
+        Council.start(now)
+    elseif s.stage == "collect" then
+        Council.startHorde(now)
+    elseif s.stage == "horde" then
+        Council.finish(now)
+    end
+    reply(player, "debugStatus", { text = Council.statusText() })
 end
 
 -- 디버그: 곁가지를 지금 고른다 (하루 한 번 제한 무시)
