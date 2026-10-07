@@ -153,7 +153,8 @@ end
 -- 작전·큰 사건·거래 대가 일이 맡는 퀘스트 (신뢰도·반응·보상을 건너뛴다)
 function Quests.isManaged(q)
     return Quests.isOp(q) or Quests.isSaga(q) or Quests.isWork(q) or (q ~= nil and q.kind == "volunteer")
-        or (q ~= nil and q.origin ~= nil and (q.origin.holiday ~= nil or q.origin.source == "recover"))
+        or (q ~= nil and q.origin ~= nil and (q.origin.holiday ~= nil or q.origin.source == "recover"
+            or q.origin.council ~= nil))
 end
 
 -- 상태가 바뀔 때 부르는 함수들 (명절·유품 회수 등 다른 모듈이 등록한다). fn(q, state, outcome, trustDelta)
@@ -2219,6 +2220,7 @@ function Quests.listFor(psKey, now)
             item.favorCall = q.favorCall
             if q.kind == "named" then item.person, item.slain = q.person, q.slain end
             if q.origin and q.origin.holiday then item.holiday = q.origin.holiday end
+            if q.origin and q.origin.council then item.council = true end
             if q.kind == "horde" then
                 item.size, item.killed, item.killsNeeded = q.size, q.killed or 0, q.killsNeeded
             end

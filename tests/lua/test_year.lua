@@ -195,12 +195,15 @@ function T.every_new_node_leads_somewhere()
     local groups = {}
     for fid, list in pairs(Stories.CHAPTER3) do groups[#groups + 1] = { fid, list } end
     for fid, list in pairs(Stories.CHAPTER4) do groups[#groups + 1] = { fid, list } end
+    for fid, list in pairs(Stories.CHAPTER5) do groups[#groups + 1] = { fid, list } end
     for k, list in pairs(Stories.VOICE_CHAPTERS) do groups[#groups + 1] = { k == "rats_dutch" and "rats" or k, list } end
     for _, g in ipairs(groups) do
         local fid, list = g[1], g[2]
         for _, n in ipairs(list) do
             if n.final then
                 H.ok(n.tone, n.id .. " needs a tone")
+            elseif (n.days or 0) >= 3650 then
+                -- 카운티 회의 대기 장면 (Council.lua 가 움직인다)
             else
                 local nexts = {}
                 for _, key in ipairs({ "next", "win", "lose" }) do
@@ -277,6 +280,123 @@ function T.whitaker_leaves_for_knox_and_kowalski_takes_over()
     H.ok(string.find(lt.key, "IGUI_StoryEngine_Line_kowalski_q_thanks_", 1, true), "his own line")
     local other = StoryEngine.Lines.lt("guard", "horde")
     H.ok(string.find(other.key, "IGUI_StoryEngine_Line_guard_horde_", 1, true), "the camp's lines for the rest")
+end
+
+-- 3회차: 5장 연결, 레이 농장 위기(선택지 넷), 카운티 회의
+local function mockAnyBuilding()
+    ArrayList = { new = function() return H.list({}) end }
+    local grid = {}
+    function grid:getBuildingsIntersecting(x, y, w, h, list)
+        local cx, cy = math.floor(x + w / 2), math.floor(y + h / 2)
+        local room = {}
+        function room:getZ() return 0 end
+        function room:getArea() return 100 end
+        function room:getX() return cx end
+        function room:getY() return cy end
+        function room:getX2() return cx + 9 end
+        function room:getY2() return cy + 9 end
+        function room:getName() return "church" end
+        local def = {}
+        function def:getX() return cx end
+        function def:getY() return cy end
+        function def:getX2() return cx + 9 end
+        function def:getY2() return cy + 9 end
+        function def:getRooms() return H.list({ room }) end
+        function def:isResidential() return false end
+        list.items[#list.items + 1] = def
+    end
+    function grid:getBuildingAt() return nil end
+    local world = {}
+    function world:getMetaGrid() return grid end
+    getWorld = function() return world end
+end
+
+function T.chapter_five_follows_chapter_four()
+    setup()
+    local Social = StoryEngine.Social
+    local st = at("ray", "ray4_6a")
+    st.sequelAt = now().t
+    Social.advance("ray", now())
+    H.eq(st.node, "ray5_1a")
+    local cst = at("casey", "casey4_6b")
+    cst.sequelAt = now().t
+    Social.advance("casey", now())
+    H.eq(cst.node, "casey5_1", "Casey waits for the council")
+    -- 레이의 농장: 파이크를 고르면 레이도 함께 도운 것
+    local p = H.players[1]
+    st = at("ray", "ray5_3")
+    Social.forceAsk = true
+    Social.advance("ray", now())
+    Social.forceAsk = nil
+    local q
+    for _, x in pairs(StoryEngine.Store.data().quests) do if x.crisis == "commons" then q = x end end
+    H.eq(#q.options, 4, "four ways for the farm")
+    local idx
+    for i, o in ipairs(q.options) do if o.faction == "pike" then idx = i end end
+    H.ok(StoryEngine.Quests.choose(p, q.id, idx))
+    st.flags.commons_done = true
+    Social.advance("ray", now())
+    H.eq(st.node, "ray5_4p")
+    H.ok(st.flags.ray5_commons)
+end
+
+function T.the_county_council_brings_the_year_together()
+    setup()
+    mockAnyBuilding()
+    local Social, Council = StoryEngine.Social, StoryEngine.Council
+    at("casey", "casey5_1")
+    at("pike", "pike4_5")
+    for _, n in ipairs({ { "ray", "ray4_6a" }, { "doc", "doc4_6a" }, { "dewey", "dewey4_6a" }, { "guard", "guard4_6a" },
+                         { "rats", "rats4_6a" }, { "hunter", "hunter4_6a" } }) do
+        at(n[1], n[2])
+    end
+    for _, f in ipairs(StoryEngine.Factions.list) do StoryEngine.Radio.channel(f.id).trust = 60 end
+    StoryEngine.Life.daily()
+    local morale = StoryEngine.Life.get("ray", "morale")
+    H.ok(Council.shouldStart(now()), "six contacts finished winter and Casey is ready")
+    Council.tick(now())
+    local s = Council.state()
+    H.eq(s.stage, "collect")
+    H.eq(Social.story("casey").node, "casey5_2")
+    local cq = StoryEngine.Store.data().quests[s.collectId]
+    H.ok(cq and cq.kind == "collect" and cq.origin.council, "a council collection in the quest log")
+    for _, n in ipairs(cq.need) do cq.got[n[1]] = n[2] end
+    cq.state = "completed"
+    Council.tick(now())
+    H.eq(s.stage, "horde")
+    H.eq(s.prep, 1)
+    H.eq(Social.story("casey").node, "casey5_3")
+    local hq = StoryEngine.Store.data().quests[s.hordeId]
+    H.ok(hq and hq.kind == "horde", "the dead at the church")
+    hq.state = "completed"
+    Council.tick(now())
+    H.eq(s.result, "formed")
+    H.eq(Social.story("casey").node, "casey5_9a")
+    H.eq(StoryEngine.Life.get("ray", "morale"), math.min(100, morale + 15), "everyone's spirits rise")
+    H.ok(#H.sentOf("councilNotice") >= 3)
+    -- 늦게 5장에 온 파이크는 결과로 바로
+    at("pike", "pike5_1")
+    Council.tick(now())
+    H.eq(Social.story("pike").node, "pike5_9a")
+end
+
+function T.a_council_without_help_falls_apart()
+    setup()
+    mockAnyBuilding()
+    local Social, Council = StoryEngine.Social, StoryEngine.Council
+    at("pike", "pike5_1")
+    Council.start(now())
+    local s = Council.state()
+    H.advanceDays(5)
+    Council.tick(now())
+    H.eq(s.stage, "horde", "the collection ran out of time")
+    H.eq(s.prep, 0)
+    H.advanceDays(4)
+    StoryEngine.Store.data().quests[s.hordeId].state = "failed"
+    for _, f in ipairs(StoryEngine.Factions.list) do StoryEngine.Radio.channel(f.id).trust = 10 end
+    Council.tick(now())
+    H.eq(s.result, "failed")
+    H.eq(Social.story("pike").node, "pike5_9b")
 end
 
 return T

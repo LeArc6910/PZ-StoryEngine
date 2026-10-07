@@ -664,6 +664,7 @@ local function questTitle(q)
     if q.holiday and q.kind == "collect" then
         return getText("IGUI_StoryEngine_QTitle_holiday_collect", getText("IGUI_StoryEngine_Holiday_" .. tostring(q.holiday)))
     end
+    if q.council then return getText("IGUI_StoryEngine_QTitle_council_" .. tostring(q.kind)) end
     if q.holiday then
         return getText("IGUI_StoryEngine_QTitle_holiday", getText("IGUI_StoryEngine_Holiday_" .. tostring(q.holiday)),
             UI.townName(q.town))
@@ -755,6 +756,7 @@ local function questSub(q)
         sub = getText(q.work.volunteer and "IGUI_StoryEngine_Volunteer_Tag" or "IGUI_StoryEngine_Work_Tag") .. " " .. sub
     end
     if q.holiday then sub = getText("IGUI_StoryEngine_Holiday_Tag") .. " " .. sub end
+    if q.council then sub = getText("IGUI_StoryEngine_Council_Tag") .. " " .. sub end
     if q.favorCall then sub = getText("IGUI_StoryEngine_Work_FavorTag") .. " " .. sub end
     -- 다른 사람이 받은 퀘스트는 누가 받았는지 붙인다 (퀘스트는 서버 전체가 함께 본다)
     if q.owner and not q.mine then sub = sub .. "  -  " .. tostring(q.owner) end
@@ -1034,7 +1036,9 @@ local function opDetail(q)
     local line = function(text) parts[#parts + 1] = " <LINE> " .. UI.escape(text) end
     local active = ACTIVE[q.state] == true
     local header
-    if q.holiday then
+    if q.council then
+        header = getText("IGUI_StoryEngine_Council_Header")
+    elseif q.holiday then
         header = getText("IGUI_StoryEngine_Holiday_Header", getText("IGUI_StoryEngine_Holiday_" .. tostring(q.holiday)))
     elseif q.work and q.work.volunteer then
         header = getText("IGUI_StoryEngine_Volunteer_Header", Factions.name(q.work.faction),
@@ -1148,7 +1152,7 @@ local function opDetail(q)
 end
 
 questDetailBase = function(q)
-    if q.op or q.saga or q.work or q.holiday then return opDetail(q) end
+    if q.op or q.saga or q.work or q.holiday or q.council then return opDetail(q) end
     if q.kind == "named" then return namedDetail(q) end
     if q.kind == "choice" then return choiceDetail(q) end
     if q.kind == "market" then return marketDetail(q) end
@@ -1497,6 +1501,8 @@ local function chronicleLine(fid, e)
         local t = getText(key)
         if t == key then return nil end
         return day .. t, "0.75,0.85,0.75"
+    elseif k == "council" then
+        return day .. getText("IGUI_StoryEngine_Chron_council_" .. tostring(e.result)), "1,0.86,0.55"
     elseif k == "voice" then
         return day .. getText("IGUI_StoryEngine_Chron_voice"), "0.55,0.85,1"
     elseif k == "arc" then

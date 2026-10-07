@@ -89,5 +89,6 @@
     "ContextMenu_StoryEngine_MainIconShow": "Show the radio icon",
     "ContextMenu_StoryEngine_MainIconHide": "Hide the radio icon",
     "ContextMenu_StoryEngine_DebugVoice": "Successor takes over now (radio tab contact)",
-    "ContextMenu_StoryEngine_DebugEpisode": "Pick a side story now"
+    "ContextMenu_StoryEngine_DebugEpisode": "Pick a side story now",
+    "ContextMenu_StoryEngine_DebugCouncil": "County council: start / next stage"
 }
