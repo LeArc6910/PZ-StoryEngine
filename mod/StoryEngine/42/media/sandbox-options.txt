@@ -298,6 +298,13 @@ option StoryEngine.StarveDays
 	page = StoryEngineNPC, translation = StoryEngine_StarveDays,
 }
 
+option StoryEngine.StoryPace
+{
+	type = enum, numValues = 3, default = 2,
+	page = StoryEngineNPC, translation = StoryEngine_StoryPace,
+	valueTranslation = StoryEngine_StoryPace,
+}
+
 option StoryEngine.NpcFateCause
 {
 	type = enum, numValues = 3, default = 1,

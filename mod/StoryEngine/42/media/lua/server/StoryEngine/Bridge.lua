@@ -92,6 +92,15 @@ end
 
 -- 브릿지에 요청을 보낸다. callback(result) 는 반드시 한 번 호출된다.
 -- result: { ok = true, text = "...", json = {...}, model = "..." } 또는 { ok = false, error = "code" }
+-- 모든 요청에 붙이는 것: 후임 목소리 (브릿지가 그 채널의 페르소나를 바꾼다, Voices.lua)
+function Bridge.decorate(payload)
+    payload = payload or {}
+    local voices, any = {}, false
+    for fid, v in pairs(StoryEngine.Factions.voice or {}) do voices[fid], any = v, true end
+    if any and payload.voices == nil then payload.voices = voices end
+    return payload
+end
+
 function Bridge.request(module, payload, callback, opts)
     ensureInit()
     opts = opts or {}
@@ -102,12 +111,13 @@ function Bridge.request(module, payload, callback, opts)
 
     Bridge.seq = Bridge.seq + 1
     local id = module .. "-" .. Bridge.session .. "-" .. StoryEngine.intToString(Bridge.seq)
+    payload = Bridge.decorate(payload)
     local body = {
         v = 1,
         id = id,
         module = module,
         priority = opts.priority or PRIORITY[module] or 9,
-        payload = payload or {},
+        payload = payload,
     }
 
     local ok, written = pcall(writeFile, rel("requests/" .. id .. ".json"), Json.encode(body), true)

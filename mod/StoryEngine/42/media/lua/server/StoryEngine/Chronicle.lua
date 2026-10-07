@@ -86,6 +86,7 @@ function Chronicle.payload()
             fate = fate and fate.kind or nil, fateReason = fate and fate.reason or nil, fateDay = fate and fate.day or nil,
             project = StoryEngine.Projects and StoryEngine.Projects.info(f.id) or nil,
             story = Social and Social.storyInfo(f.id) or nil,
+            voice = Life and Life.npc(f.id).voice or nil, prevVoices = Life and Life.npc(f.id).prevVoices or nil,
             chronicle = list,
         }
     end

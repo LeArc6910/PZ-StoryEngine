@@ -30,6 +30,7 @@ require "StoryEngine/Broadcast"
 require "StoryEngine/World"
 require "StoryEngine/Letters"
 require "StoryEngine/Legacy"
+require "StoryEngine/Voices"
 require "StoryEngine/Tuning"
 require "StoryEngine/Grid"
 require "StoryEngine/Ops"
@@ -105,6 +106,9 @@ function Commands.hello(player, args)
     rememberLang(player, args.lang)
     reply(player, "status", { state = Bridge.state })
     StoryEngine.Grid.sendTo(player)
+    -- 후임 목소리 이름표 (Voices.lua)
+    pcall(StoryEngine.Voices.apply)
+    pcall(StoryEngine.Voices.sendTo, player)
 end
 
 -- 일지 목록. args.key 가 있으면 그 사람의 일지 (서버의 모든 플레이어 일지를 읽을 수 있다)
@@ -604,10 +608,34 @@ function Commands.debugStory(player, args)
     if StoryEngine.Factions.byId[fid] then
         local st = Social.story(fid)
         st.since = now.t - 30 * 24 * 60
-        st.sequelAt = now.t          -- 결말에 있으면 두 번째 이야기를 바로
-        Social.advance(fid, now)
+        st.sequelAt = now.t          -- 결말에 있으면 다음 장을 바로
+        Social.forceAsk = true       -- 이야기 부탁 몰림 방지를 건너뛴다
+        local ok, err = pcall(Social.advance, fid, now)
+        Social.forceAsk = nil
+        if not ok then StoryEngine.log("debug story error:", err) end
     end
     reply(player, "debugStatus", { text = Social.debugStatus() })
+end
+
+-- 디버그: 고른 NPC 를 떠나보내고 후임이 바로 이어받는다 (Voices.lua)
+function Commands.debugVoice(player, args)
+    if not canUseDebug(player) then return end
+    local fid = tostring(args.faction or "")
+    if not StoryEngine.Factions.byId[fid] then return end
+    local Fate, Voices = StoryEngine.Fate, StoryEngine.Voices
+    if not Fate.isGone(fid) then Fate.apply(fid, "gone", "debug") end
+    local ok = Voices.take(fid)
+    reply(player, "debugStatus", { text = "voice " .. fid .. ": " .. tostring(ok) .. " | " .. Voices.statusText() })
+end
+
+-- 디버그: 곁가지를 지금 고른다 (하루 한 번 제한 무시)
+function Commands.debugEpisode(player, args)
+    if not canUseDebug(player) then return end
+    local Social = StoryEngine.Social
+    local soc = StoryEngine.Store.data().social
+    if soc then soc.episodeDay = nil end
+    local id = Social.pickEpisode(StoryEngine.Sensor.now())
+    reply(player, "debugStatus", { text = "episode: " .. tostring(id or "none fits") })
 end
 
 -- 거래 대가 제출: args.items = 아이템 ID 목록

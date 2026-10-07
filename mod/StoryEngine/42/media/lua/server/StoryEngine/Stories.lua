@@ -636,7 +636,7 @@ end
 for _, list in pairs(Stories.ARCS) do
     for _, n in ipairs(list) do
         local e = Stories.ENDINGS[n.id]
-        if e then n.tone, n.sequel = e.tone, e.sequel end
+        if e then n.tone, n.sequel = e.tone or n.tone, e.sequel end
     end
 end
 
@@ -644,6 +644,352 @@ end
 function Stories.arcOf(fid, nodeId)
     local a = nodeId and string.match(tostring(nodeId), "^(%a+%d%a*)_") or nil
     return a or (fid .. "1")
+end
+
+-- 1년 이야기 (2026-10-07, docs/STORY_YEAR_PLAN.md): 3장(가을)부터 장마다 한 줄기. 장 시작은 앞 장 결말에 따라
+-- 고른 첫 장면(Stories.ENDINGS 의 sequel)에서 둘째 장면부터 공통 줄기로 모인다. 노드 flag = 들어서면 그 이야기
+-- 플래그를 세운다(같은 장 안의 갈래용). 위기를 열 수 없으면(<위기>_skipped) next.default 로.
+-- 장 사이 대기 (다음 장 번호별, 일): Social.sequelDelay 가 이야기 속도(StoryPace)를 곱한다
+Stories.CHAPTER_GAP = { [2] = { 7, 14 }, [3] = { 14, 21 }, [4] = { 14, 21 }, [5] = { 14, 21 } }
+
+-- 2장 결말 -> 3장 첫 장면 (죽음·떠남 결말은 없음: 후임 목소리가 이어받는다)
+local CH2_TO_CH3 = {
+    ray2a_5a = "ray3_1a", ray2a_5d = "ray3_1a", ray2a_7r = "ray3_1c",
+    ray2b_5h = "ray3_1b", ray2b_5a = "ray3_1c", ray2b_5x = "ray3_1c",
+    casey2a_5a = "casey3_1a", casey2b_5a = "casey3_1a", casey2a_5x = "casey3_1b", casey2b_5x = "casey3_1b",
+    doc2a_5a = "doc3_1a", doc2a_5m = "doc3_1a", doc2b_5a = "doc3_1a", doc2b_5p = "doc3_1b", doc2a_5x = "doc3_1c",
+    pike2a_5a = "pike3_1a", pike2b_5a = "pike3_1a", pike2a_5g = "pike3_1b", pike2a_5r = "pike3_1b",
+    pike2a_5x = "pike3_1c", pike2b_5x = "pike3_1c",
+    dewey2a_5a = "dewey3_1a", dewey2b_5a = "dewey3_1a", dewey2a_5x = "dewey3_1b", dewey2b_3x = "dewey3_1b",
+    dewey2b_5x = "dewey3_1b",
+    guard2a_6a = "guard3_1a", guard2a_6f = "guard3_1a", guard2b_5a = "guard3_1b",
+    rats2a_5a = "rats3_1a", rats2b_5a = "rats3_1b",
+    hunter2a_5a = "hunter3_1a", hunter2a_5c = "hunter3_1a", hunter2a_5x = "hunter3_1a", hunter2b_5a = "hunter3_1b",
+}
+for from, to in pairs(CH2_TO_CH3) do Stories.ENDINGS[from] = { sequel = to } end
+
+Stories.CHAPTER3 = {
+    ray = {
+        { id = "ray3_1a", days = 2, next = "ray3_2",
+          beat = "Annie works the fields beside you. The first real harvest since the fall is coming in, and you keep stopping to watch her." },
+        { id = "ray3_1b", days = 2, next = "ray3_2",
+          beat = "Lily helps you bring in the harvest, bossing the scarecrow around. The first real harvest since the fall is coming in." },
+        { id = "ray3_1c", days = 2, next = "ray3_2",
+          beat = "You are bringing in the harvest alone. It is more corn and squash than one man could ever eat." },
+        { id = "ray3_2", days = 2, next = "ray3_3",
+          beat = "Somebody has been watching the farm from the treeline. There are boot prints in the corn, and the dogs bark at night." },
+        { id = "ray3_3", days = 1, win = "ray3_4", lose = "ray3_4x",
+          beat = "Raiders are herding the dead toward your farm to drive you off before the harvest is in.",
+          quest = { kind = "horde", tier = 3, why = "raiders are herding the dead toward his farm to drive him off before the harvest is in",
+                    items = { { "Base.ShotgunShellsBox", 1 } } } },
+        { id = "ray3_4", flag = "ray3_saved", hit = { food = 15 }, days = 1, next = "ray3_5",
+          beat = "The fields are safe and the barn is full. You want to share the harvest with Brother Pike's church before winter." },
+        { id = "ray3_4x", hit = { food = -20 }, days = 2, next = "ray3_5x",
+          beat = "While the dead kept you inside, raiders burned half the corn. You saved what you could." },
+        { id = "ray3_5", days = 1, win = "ray3_6a", lose = "ray3_6b",
+          beat = "You need sacks and twine to haul the harvest to Pike's church.",
+          quest = { tier = 2, why = "he wants to haul his harvest to Pike's church and needs sacks and twine",
+                    items = { { "Base.Garbagebag", 4 }, { "Base.Twine", 3 } } } },
+        { id = "ray3_5x", days = 1, win = "ray3_6c", lose = "ray3_6x",
+          beat = "Half the crop is ash. You need canned food to get through the winter.",
+          quest = { tier = 2, why = "raiders burned half his crop and he needs canned food to get through winter",
+                    items = { { "Base.TinnedBeans", 4 }, { "Base.TinnedSoup", 2 } } } },
+        { id = "ray3_6a", hit = { food = 15, morale = 15 }, final = true, tone = "good",
+          bonds = { { "ray", "pike", 1, "Ray shared his harvest with the church" }, { "pike", "ray", 1, "Ray's harvest fed the church" } },
+          beat = "Your harvest fed Pike's church too. You and Brother Pike said grace together over the radio." },
+        { id = "ray3_6b", hit = { morale = -5 }, final = true, tone = "mixed",
+          beat = "You kept the harvest, but you could not haul it. Some of it rotted in the barn, and that eats at you." },
+        { id = "ray3_6c", final = true, tone = "mixed",
+          beat = "With what the players sent, the farm will make it through the winter. Barely." },
+        { id = "ray3_6x", hit = { food = -20, morale = -10 }, final = true, tone = "bad",
+          beat = "The barn is nearly empty going into winter. You ration everything and pretend you are not hungry." },
+    },
+    casey = {
+        { id = "casey3_1a", days = 2, next = "casey3_2",
+          beat = "Your station is busy every night now. People you have never met know your voice." },
+        { id = "casey3_1b", days = 2, next = "casey3_2",
+          beat = "You broadcast quietly now, and only at night. Fewer people answer, but some still do." },
+        { id = "casey3_2", days = 2, next = "casey3_3",
+          beat = "A man calling himself Private Ellis, an Army signals tech, asked to stay at the shack. He knows radios better than you do." },
+        { id = "casey3_3", days = 1, crisis = "ellis",
+          next = { default = "casey3_4n", list = { { "ellis_failed", "casey3_4x" }, { "ellis_ignored", "casey3_4x" },
+                   { "ellis_chose_guard", "casey3_4g" }, { "ellis_chose_hunter", "casey3_4h" }, { "ellis_done", "casey3_4a" } } },
+          beat = "You cannot decide whether to trust Ellis. Whitaker wants to check him, and Hank wants to follow him." },
+        { id = "casey3_4a", hit = { morale = 10 }, days = 2, next = "casey3_5",
+          beat = "Ellis was who he said he was. He rebuilt your transmitter and taught you tricks you never knew." },
+        { id = "casey3_4g", days = 2, next = "casey3_5", bonds = { { "guard", "casey", 1, "Casey let your squad vet the stranger at her shack" } },
+          beat = "Whitaker checked Ellis out: a deserter, but a harmless one. Ellis joined the squad, and Whitaker owes you one." },
+        { id = "casey3_4h", hit = { safety = 10 }, days = 2, next = "casey3_5", bonds = { { "casey", "hunter", 1, "Hank found out the stranger was a spy" } },
+          beat = "Hank followed Ellis to an Iron Horse camp. He was a spy. Hank ran him off, and you are shaken but safe." },
+        { id = "casey3_4n", days = 2, next = "casey3_5",
+          beat = "Ellis stayed a few nights, fixed a wire and moved on north. You never found out who he really was." },
+        { id = "casey3_4x", hit = { morale = -10 }, days = 1, next = "casey3_5x",
+          beat = "Ellis left in the night with half your batteries. You feel stupid for letting him in." },
+        { id = "casey3_5", days = 1, win = "casey3_6a", lose = "casey3_6b",
+          beat = "You want a backup transmitter before winter so the county never goes quiet.",
+          quest = { tier = 3, why = "she wants a backup transmitter before winter so the county never goes quiet",
+                    items = { { "Base.Battery", 4 }, { "Base.ElectronicsScrap", 5 } } } },
+        { id = "casey3_5x", days = 1, win = "casey3_6c", lose = "casey3_6x",
+          beat = "Without batteries you can only broadcast an hour a night.",
+          quest = { tier = 2, why = "a thief took half her batteries and she can only broadcast an hour a night",
+                    items = { { "Base.Battery", 6 } } } },
+        { id = "casey3_6a", hit = { morale = 15 }, final = true, tone = "good",
+          beat = "You have a backup transmitter now. Whatever winter does, the county will hear you." },
+        { id = "casey3_6b", final = true, tone = "mixed",
+          beat = "One transmitter, no backup. You keep your fingers crossed every night." },
+        { id = "casey3_6c", final = true, tone = "mixed",
+          beat = "You are back on the air every night. You do not let strangers in anymore." },
+        { id = "casey3_6x", hit = { morale = -15 }, final = true, tone = "bad",
+          beat = "Most nights you stay silent to save the batteries. You hate how quiet it is." },
+    },
+    doc = {
+        { id = "doc3_1a", days = 2, next = "doc3_2",
+          beat = "The clinic runs like a clinic again: a waiting line in the morning, clean sheets, a schedule on the wall." },
+        { id = "doc3_1b", days = 2, next = "doc3_2",
+          beat = "You are the church's nurse now. You keep your kit in the vestry and see patients between prayers." },
+        { id = "doc3_1c", days = 2, next = "doc3_2",
+          beat = "You still check every arm at the clinic door. Fewer people come, but nobody has hidden a bite since." },
+        { id = "doc3_2", profile = { family = "apprentice" }, days = 2, next = "doc3_3",
+          beat = "Medicine is running out county-wide. You want to grow medicinal herbs, and the boy whose leg you set, older now, wants to be your apprentice." },
+        { id = "doc3_3", days = 1, win = "doc3_4", lose = "doc3_4x",
+          beat = "You need garden tools to start the herb beds.",
+          quest = { tier = 2, why = "she wants to start a medicinal herb garden and needs garden tools",
+                    items = { { "Base.HandShovel", 1 }, { "Base.GardenHoe", 1 } } } },
+        { id = "doc3_4", flag = "doc3_herbs", days = 2, next = "doc3_5", bonds = { { "doc", "pike", 1, "Pike's people helped plant your herb beds" } },
+          beat = "The herb beds are planted: chamomile, feverfew, willow cuttings. Pike's people came to help dig." },
+        { id = "doc3_4x", days = 2, next = "doc3_5",
+          beat = "No tools came. You and the boy dry wild herbs from the riverbank instead." },
+        { id = "doc3_5", days = 1, win = { default = "doc3_6b", list = { { "doc3_herbs", "doc3_6a" } } }, lose = "doc3_6x",
+          beat = "A pack of the dead is drifting through the fields toward the clinic. Your apprentice wants to fight them; you will not let him.",
+          quest = { kind = "horde", tier = 3, why = "a pack of the dead is drifting through the fields toward the clinic and her new herb beds",
+                    items = { { "Base.Bandage", 4 } } } },
+        { id = "doc3_6a", hit = { medical = 15, morale = 10 }, final = true, tone = "good",
+          beat = "The herb garden is growing and your apprentice learns fast. Willow bark tea for pain, chamomile for sleep: it is not much, but it is yours." },
+        { id = "doc3_6b", hit = { medical = 5 }, final = true, tone = "mixed",
+          beat = "No garden, but your apprentice has learned which riverbank weeds bring a fever down. You are proud of him." },
+        { id = "doc3_6x", hit = { medical = -10, morale = -15 }, final = true, tone = "bad",
+          beat = "The dead trampled everything, and your apprentice was hurt trying to stop them. He will heal. You are not sure you will." },
+    },
+    pike = {
+        { id = "pike3_1a", days = 2, next = "pike3_2",
+          beat = "The church is full of life. Children run between the pews and someone is always cooking." },
+        { id = "pike3_1b", days = 2, next = "pike3_2",
+          beat = "Someone else keeps order at the church now. You still lead the prayers, and people still come to you with their troubles." },
+        { id = "pike3_1c", days = 2, next = "pike3_2",
+          beat = "The church is quieter than it used to be. You look after the few who stayed." },
+        { id = "pike3_2", days = 2, next = "pike3_3",
+          beat = "Two refugees, Daniel and Rosa, asked you to marry them. It would be the county's first wedding since the fall." },
+        { id = "pike3_3", days = 1, win = "pike3_4", lose = "pike3_4x",
+          beat = "You want a real wedding feast, with candles and something to toast with.",
+          quest = { tier = 2, why = "he wants a wedding feast for the county's first wedding since the fall",
+                    items = { { "Base.Candle", 4 }, { "Base.TinnedSoup", 3 }, { "Base.Wine", 1 } } } },
+        { id = "pike3_4", flag = "pike3_feast", days = 1, next = "pike3_5",
+          beat = "Everyone is invited. Ray promised vegetables and Casey will broadcast the vows." },
+        { id = "pike3_4x", days = 1, next = "pike3_5",
+          beat = "There will be no feast, only vows. Daniel and Rosa say that is enough." },
+        { id = "pike3_5", days = 1, win = { default = "pike3_6b", list = { { "pike3_feast", "pike3_6a" } } }, lose = "pike3_6x",
+          beat = "The dead are gathering on the road to the church the day before the wedding.",
+          quest = { kind = "horde", tier = 2, why = "the dead are gathering on the road to his church the day before a wedding",
+                    items = { { "Base.NailsBox", 1 } } } },
+        { id = "pike3_6a", hit = { morale = 25, food = -5 }, final = true, tone = "good",
+          beat = "Daniel and Rosa were married with candles and a feast. Half the county listened on the radio, and you wept again." },
+        { id = "pike3_6b", hit = { morale = 15 }, final = true, tone = "good",
+          beat = "A simple wedding: vows, a borrowed ring, a hymn. Everyone came, and nobody missed the feast." },
+        { id = "pike3_6x", hit = { morale = -15, safety = -10 }, final = true, tone = "bad",
+          beat = "The wedding was held in the basement while the dead beat on the doors. A guest was bitten on the way in." },
+    },
+    dewey = {
+        { id = "dewey3_1a", days = 2, next = "dewey3_2",
+          beat = "The Ark runs, and everyone wants a ride somewhere. It drinks fuel like you would not believe." },
+        { id = "dewey3_1b", days = 2, next = "dewey3_2",
+          beat = "No Ark, but the garage is busy. Everyone in the county seems to bring you something broken." },
+        { id = "dewey3_2", days = 2, next = "dewey3_3",
+          beat = "Gasoline is running out across the county. Every pump you know of is dry." },
+        { id = "dewey3_3", days = 1, win = "dewey3_4", lose = "dewey3_4x",
+          beat = "You found a gas station with a full underground tank, but the dead are thick around it.",
+          quest = { kind = "horde", tier = 3, why = "she found a gas station with a full underground tank, but the dead are thick around it",
+                    items = { { "Base.ShotgunShellsBox", 1 } } } },
+        { id = "dewey3_4", days = 1, next = "dewey3_5",
+          beat = "The station is clear and the tank is full. You need a pump and hoses to get it out." },
+        { id = "dewey3_4x", days = 1, next = "dewey3_5x",
+          beat = "You could not reach the tank. You are siphoning wrecks one can at a time." },
+        { id = "dewey3_5", days = 1, win = "dewey3_6a", lose = "dewey3_6b",
+          beat = "You need hoses and tools to draw the fuel out of the underground tank.",
+          quest = { tier = 2, why = "she needs hoses and tools to draw fuel from an underground tank",
+                    items = { { "Base.RubberHose", 2 }, { "Base.Wrench", 1 }, { "Base.DuctTape", 2 } } } },
+        { id = "dewey3_5x", days = 1, win = "dewey3_6c", lose = "dewey3_6x",
+          beat = "Siphoning wrecks takes hoses, and you keep ruining yours.",
+          quest = { tier = 2, why = "she is siphoning fuel out of wrecks and keeps ruining her hoses",
+                    items = { { "Base.RubberHose", 2 }, { "Base.DuctTape", 2 } } } },
+        { id = "dewey3_6a", hit = { safety = 10, morale = 15 }, final = true, tone = "good",
+          beat = "You have fuel for the whole winter. Half the county's engines run on gas you pumped, and you like that more than you admit." },
+        { id = "dewey3_6b", final = true, tone = "mixed",
+          beat = "The tank is right there, but you can only bucket it out. It will do for now." },
+        { id = "dewey3_6c", final = true, tone = "mixed",
+          beat = "Can by can, you scraped together enough fuel for the winter. Your hands smell like gas all the time." },
+        { id = "dewey3_6x", hit = { morale = -15 }, final = true, tone = "bad",
+          beat = "No fuel. The garage is cold, and the engines in it are just metal now." },
+    },
+    guard = {
+        { id = "guard3_1a", days = 2, next = "guard3_2",
+          beat = "The checkpoint holds. Civilians pass through every day, and more of them stop to talk to the soldiers." },
+        { id = "guard3_1b", days = 2, next = "guard3_2",
+          beat = "The fortified camp holds with four soldiers. Civilians trade at the gate, and some of them linger." },
+        { id = "guard3_2", days = 2, next = "guard3_3",
+          beat = "Civilians asked you to train them. You said no twice. Then a farm kid died because nobody had taught him to hold a rifle." },
+        { id = "guard3_3", days = 1, win = "guard3_4", lose = "guard3_4x",
+          beat = "You are training volunteers and need practice ammunition.",
+          quest = { tier = 3, why = "he is training civilian volunteers and needs practice ammunition",
+                    items = { { "Base.Bullets9mmBox", 2 }, { "Base.ShotgunShellsBox", 1 } } } },
+        { id = "guard3_4", flag = "guard3_trained", days = 2, next = "guard3_5",
+          beat = "The volunteers can shoot now. Time for a live drill, against real dead, with you watching every one of them." },
+        { id = "guard3_4x", days = 2, next = "guard3_5",
+          beat = "Training without ammunition is just shouting. Some volunteers quit, but a few stayed." },
+        { id = "guard3_5", days = 1, win = { default = "guard3_6b", list = { { "guard3_trained", "guard3_6a" } } }, lose = "guard3_6x",
+          beat = "You are running a live drill against a real group of the dead, and you want the players there.",
+          quest = { kind = "horde", tier = 3, why = "he is running a live drill for his volunteers against a real group of the dead",
+                    items = { { "Base.556Box", 1 } } } },
+        { id = "guard3_6a", profile = { family = "militia" }, hit = { safety = 20 }, final = true, tone = "good",
+          beat = "The county has a militia now: twelve volunteers who can hold a line. You will never say you are proud of them. You are." },
+        { id = "guard3_6b", hit = { safety = 10 }, final = true, tone = "mixed",
+          beat = "A small militia: five volunteers, green but brave. It is a start." },
+        { id = "guard3_6x", hit = { morale = -20 }, final = true, tone = "bad",
+          beat = "A volunteer died in the drill. You disbanded them and went back to doing it all yourself." },
+    },
+    rats = {
+        { id = "rats3_1a", days = 2, next = "rats3_2",
+          beat = "Your trading post is the strongest thing in the south county. People come from farther away every week." },
+        { id = "rats3_1b", days = 2, next = "rats3_2",
+          beat = "Your crew is smaller and quieter since Dutch. You are trying something new: being trusted." },
+        { id = "rats3_2", days = 2, next = "rats3_3",
+          beat = "You want to hold a market day in Coalfield, the first since the fall. Anyone can come. No robbing: Vic's word." },
+        { id = "rats3_3", days = 1, win = "rats3_4", lose = "rats3_4x",
+          beat = "The stalls need goods: food, tools, bandages.",
+          quest = { tier = 3, why = "he needs goods to fill the stalls for Coalfield's first market day",
+                    items = { { "Base.TinnedBeans", 4 }, { "Base.Hammer", 1 }, { "Base.Bandage", 3 } } } },
+        { id = "rats3_4", flag = "rats3_stocked", days = 1, next = "rats3_5",
+          beat = "The stalls are full. You painted a sign yourself. It is crooked." },
+        { id = "rats3_4x", days = 1, next = "rats3_5",
+          beat = "The stalls are thin. You will sell what you have and talk big about the rest." },
+        { id = "rats3_5", days = 1, win = { default = "rats3_6b", list = { { "rats3_stocked", "rats3_6a" } } }, lose = "rats3_6x",
+          beat = "A horde is drifting toward Coalfield on market day.",
+          quest = { kind = "horde", tier = 3, why = "a horde is drifting toward Coalfield on its first market day",
+                    items = { { "Base.ShotgunShellsBox", 1 } } } },
+        { id = "rats3_6a", hit = { food = 10, morale = 20 }, final = true, tone = "good",
+          beat = "Market day was a hit. You made it monthly. People shake your hand now, and you do not know what to do with that." },
+        { id = "rats3_6b", hit = { morale = 10 }, final = true, tone = "mixed",
+          beat = "A small market, but nobody got robbed and everybody came back alive. You call that a win." },
+        { id = "rats3_6x", hit = { morale = -20, safety = -10 }, final = true, tone = "bad",
+          beat = "The dead broke up the market and a trader died. Nobody came back the next month." },
+    },
+    hunter = {
+        { id = "hunter3_1a", days = 2, next = "hunter3_2",
+          beat = "Autumn in the woods. You check your lines at dawn and read the hiker's notebook by the fire." },
+        { id = "hunter3_1b", days = 2, next = "hunter3_2",
+          beat = "You stayed, and autumn came. The cabin is warm, and you pretend you only stayed for the deer." },
+        { id = "hunter3_2", days = 2, next = "hunter3_3",
+          beat = "Something has been springing your traps and stealing the catch. Not an animal: small boot prints, careful ones." },
+        { id = "hunter3_3", days = 1, win = "hunter3_4", lose = "hunter3_4x",
+          beat = "You mean to track the thief for days and need supplies for it.",
+          quest = { tier = 2, why = "something is stealing from his traps and he needs supplies to track it for days",
+                    items = { { "Base.TinnedBeans", 3 }, { "Base.Matches", 1 } } } },
+        { id = "hunter3_4", days = 1, crisis = "thief",
+          next = { default = "hunter3_6n", list = { { "thief_failed", "hunter3_6x" }, { "thief_ignored", "hunter3_6x" },
+                   { "thief_chose_guard", "hunter3_6g" }, { "thief_chose_ray", "hunter3_6r" }, { "thief_done", "hunter3_6a" } } },
+          beat = "You tracked the thief to a lean-to: a starving young deserter, one of the soldiers Whitaker lost. You have to decide what to do with him." },
+        { id = "hunter3_4x", final = true, tone = "mixed",
+          beat = "You never found the thief, and the stealing stopped on its own. You still check the boot prints every morning." },
+        { id = "hunter3_6a", profile = { family = "apprentice" }, hit = { morale = 15 }, final = true, tone = "good",
+          beat = "The kid lives at the cabin now, learning traps. He talks too much. You let him." },
+        { id = "hunter3_6g", final = true, tone = "mixed", bonds = { { "hunter", "guard", -1, "Whitaker took the starving deserter back" } },
+          beat = "Whitaker took the kid back to the camp. It was the right thing by the book, and you hate the book." },
+        { id = "hunter3_6r", hit = { morale = 10 }, final = true, tone = "good",
+          bonds = { { "hunter", "ray", 1, "Ray took in the starving deserter as a farm hand" }, { "ray", "hunter", 1, "Hank sent you a good farm hand" } },
+          beat = "The kid works Ray's farm now. You visit on Sundays and pretend it is for the pie." },
+        { id = "hunter3_6n", final = true, tone = "mixed",
+          beat = "You left food at the lean-to and walked away. The kid is gone now. You hope he made it." },
+        { id = "hunter3_6x", hit = { morale = -10 }, final = true, tone = "bad",
+          beat = "The kid ran off into the cold before anyone could help him. You found his lean-to empty the next week." },
+    },
+}
+
+-- 후임 목소리 (Voices.lua). share = 이어받는 신뢰도 비율, ifNode = 앞 사람 이야기가 이 노드에서 끝났을 때만,
+-- intro = AI 에게 주는 사람 소개(영어), start = 이어받은 이야기의 첫 노드 (이어받기 장은 다음 회차에 이어 쓴다)
+Stories.VOICES = {
+    martha = { npc = "ray", name = "Martha Cole", start = "martha1_1", share = 0.5,
+               intro = "A widow in her sixties from the farm next to Ray's; she had promised to watch his farm. Blunt, generous, unsentimental." },
+    nora = { npc = "casey", name = "Nora Bell", start = "nora1_1", share = 0.5,
+             intro = "A radio operator in her twenties from Brandenburg who used to listen to Casey's broadcasts. Calm, wry, organized." },
+    sam = { npc = "doc", name = "Sam", start = "sam1_1", share = 0.5,
+            intro = "The boy whose broken leg June set, seventeen now and her apprentice. Earnest, nervous, learning fast." },
+    esther = { npc = "pike", name = "Esther Gray", start = "esther1_1", share = 0.5,
+               intro = "The woman in her fifties who ran the church kitchen and storeroom. Practical, warm, no patience for nonsense." },
+    lenny = { npc = "dewey", name = "Lenny Austin", start = "lenny1_1", share = 0.5,
+              intro = "A young man Dewey was teaching to be a mechanic. Eager, clumsy, idolized Dewey." },
+    kowalski = { npc = "guard", name = "Corporal Kowalski", start = "kowalski1_1", share = 0.5,
+                 intro = "The last corporal of Whitaker's squad, twenty-two, suddenly in command. Tries to sound like Whitaker and fails." },
+    red = { npc = "rats", name = "Red", start = "red1_1", share = 0.3, ifNode = { rats2b_5g = true },
+            intro = "A sharp-tongued woman who stayed with the Coalfield crew after the raid. Pragmatic, tired of fighting." },
+    dutch = { npc = "rats", name = "Dutch", start = "dutch1_1", share = 0,
+              intro = "Vic's former second, now running the Coalfield crew like a warlord. Menacing, greedy, enjoys threats." },
+    caleb = { npc = "hunter", name = "Caleb Tate", start = "caleb1_1", share = 0.5,
+              intro = "The son of Hank's late hunting partner Earl, in his thirties. Quiet like Hank, gentler." },
+}
+Stories.VOICE_ORDER = {
+    ray = { "martha" }, casey = { "nora" }, doc = { "sam" }, pike = { "esther" }, dewey = { "lenny" },
+    guard = { "kowalski" }, rats = { "red", "dutch" }, hunter = { "caleb" },
+}
+-- 이어받은 사람의 첫 장면 (이어받기 장은 다음 회차)
+Stories.VOICE_ARCS = {
+    ray = { { id = "martha1_1", days = 3650,
+              beat = "You took over Ray's farm and his radio. You found his notebook of frequencies and you keep it by the set." } },
+    casey = { { id = "nora1_1", days = 3650,
+                beat = "You came down from Brandenburg to keep Casey's frequency alive. Her logbook is full of names you are learning." } },
+    doc = { { id = "sam1_1", days = 3650,
+              beat = "You are running June's clinic now, with her notes and her kit. You are seventeen, and terrified." } },
+    pike = { { id = "esther1_1", days = 3650,
+               beat = "There is no preacher at the church now. You keep the kitchen running and the doors open, and you answer the radio." } },
+    dewey = { { id = "lenny1_1", days = 3650,
+                beat = "You are running Dewey's garage now. You know half of what she knew, and you talk to her tools when nobody is listening." } },
+    guard = { { id = "kowalski1_1", days = 3650,
+                beat = "You are in command of what is left of the squad. Nobody trained you for this, and everyone is watching you." } },
+    rats = { { id = "red1_1", days = 3650,
+               beat = "You are holding the Coalfield crew together after the raid. You want fewer fights and more deals." },
+             { id = "dutch1_1", days = 3650,
+               beat = "Coalfield is yours now. Vic is gone, and everyone on this frequency will learn to pay respect." } },
+    hunter = { { id = "caleb1_1", days = 3650,
+                 beat = "You came looking for Hank and found his cabin empty. You stayed. Your father would have wanted someone to keep the lines." } },
+}
+
+-- 곁가지 이야기 (Social.pickEpisode). { id, npc, weight, when = { season, trust, alive, arcs, nodes, voice, world },
+-- nodes = { 큰 이야기와 같은 노드 형식, 마지막은 final + tone } }. 이야기 묶음은 다음 회차에 채운다
+Stories.EPISODES = {}
+
+-- 장·후임·곁가지 노드를 이야기 목록에 붙인다
+local function attach(byNpc, chapter, extra)
+    for fid, list in pairs(byNpc) do
+        local arc = Stories.ARCS[fid]
+        for _, n in ipairs(list) do
+            n.chapter = chapter
+            if extra then extra(n) end
+            arc[#arc + 1] = n
+        end
+    end
+end
+attach(Stories.CHAPTER3, 3)
+attach(Stories.VOICE_ARCS, "s")
+for _, ep in ipairs(Stories.EPISODES) do
+    local arc = Stories.ARCS[ep.npc]
+    for _, n in ipairs(ep.nodes) do
+        n.chapter, n.episode = "ep", ep.id
+        arc[#arc + 1] = n
+    end
+end
+for _, list in pairs(Stories.ARCS) do
+    for _, n in ipairs(list) do
+        local e = Stories.ENDINGS[n.id]
+        if e then n.tone, n.sequel = e.tone or n.tone, e.sequel end
+    end
 end
 
 -- NPC 사이 관계: relation 은 AI 가 읽는 한 줄 (내가 그 사람을 어떻게 보는지)
@@ -864,6 +1210,27 @@ Stories.CRISES = {
             tier = 3, items = { { "Base.308Box", 1 } }, allies = { "rats" } },
           { faction = "guard", ask = "bring 5.56 ammunition so the squad can raid Coalfield and arrest the whole crew",
             tier = 4, items = { { "Base.556Box", 2 } } },
+      } },
+    -- 3장의 위기 (2026-10-07)
+    { id = "ellis", trigger = true,
+      situation = "A man calling himself Private Ellis, an Army signals tech, has been staying at Casey's radio shack. Casey wants to trust him; Whitaker wants to check his story; Hank wants to follow him and see where he goes.",
+      options = {
+          { faction = "casey", ask = "bring food and blankets so she can keep her guest properly",
+            tier = 2, items = { { "Base.TinnedSoup", 3 }, { "Base.Sheet", 2 } } },
+          { faction = "guard", ask = "bring 5.56 ammunition so the squad can pick Ellis up and check his story",
+            tier = 3, items = { { "Base.556Box", 1 } }, allies = { "casey" } },
+          { faction = "hunter", ask = "bring rifle ammunition so he can follow Ellis and see where he really goes",
+            tier = 3, items = { { "Base.308Box", 1 } }, allies = { "casey" } },
+      } },
+    { id = "thief", trigger = true,
+      situation = "The thief stealing from Hank's traps is a starving young deserter from Whitaker's squad. Hank could take him in, Whitaker wants him back, and Ray says the farm could use a hand.",
+      options = {
+          { faction = "hunter", ask = "bring food and blankets so he can take the boy in at the cabin",
+            tier = 2, items = { { "Base.TinnedBeans", 3 }, { "Base.Sheet", 2 } } },
+          { faction = "guard", ask = "bring 5.56 ammunition so the squad can come and collect their deserter",
+            tier = 3, items = { { "Base.556Box", 1 } } },
+          { faction = "ray", ask = "bring canned food so he can feed the boy as a farm hand",
+            tier = 2, items = { { "Base.TinnedBeans", 4 } } },
       } },
 }
 

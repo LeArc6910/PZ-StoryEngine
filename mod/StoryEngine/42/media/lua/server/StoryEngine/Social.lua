@@ -52,6 +52,26 @@ Social.SCENE_LOG = 20      -- 장면에 보여 주는 최근 줄 (2026-10-04: 12
 Social.MAX_SCENE_LINES = 6
 Social.SCENE_LINE_GAP = { 20, 40 }       -- 공용 주파수 장면은 한 줄씩 이 간격으로 (게임 분), 사이에 끼어들 수 있다
 Social.REPLY_LINE_GAP = { 8, 12 }        -- 플레이어에게 답하는 장면: 첫 줄은 바로, 나머지는 조금 빨리
+-- 1년 이야기 (2026-10-07, docs/STORY_YEAR_PLAN.md): 부탁 몰림 방지, 곁가지, 이야기 속도
+Social.STORY_OPEN_MAX = 2                -- 서버 전체로 동시에 열린 이야기 부탁·위기
+Social.STORY_ASK_GAP_MIN = 12 * 60       -- 새 이야기 부탁 사이 (게임 분)
+Social.EPISODE_GAP_DAYS = 7              -- 같은 NPC 의 곁가지 사이
+Social.EPISODE_TELL_DAYS = 2             -- 곁가지 결말을 들려주고(또는 이만큼 지나고) 큰 이야기로 돌아간다
+Social.PACE = { 1.5, 1, 0.6 }            -- 샌드박스 StoryPace: 느림 / 보통 / 빠름
+
+-- 이야기 속도 배율 (장면 일수·장 사이 대기·곁가지 간격·후임이 오기까지)
+function Social.pace()
+    local Tuning = StoryEngine.Tuning
+    local v = Tuning and Tuning.num("StoryPace") or 2
+    return Social.PACE[math.floor(v)] or 1
+end
+
+-- 결말(node)에서 다음 장이 시작되기까지 (게임 분)
+function Social.sequelDelay(fid, node)
+    local nextNode = node and node.sequel and Stories.node(fid, node.sequel)
+    local r = (nextNode and Stories.CHAPTER_GAP[nextNode.chapter or 2]) or Stories.SEQUEL_DAYS
+    return math.floor((r[1] + ZombRand(r[2] - r[1] + 1)) * Social.pace() * 24 * 60)
+end
 
 function Social.enabled()
     return StoryEngine.option("Social", true) == true
@@ -138,11 +158,17 @@ function Social.moveTo(fid, id, now)
     Social.storyPath(fid)
     Store.push(st.path, { node = id, day = Store.dayIndex(now.dayKey) }, Social.PATH_MAX)
     st.node, st.since, st.told, st.questId, st.crisisAsked = id, now.t, false, nil, nil
+    if nxt.flag then st.flags[nxt.flag] = true end       -- 같은 장 안의 갈래용 (Stories.CHAPTER3 등)
     log("story", fid, "->", id)
     -- 결말: 다음 이야기가 있으면 그 날을 정해 둔다 (Stories.SEQUEL_DAYS)
     if nxt.final and nxt.sequel then
-        local r = Stories.SEQUEL_DAYS
-        st.sequelAt = now.t + (r[1] + ZombRand(r[2] - r[1] + 1)) * 24 * 60
+        st.sequelAt = now.t + Social.sequelDelay(fid, nxt)
+    end
+    -- 곁가지 결말: 지난 이야기에 남긴다 (큰 이야기로는 Social.advance 가 돌려보낸다)
+    if nxt.final and nxt.episode then
+        st.arcs = st.arcs or {}
+        st.arcs[#st.arcs + 1] = { arc = Stories.arcOf(fid, nxt.id), ending = nxt.id, tone = nxt.tone,
+                                  day = Store.dayIndex(now.dayKey), episode = true }
     end
     if StoryEngine.Chronicle then
         local ok, err = pcall(StoryEngine.Chronicle.onBeat, fid, nxt)
@@ -213,9 +239,148 @@ local function proposeStoryQuest(player, ps, fid, node, now)
     return q
 end
 
+-- 새 이야기 부탁·위기를 낼 수 있는가 (서버 전체: 열린 것 STORY_OPEN_MAX 개 미만, 마지막 뒤 STORY_ASK_GAP_MIN).
+-- Social.forceAsk 면 무시 (디버그)
+function Social.storyAskAllowed(now)
+    if Social.forceAsk then return true end
+    local s = state()
+    if s.lastStoryAskT and now.t - s.lastStoryAskT < Social.STORY_ASK_GAP_MIN then return false end
+    local open = 0
+    for _, q in pairs(Store.data().quests) do
+        local tag = q.origin and q.origin.story
+        if ((tag and tag.node) or q.kind == "choice")
+            and (q.state == "proposed" or StoryEngine.Quests.isActive(q)) then
+            open = open + 1
+        end
+    end
+    return open < Social.STORY_OPEN_MAX
+end
+
+-- 계절 (게임 달력): spring 3~5월, summer 6~8월, fall 9~11월, winter 12~2월
+function Social.season()
+    local ok, m = pcall(function() return getGameTime():getMonth() end)
+    m = ok and tonumber(m) or 6
+    if m >= 2 and m <= 4 then return "spring" end
+    if m >= 5 and m <= 7 then return "summer" end
+    if m >= 8 and m <= 10 then return "fall" end
+    return "winter"
+end
+
+-- 곁가지(Stories.EPISODES)를 이 NPC 에게 지금 열 수 있는가. when = { season = {..}, trust = n, alive = {..},
+-- arcs = {..} (이 NPC 가 지나온 이야기 중 하나), nodes = {..} (지금 큰 이야기 노드), voice = id | false, world = 조건 }
+function Social.episodeOk(def, fid, now)
+    local w = def.when or {}
+    local st = Social.story(fid)
+    if (st.epUsed or {})[def.id] then return false end
+    local voice = StoryEngine.Voices and StoryEngine.Voices.of(fid) or nil
+    if w.voice ~= nil then
+        if w.voice == false and voice then return false end
+        if w.voice and w.voice ~= voice then return false end
+    elseif voice then
+        return false          -- 정해 두지 않은 곁가지는 처음 사람에게만
+    end
+    if w.season then
+        local cur, ok = Social.season(), false
+        for _, x in ipairs(w.season) do if x == cur then ok = true end end
+        if not ok then return false end
+    end
+    if w.trust and (Radio.channel(fid).trust or 0) < w.trust then return false end
+    for _, other in ipairs(w.alive or {}) do
+        if Factions.isGone(other) then return false end
+    end
+    if w.nodes then
+        local ok = false
+        for _, x in ipairs(w.nodes) do if st.node == x then ok = true end end
+        if not ok then return false end
+    end
+    if w.arcs then
+        local seen = {}
+        for _, e in ipairs(Social.storyPath(fid)) do seen[Stories.arcOf(fid, e.node)] = true end
+        local ok = false
+        for _, x in ipairs(w.arcs) do if seen[x] then ok = true end end
+        if not ok then return false end
+    end
+    if w.world and StoryEngine.World and StoryEngine.World.conditions then
+        local okW, conds = pcall(StoryEngine.World.conditions)
+        local has = false
+        for _, c in ipairs(okW and conds or {}) do if string.find(c, w.world, 1, true) then has = true end end
+        if not has then return false end
+    end
+    return true
+end
+
+-- 곁가지 하나의 대략 길이 (일)
+local function episodeDays(def)
+    local d = 0
+    for _, n in ipairs(def.nodes or {}) do d = d + (n.days or 1) + (n.quest and 2 or 0) end
+    return d
+end
+
+-- 곁가지를 열 NPC 를 고른다 (Social.hourly 가 하루 한 번). 큰 이야기 결말에서 다음 장까지 시간이 넉넉하거나
+-- 다음 장이 없을 때, 마지막 곁가지 뒤 EPISODE_GAP_DAYS 가 지났을 때
+function Social.pickEpisode(now)
+    local s = state()
+    local day = Store.dayIndex(now.dayKey)
+    if s.episodeDay == day or #Sensor.players() == 0 then return nil end
+    s.episodeDay = day
+    local pace = Social.pace()
+    local cands, total = {}, 0
+    for _, f in ipairs(Factions.list) do
+        local fid = f.id
+        local st = Social.story(fid)
+        local node = Stories.node(fid, st.node)
+        local free = node and node.final and not node.episode and not Factions.isGone(fid)
+            and not (st.epEndT and now.t - st.epEndT < Social.EPISODE_GAP_DAYS * pace * 24 * 60)
+        if free then
+            for _, def in ipairs(Stories.EPISODES) do
+                local npc = def.npc
+                local fits = npc == fid
+                if fits and node.sequel and st.sequelAt then
+                    fits = (st.sequelAt - now.t) >= (episodeDays(def) + 2) * pace * 24 * 60
+                end
+                if fits and Social.episodeOk(def, fid, now) then
+                    local w = def.weight or 1
+                    cands[#cands + 1] = { fid = fid, def = def, w = w }
+                    total = total + w
+                end
+            end
+        end
+    end
+    if total <= 0 then return nil end
+    local roll = ZombRandFloat(0, total)
+    for _, c in ipairs(cands) do
+        roll = roll - c.w
+        if roll <= 0 then
+            Social.startEpisode(c.fid, c.def, now)
+            return c.def.id
+        end
+    end
+    return nil
+end
+
+function Social.startEpisode(fid, def, now)
+    local st = Social.story(fid)
+    st.ep = { id = def.id, node = st.node, since = st.since, told = st.told }
+    st.epUsed = st.epUsed or {}
+    st.epUsed[def.id] = true
+    log("story episode", fid, def.id)
+    Social.moveTo(fid, def.nodes[1].id, now)
+end
+
+-- 곁가지에서 큰 이야기 결말 자리로 돌아간다 (결말 효과를 다시 내지 않게 moveTo 를 거치지 않는다)
+function Social.endEpisode(fid, now)
+    local st = Social.story(fid)
+    local back = st.ep
+    if not back then return end
+    st.node, st.since, st.told, st.questId, st.crisisAsked = back.node, back.since, true, nil, nil
+    st.ep, st.epEndT = nil, now.t
+    if st.sequelAt then st.sequelAt = math.max(st.sequelAt, now.t + 2 * 24 * 60) end
+    log("story episode done", fid, back.id)
+end
+
 -- 위기 노드: 결과가 나왔는가 (이 NPC 의 플래그로)
 local function crisisSettled(flags, id)
-    for _, suffix in ipairs({ "_done", "_failed", "_spared", "_snubbed", "_ignored" }) do
+    for _, suffix in ipairs({ "_done", "_failed", "_spared", "_snubbed", "_ignored", "_skipped" }) do
         if flags[id .. suffix] then return true end
     end
     return false
@@ -227,7 +392,12 @@ function Social.advance(fid, now)
     local node = Stories.node(fid, st.node)
     if not node then return end
     if node.final then
-        -- 결말 뒤 두 번째 이야기 (예전 세이브는 결말에 머문 지금부터 센다)
+        -- 곁가지가 끝났다: 결말을 들려주었거나 며칠 지나면 큰 이야기의 자리로 돌아간다
+        if node.episode then
+            if st.told or now.t - st.since >= Social.EPISODE_TELL_DAYS * 24 * 60 then Social.endEpisode(fid, now) end
+            return
+        end
+        -- 결말 뒤 다음 장 (예전 세이브는 결말에 머문 지금부터 센다)
         if node.sequel then
             if not st.sequelAt then
                 local r = Stories.SEQUEL_DAYS
@@ -240,15 +410,17 @@ function Social.advance(fid, now)
     if node.crisis then
         local id = node.crisis
         if not st.crisisAsked then
-            if now.t - st.since < (node.days or 1) * 24 * 60 then return end
+            if now.t - st.since < (node.days or 1) * Social.pace() * 24 * 60 then return end
+            if not Social.storyAskAllowed(now) then return end
             local ok, why = Social.startCrisis(now, id)
             if ok then
                 st.crisisAsked, st.told = id, true
+                state().lastStoryAskT = now.t
                 log("story crisis", fid, node.id, id)
             elseif why ~= "no_players" then
-                -- 위기를 열 수 없다 (관련 NPC 가 떠났거나 이미 쓴 위기): 아무도 답하지 않은 것으로
+                -- 위기를 열 수 없다 (관련 NPC 가 떠났거나 이미 쓴 위기): next.default 로
                 st.crisisAsked = id
-                st.flags[id .. "_ignored"] = true
+                st.flags[id .. "_skipped"] = true
                 log("story crisis skipped", fid, id, why)
             end
             return
@@ -258,18 +430,20 @@ function Social.advance(fid, now)
     end
     if node.quest then
         if st.questId then return end
-        if now.t - st.since < (node.days or 1) * 24 * 60 then return end
+        if now.t - st.since < (node.days or 1) * Social.pace() * 24 * 60 then return end
         if openQuestFor(fid) then return end
+        if not Social.storyAskAllowed(now) then return end
         local player, ps = randomTarget()
         if not player then return end
         local q = proposeStoryQuest(player, ps, fid, node, now)
         if q then
             st.questId, st.told = q.id, true    -- 부탁하는 무전이 곧 이야기다
+            state().lastStoryAskT = now.t
             log("story quest", fid, node.id, q.id, q.kind)
         end
         return
     end
-    if now.t - st.since >= (node.days or 2) * 24 * 60 then
+    if now.t - st.since >= (node.days or 2) * Social.pace() * 24 * 60 then
         Social.moveTo(fid, resolveNext(node.next, st.flags), now)
     end
 end
@@ -298,9 +472,12 @@ function Social.storyInfo(fid, now)
     now = now or Sensor.now()
     local info = { arc = Stories.arcOf(fid, node.id), chapter = node.chapter or 1, node = node.id,
                    final = node.final == true, tone = node.tone, asking = (st.questId or st.crisisAsked) and true or nil,
+                   episode = node.episode ~= nil or nil, voice = StoryEngine.Voices and StoryEngine.Voices.of(fid) or nil,
                    past = {} }
-    if node.final and node.sequel and st.sequelAt then
+    local main = st.ep and Stories.node(fid, st.ep.node) or node
+    if main and main.final and main.sequel and st.sequelAt then
         info.nextDays = math.max(0, math.ceil((st.sequelAt - now.t) / (24 * 60)))
+        info.waiting = st.ep ~= nil or nil
     end
     for _, a in ipairs(st.arcs or {}) do
         info.past[#info.past + 1] = { arc = a.arc, ending = a.ending, tone = a.tone, day = a.day }
@@ -308,7 +485,10 @@ function Social.storyInfo(fid, now)
     -- 처음부터 지금까지 지나온 장면 { node, day, arc }
     info.path = {}
     for _, e in ipairs(Social.storyPath(fid)) do
-        info.path[#info.path + 1] = { node = e.node, day = e.day, arc = Stories.arcOf(fid, e.node) }
+        local n = Stories.node(fid, e.node)
+        -- tale·title: AI 곁가지(나중, docs/STORY_YEAR_PLAN.md D)는 번역 키 대신 글을 그대로 저장한다
+        info.path[#info.path + 1] = { node = e.node, day = e.day, arc = Stories.arcOf(fid, e.node),
+                                      chapter = n and n.chapter or e.chapter or 1, tale = e.tale, title = e.title }
     end
     return info
 end
@@ -1021,6 +1201,8 @@ function Social.hourly()
         local ok, err = pcall(Social.advance, f.id, now)
         if not ok then log("story advance error:", f.id, err) end
     end
+    local okE, errE = pcall(Social.pickEpisode, now)
+    if not okE then log("story episode error:", errE) end
     local s = state()
     if not s.nextCrisisT then s.nextCrisisT = now.t + Social.CRISIS_FIRST_DAYS * 24 * 60 end
     -- 파이크 안전이 바닥이면 교회 습격 위기를 앞당긴다 (NpcEvents)

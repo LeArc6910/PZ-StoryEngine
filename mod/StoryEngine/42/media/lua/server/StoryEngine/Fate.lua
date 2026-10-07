@@ -253,6 +253,11 @@ function Fate.apply(fid, kind, reason)
         if not ok then log("fate cancel error:", err) end
     end
     pcall(Net.toAll, "npcFate", { faction = fid, kind = kind })
+    -- 며칠 뒤 그 거점의 다른 사람이 주파수를 이어받는다 (Voices.lua, 후임까지 빠지면 끝)
+    if StoryEngine.Voices then
+        local ok, err = pcall(StoryEngine.Voices.onFate, fid, kind, now)
+        if not ok then log("voice schedule error:", err) end
+    end
 end
 
 -- 디버그: 되살린다 (자원은 기준값, 고갈 날수와 이야기 성적도 초기화)

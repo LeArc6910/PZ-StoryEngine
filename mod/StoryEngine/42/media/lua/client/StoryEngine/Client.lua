@@ -335,6 +335,14 @@ function Client.handlers.projectDone(args)
 end
 
 -- NPC 가 죽거나 떠났다 (Fate.lua): 알림, 목록 새로 받기
+-- 후임 목소리 이름표 (서버 Voices.lua): 채널 -> 후임 id
+function Client.handlers.npcVoices(args)
+    local voice = StoryEngine.Factions.voice
+    for k in pairs(voice) do voice[k] = nil end
+    for fid, v in pairs(args.voices or {}) do voice[fid] = v end
+    if StoryEngineMainWindow and StoryEngineMainWindow.instance then StoryEngineMainWindow.instance:refresh() end
+end
+
 function Client.handlers.npcFate(args)
     local player = getPlayer()
     if not player then return end
@@ -719,6 +727,8 @@ local function fillDebugMenu(context, worldobjects, playerNum)
     npc:addOption(label("ContextMenu_StoryEngine_Story", npcName), worldobjects, toServer("debugStory", { faction = fid }))
     npc:addOption(label("ContextMenu_StoryEngine_Contact"), worldobjects, send("debugContact"), playerNum)
     npc:addOption(label("ContextMenu_StoryEngine_DebugNamed"), worldobjects, toServer("debugNamed", { faction = fid }))
+    npc:addOption(label("ContextMenu_StoryEngine_DebugVoice"), worldobjects, toServer("debugVoice", { faction = fid }))
+    npc:addOption(label("ContextMenu_StoryEngine_DebugEpisode"), worldobjects, toServer("debugEpisode", {}))
     npc:addOption(label("ContextMenu_StoryEngine_Scene"), worldobjects, send("debugScene"), playerNum)
     npc:addOption(label("ContextMenu_StoryEngine_Letter", npcName), worldobjects, toServer("debugLetter", { faction = fid }))
     npc:addOption(label("ContextMenu_StoryEngine_LetterFarewell", npcName), worldobjects,
