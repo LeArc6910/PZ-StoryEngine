@@ -2457,14 +2457,14 @@
     "IGUI_StoryEngine_People_Chapter_1": "First story",
     "IGUI_StoryEngine_People_Chapter_2": "Second story",
     "IGUI_StoryEngine_People_StoryOngoing": "In progress",
+    "IGUI_StoryEngine_People_Now": "Now",
+    "IGUI_StoryEngine_People_Quote": "\"%1\"",
     "IGUI_StoryEngine_People_Tone_good": "Good ending",
     "IGUI_StoryEngine_People_Tone_mixed": "Bittersweet ending",
     "IGUI_StoryEngine_People_Tone_bad": "Bad ending",
-    "IGUI_StoryEngine_People_Says": "%1: \"%2\"",
     "IGUI_StoryEngine_People_Asking": "Asking for help with this story right now (quest tab [Story] / [Crisis])",
     "IGUI_StoryEngine_People_NextStory": "Next story in about %1 days",
     "IGUI_StoryEngine_People_StoryOver": "This person's main story has ended",
-    "IGUI_StoryEngine_People_PastStory": "Earlier story: %1 - %2",
     "IGUI_StoryEngine_Arc_Quote": "\"%1\"",
     "IGUI_StoryEngine_Chron_arc": "A new chapter began: %1"
 }

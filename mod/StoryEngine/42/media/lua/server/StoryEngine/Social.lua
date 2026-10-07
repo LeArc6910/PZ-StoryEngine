@@ -96,6 +96,9 @@ function Social.story(fid)
         -- 시작 시점을 흩어 모두가 같은 날 넘어가지 않게 한다
         ch.story = { node = arc and arc[1].id or nil, since = Sensor.now().t - ZombRand(2 * 24 * 60),
                      told = false, flags = {}, past = {} }
+        if arc and arc[1] then
+            ch.story.path = { { node = arc[1].id, day = Store.dayIndex(Sensor.now().dayKey) } }
+        end
         -- 인물 탭의 지나온 일: 처음 이야기 (Chronicle.lua)
         if StoryEngine.Chronicle and arc and arc[1] then pcall(StoryEngine.Chronicle.onBeat, fid, arc[1]) end
     end
@@ -132,6 +135,8 @@ function Social.moveTo(fid, id, now)
     local nxt = Stories.node(fid, id)
     if not nxt then return end
     if cur then Store.push(st.past, cur.beat, 4) end
+    Social.storyPath(fid)
+    Store.push(st.path, { node = id, day = Store.dayIndex(now.dayKey) }, Social.PATH_MAX)
     st.node, st.since, st.told, st.questId, st.crisisAsked = id, now.t, false, nil, nil
     log("story", fid, "->", id)
     -- 결말: 다음 이야기가 있으면 그 날을 정해 둔다 (Stories.SEQUEL_DAYS)
@@ -269,6 +274,22 @@ function Social.advance(fid, now)
     end
 end
 
+-- 지나온 장면 (인물 탭에서 처음부터 지금까지). 예전 세이브는 지나온 일 기록의 장면으로 채운다
+Social.PATH_MAX = 60
+function Social.storyPath(fid)
+    local st = Social.story(fid)
+    if st.path then return st.path end
+    st.path = {}
+    if StoryEngine.Chronicle then
+        for _, e in ipairs(StoryEngine.Chronicle.list(fid)) do
+            if e.k == "beat" and e.node then st.path[#st.path + 1] = { node = e.node, day = e.day } end
+        end
+    end
+    local last = st.path[#st.path]
+    if st.node and (not last or last.node ~= st.node) then st.path[#st.path + 1] = { node = st.node } end
+    return st.path
+end
+
 -- 인물 탭 "큰 이야기" (Chronicle.payload): 지금 이야기·몇 번째·지금 장면·끝났는지·다음 이야기까지·지난 이야기
 function Social.storyInfo(fid, now)
     local st = Social.story(fid)
@@ -283,6 +304,11 @@ function Social.storyInfo(fid, now)
     end
     for _, a in ipairs(st.arcs or {}) do
         info.past[#info.past + 1] = { arc = a.arc, ending = a.ending, tone = a.tone, day = a.day }
+    end
+    -- 처음부터 지금까지 지나온 장면 { node, day, arc }
+    info.path = {}
+    for _, e in ipairs(Social.storyPath(fid)) do
+        info.path[#info.path + 1] = { node = e.node, day = e.day, arc = Stories.arcOf(fid, e.node) }
     end
     return info
 end

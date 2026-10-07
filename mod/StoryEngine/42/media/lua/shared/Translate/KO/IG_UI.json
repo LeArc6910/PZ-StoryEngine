@@ -2457,14 +2457,14 @@
     "IGUI_StoryEngine_People_Chapter_1": "첫 번째 이야기",
     "IGUI_StoryEngine_People_Chapter_2": "두 번째 이야기",
     "IGUI_StoryEngine_People_StoryOngoing": "진행 중",
+    "IGUI_StoryEngine_People_Now": "지금",
+    "IGUI_StoryEngine_People_Quote": "\"%1\"",
     "IGUI_StoryEngine_People_Tone_good": "좋은 결말",
     "IGUI_StoryEngine_People_Tone_mixed": "씁쓸한 결말",
     "IGUI_StoryEngine_People_Tone_bad": "나쁜 결말",
-    "IGUI_StoryEngine_People_Says": "%1: \"%2\"",
     "IGUI_StoryEngine_People_Asking": "지금 이 이야기 때문에 도움을 청하고 있다 (퀘스트 탭 [이야기]·[위기])",
     "IGUI_StoryEngine_People_NextStory": "다음 이야기까지 약 %1일",
     "IGUI_StoryEngine_People_StoryOver": "이 사람의 큰 이야기는 여기까지다",
-    "IGUI_StoryEngine_People_PastStory": "지난 이야기: %1 - %2",
     "IGUI_StoryEngine_Arc_Quote": "「%1」",
     "IGUI_StoryEngine_Chron_arc": "새 큰 이야기가 시작됐다: %1"
 }
