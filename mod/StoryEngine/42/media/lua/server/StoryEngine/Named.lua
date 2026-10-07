@@ -68,6 +68,10 @@ Named.PEOPLE = {
       storyOnly = true,
       bio = "Your daughter Annie. She fled the Louisville shelter with a group heading south and turned on the road. She "
           .. "wore a yellow raincoat and the silver ring her mother left her." },
+    { id = "tony", name = "Tony", npc = "rats", outfit = "Biker", female = 0, item = "Base.Jacket_Black",
+      storyOnly = true,
+      bio = "Your little brother Tony, who went missing in the first week. He wore your old black jacket, the one with "
+          .. "the torn sleeve. You never told anyone on the radio you had a brother." },
     { id = "ruth", name = "Ruth Hale", npc = "pike", outfit = "Teacher", female = 100, item = "Base.Necklace_Gold",
       storyOnly = true,
       bio = "Ruth Hale, who taught Sunday school at your church and was one of the three people lost the night the dead "

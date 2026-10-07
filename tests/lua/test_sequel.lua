@@ -235,7 +235,9 @@ function T.every_sequel_node_leads_somewhere()
     end
     for id, e in pairs(Stories.ENDINGS) do
         local fid = string.match(id, "^(%a+)")
-        H.ok(Stories.node(fid, id) and Stories.node(fid, e.sequel), id)
+        H.ok(Stories.node(fid, id), id)
+        local seq = type(e.sequel) == "table" and e.sequel.default or e.sequel
+        if seq then H.ok(Stories.node(fid, seq), id .. " -> " .. tostring(seq)) end
     end
 end
 

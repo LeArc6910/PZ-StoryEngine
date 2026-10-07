@@ -67,8 +67,16 @@ function Social.pace()
 end
 
 -- 결말(node)에서 다음 장이 시작되기까지 (게임 분)
+-- 결말의 다음 장 첫 장면 (sequel 이 { default, list = {{플래그, id}} } 이면 그 NPC 의 플래그로 고른다)
+function Social.sequelTarget(fid, node)
+    if not node or not node.sequel then return nil end
+    if type(node.sequel) ~= "table" then return node.sequel end
+    return Social.resolveNext(node.sequel, Social.story(fid).flags or {})
+end
+
 function Social.sequelDelay(fid, node)
-    local nextNode = node and node.sequel and Stories.node(fid, node.sequel)
+    local target = Social.sequelTarget(fid, node)
+    local nextNode = target and Stories.node(fid, target)
     local r = (nextNode and Stories.CHAPTER_GAP[nextNode.chapter or 2]) or Stories.SEQUEL_DAYS
     return math.floor((r[1] + ZombRand(r[2] - r[1] + 1)) * Social.pace() * 24 * 60)
 end
@@ -159,6 +167,16 @@ function Social.moveTo(fid, id, now)
     Store.push(st.path, { node = id, day = Store.dayIndex(now.dayKey) }, Social.PATH_MAX)
     st.node, st.since, st.told, st.questId, st.crisisAsked = id, now.t, false, nil, nil
     if nxt.flag then st.flags[nxt.flag] = true end       -- 같은 장 안의 갈래용 (Stories.CHAPTER3 등)
+    if nxt.hurt then st.hurtUntil = now.t + math.floor(nxt.hurt * 24 * 60) end   -- 다쳐서 특기를 못 쓴다 (Specialty)
+    if nxt.hitAll and StoryEngine.Life then
+        for _, f in ipairs(Factions.list) do
+            if f.id ~= fid and not Factions.isGone(f.id) then
+                for res, d in pairs(nxt.hitAll) do
+                    pcall(StoryEngine.Life.change, f.id, res, d, "story " .. fid)
+                end
+            end
+        end
+    end
     log("story", fid, "->", id)
     -- 결말: 다음 이야기가 있으면 그 날을 정해 둔다 (Stories.SEQUEL_DAYS)
     if nxt.final and nxt.sequel then
@@ -197,16 +215,17 @@ end
 function Social.startSequel(fid, now)
     local st = Social.story(fid)
     local node = Stories.node(fid, st.node)
-    if not node or not node.sequel or not Stories.node(fid, node.sequel) then return false end
+    local target = Social.sequelTarget(fid, node)
+    if not target or not Stories.node(fid, target) then return false end
     st.arcs = st.arcs or {}
     st.arcs[#st.arcs + 1] = { arc = Stories.arcOf(fid, node.id), ending = node.id, tone = node.tone,
                               day = Store.dayIndex(now.dayKey), wins = st.wins, losses = st.losses }
     st.wins, st.losses, st.sequelAt = nil, nil, nil
     if StoryEngine.Chronicle then
-        StoryEngine.Chronicle.add(fid, { k = "arc", arc = Stories.arcOf(fid, node.sequel), prev = Stories.arcOf(fid, node.id) })
+        StoryEngine.Chronicle.add(fid, { k = "arc", arc = Stories.arcOf(fid, target), prev = Stories.arcOf(fid, node.id) })
     end
-    log("story sequel", fid, node.id, "->", node.sequel)
-    Social.moveTo(fid, node.sequel, now)
+    log("story sequel", fid, node.id, "->", target)
+    Social.moveTo(fid, target, now)
     return true
 end
 
@@ -237,6 +256,12 @@ local function proposeStoryQuest(player, ps, fid, node, now)
         q = StoryEngine.Quests.proposeCustom(player, ps, fid, spec, now, { story = story })
     end
     return q
+end
+
+-- 이야기 속에서 다쳐 특기를 못 쓰는 중인가 (노드 hurt = 일수)
+function Social.isHurt(fid, now)
+    local st = Social.story(fid)
+    return st.hurtUntil ~= nil and (now or Sensor.now()).t < st.hurtUntil
 end
 
 -- 새 이야기 부탁·위기를 낼 수 있는가 (서버 전체: 열린 것 STORY_OPEN_MAX 개 미만, 마지막 뒤 STORY_ASK_GAP_MIN).

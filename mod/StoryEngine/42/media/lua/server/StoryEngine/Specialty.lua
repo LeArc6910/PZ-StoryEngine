@@ -177,6 +177,8 @@ function Specialty.status(fid, psKey)
         reason = "gone"
     elseif StoryEngine.Saga and StoryEngine.Saga.specialtyBlocked(fid) then
         reason = "ill"                                  -- 큰 사건 "열병 유행"에서 닥이 쓰러졌다
+    elseif StoryEngine.Social and StoryEngine.Social.isHurt(fid) then
+        reason = "hurt"                                 -- 큰 이야기에서 다쳤다 (노드 hurt)
     elseif not Specialty.enabled() then
         reason = "off"
     elseif tier == 0 then
