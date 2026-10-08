@@ -212,7 +212,9 @@ function Client.handlers.questRespondResult(args)
     if args.ok then
         HaloTextHelper.addGoodText(player, getText(args.accept and "IGUI_StoryEngine_Quest_Accepted" or "IGUI_StoryEngine_Quest_Declined"))
     else
-        HaloTextHelper.addBadText(player, getText("IGUI_StoryEngine_Error", tostring(args.error)))
+        local key = "IGUI_StoryEngine_Quest_Error_" .. tostring(args.error)
+        local text = getTextOrNull(key) and getText(key) or getText("IGUI_StoryEngine_Error", tostring(args.error))
+        HaloTextHelper.addBadText(player, text)
     end
     Net.toServer(player, "questList", {})
 end
@@ -592,6 +594,13 @@ function Client.handlers.sagaNotice(args)
 end
 
 -- 서버의 전기·수도 끊김 날짜 (복구 중이면 늘어난 값)
+-- 서버의 아이템 조정 (점검 D1): 툴팁·대가 창·지원 창이 서버와 같은 분류·가치를 쓰게
+function Client.handlers.itemOverrides(args)
+    if not isClient() or not StoryEngine.ItemPool then return end
+    local ok, changed = pcall(StoryEngine.ItemPool.useServerLines, args.lines)
+    if ok and changed then StoryEngine.log("item overrides from server", #(args.lines or {})) end
+end
+
 function Client.handlers.gridSync(args)
     if StoryEngine.GridSync.apply(args) then
         log("grid sync power", tostring(args.power), "water", tostring(args.water))

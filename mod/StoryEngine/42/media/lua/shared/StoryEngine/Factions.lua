@@ -37,6 +37,13 @@ function Factions.name(id)
     return getText("IGUI_StoryEngine_Faction_" .. tostring(id))
 end
 
+-- 그 줄을 말한 사람의 이름 (2026-10-08 점검 B1): voice = 후임 id | false(처음 사람) | nil(예전 기록, 지금 사람)
+function Factions.nameAs(id, voice)
+    if voice == false then return getText("IGUI_StoryEngine_Faction_" .. tostring(id)) end
+    if type(voice) == "string" and voice ~= "" then return getText("IGUI_StoryEngine_Voice_" .. voice) end
+    return Factions.name(id)
+end
+
 local function isTwoWay(obj)
     local ok, yes = pcall(function()
         local dd = obj:getDeviceData()

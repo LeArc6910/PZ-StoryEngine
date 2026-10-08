@@ -159,16 +159,27 @@ function Council.start(now)
         now.t + math.floor(Council.COLLECT_DAYS * 24 * 60))
     s.collectId = q and q.id or nil
     for _, fid in ipairs({ "casey", "pike" }) do
-        if not Factions.isGone(fid) then
-            Radio.react(fid, "event", "You and " .. (fid == "casey" and tostring(Stories.NAMES.pike) or tostring(Stories.NAMES.casey))
-                .. " are calling the first county council since the fall, at the March Ridge church, broadcast on the radio. "
+        local ready = original(fid) and Social().story(fid).node == Council.HOSTS[fid] .. "2"
+        local voiced = not original(fid)
+        if not Factions.isGone(fid) and (ready or voiced) then
+            local other = fid == "casey" and "pike" or "casey"
+            local partner = not Factions.isGone(other) and tostring(Stories.NAMES[other]) or nil
+            Radio.react(fid, "event", (partner and ("You and " .. partner .. " are calling") or "You are calling")
+                .. " the first county council since the fall, at the March Ridge church, broadcast on the radio. "
                 .. "Everyone on the air is invited. Ask the players to help gather food, candles, batteries and blankets for it "
                 .. "(they can send them in the quest log).",
                 { text = "We are calling a county council at the church. Help us get ready.",
-                  lt = StoryEngine.Lines.story(Council.HOSTS[fid] .. "2") }, nil)
+                  lt = ready and StoryEngine.Lines.story(Council.HOSTS[fid] .. "2") or { key = "IGUI_StoryEngine_Council_Call" } }, nil)
         end
     end
-    if Social().news then Social().news("all", "Casey and Brother Pike are calling the first county council at the March Ridge church.") end
+    if Social().news then
+        local callers = {}
+        for _, fid in ipairs({ "casey", "pike" }) do
+            if not Factions.isGone(fid) then callers[#callers + 1] = tostring(Stories.NAMES[fid]) end
+        end
+        Social().news("all", (#callers > 0 and table.concat(callers, " and ") or "People on the radio")
+            .. " are calling the first county council at the March Ridge church.")
+    end
     pcall(Net.toAll, "councilNotice", { stage = "collect" })
     log("council start", s.collectId)
 end
@@ -201,7 +212,8 @@ function Council.startHorde(now)
     if host then
         Radio.react(host, "event", "The dead are gathering around the March Ridge church the day before the county council. "
             .. "Ask the players to clear them so people can come safely.",
-            { text = "The dead are gathering around the church before the council.", lt = StoryEngine.Lines.story(Council.HOSTS[host] .. "3") }, nil)
+            { text = "The dead are gathering around the church before the council.",
+              lt = original(host) and StoryEngine.Lines.story(Council.HOSTS[host] .. "3") or { key = "IGUI_StoryEngine_Council_HordeCall" } }, nil)
     end
     pcall(Net.toAll, "councilNotice", { stage = "horde" })
     log("council horde", s.hordeId, "prep", s.prep)
@@ -238,7 +250,8 @@ function Council.finish(now)
             for _, f in ipairs(Factions.list) do
                 for _, host in ipairs({ "casey", "pike" }) do
                     if f.id ~= host and not Factions.isGone(f.id) then
-                        pcall(Bonds.change, f.id, host, 1, "the county council " .. host .. " helped call came together", false)
+                        pcall(Bonds.change, f.id, host, 1, "the county council " .. tostring(Stories.NAMES[host] or host)
+                            .. " helped call came together", false)
                     end
                 end
             end

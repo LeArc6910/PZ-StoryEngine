@@ -337,12 +337,12 @@ local function siteTowns(list)
 end
 
 -- 막마다: 레이 보급, 케이시 정찰, (모금 막) 듀이 차량 수리
-local function actSupport(op, a, now)
+local function actSupport(op, a, now, retry)
     local players = Sensor.players()
     if #players == 0 then return end
     local p = playerByKey(op.target) or players[ZombRand(#players) + 1]
     local ps = Store.player(p)
-    if not Factions.isGone("ray") then
+    if not Factions.isGone("ray") and not retry then       -- 다시 하는 막에는 보급이 또 오지 않는다 (점검 C7)
         local ok, err = pcall(Quests.create, "supply_drop", p, ps, 1, now,
             { source = "reward", faction = "ray", rewardKind = "op" }, StoryEngine.Loot.roll(1, "ray"))
         if not ok then log("ops ray supply error:", err) end
@@ -414,7 +414,7 @@ function Ops.startAct(n, retry)
     noteAll("the " .. op.kind .. " repair operation moved on: " .. topic, now)
     spread(op.lead, "The " .. op.kind .. " repair operation: " .. topic)
     notice(retry and "retry" or "act", op)
-    pcall(actSupport, op, a, now)
+    pcall(actSupport, op, a, now, retry)
     log("ops act", op.id, op.kind, n, a.id, retry and "retry" or "", #made, "quests")
     return true
 end
@@ -548,6 +548,12 @@ function Ops.finish(success, why)
         spread(op.lead, "The survivors brought the county's " .. what .. " back.")
     else
         s.retryFrom[op.kind] = math.floor(Grid.today())
+        local Life = StoryEngine.Life
+        if Life then
+            for _, f in ipairs(Factions.list) do
+                if not Factions.isGone(f.id) then Life.change(f.id, "morale", -10, "operation_failed") end
+            end
+        end
         say(op.lead, "The " .. op.kind .. " repair failed and had to be abandoned. Tell the players it is over for now; "
             .. "maybe they can try again in a couple of weeks.", "op_failed", Store.data().players[op.target])
         noteAll("the attempt to bring back the county's " .. what .. " failed", now)

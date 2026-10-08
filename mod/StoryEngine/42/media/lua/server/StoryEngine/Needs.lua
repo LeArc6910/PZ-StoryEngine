@@ -21,8 +21,8 @@ Needs.TABLE = {
         { tier = 3, why = "the cut on his hand got infected and he has a fever", items = { { "Base.Antibiotics", 1 }, { "Base.SutureNeedle", 1 } } },
         { tier = 4, why = "a neighbour he took in came to him with a gunshot wound", items = { { "Base.Antibiotics", 2 }, { "Base.SutureNeedle", 1 }, { "Base.Bandage", 3 } } },
         { tier = 4, why = "the dead broke into his barn and all he has is a kitchen knife", items = { { "Base.Shotgun", 1 }, { "Base.ShotgunShells", 6 } } },
-        { tier = 5, why = "he wants to drive to Louisville to find his daughter but the truck is dead", items = { { "Base.CarBattery1", 1 }, { "Base.EngineParts", 8 } } },
-        { tier = 2, why = "he wants a ham radio strong enough to call around the county for news of his daughter", items = { { "Base.HamRadio1", 1 }, { "Base.ElectricWire", 2 } } },
+        { tier = 5, arc = "ray1", why = "he wants to drive to Louisville to find his daughter but the truck is dead", items = { { "Base.CarBattery1", 1 }, { "Base.EngineParts", 8 } } },
+        { tier = 2, arc = "ray1", why = "he wants a ham radio strong enough to call around the county for news of his daughter", items = { { "Base.HamRadio1", 1 }, { "Base.ElectricWire", 2 } } },
     },
     guard = {
         { tier = 1, why = "a patrol came back scratched up", items = { { "Base.Bandage", 2 } } },
@@ -44,7 +44,7 @@ Needs.TABLE = {
         { tier = 2, why = "the ham rig keeps cutting out and needs spare parts", items = { { "Base.ElectronicsScrap", 4 } } },
         { tier = 2, why = "she burned her hand badly on the soldering iron", items = { { "Base.Bandage", 2 }, { "Base.Disinfectant", 1 } } },
         { tier = 3, why = "she wants to build a repeater antenna so more survivors can hear each other", items = { { "Base.ElectricWire", 3 }, { "Base.ElectronicsScrap", 4 } } },
-        { tier = 3, why = "her dad's heart medicine ran out and he is getting worse", items = { { "Base.PillsBeta", 3 } } },
+        { tier = 3, notPath = { casey_5b = true }, why = "her dad's heart medicine ran out and he is getting worse", items = { { "Base.PillsBeta", 3 } } },
         { tier = 1, why = "she wants to hand a pair of walkie-talkies to neighbours who are hiding alone", items = { { "Base.WalkieTalkie4", 2 } } },
         { tier = 4, why = "a storm fried the ham rig and the backup set, and the county has gone quiet", items = { { "Base.HamRadio1", 2 }, { "Base.ElectronicsScrap", 7 } } },
         { tier = 5, why = "the power in the radio shack is failing and the station will go silent", items = { { "Base.Generator", 1 }, { "Base.ElectricWire", 5 } } },
@@ -80,7 +80,7 @@ Needs.TABLE = {
         { tier = 3, why = "she tore her arm open on a radiator fin", items = { { "Base.Disinfectant", 1 }, { "Base.Bandage", 3 }, { "Base.Pills", 1 } } },
         { tier = 3, why = "her welding kit is empty", items = { { "Base.WeldingRods", 6 } } },
         { tier = 4, why = "she found a school bus and needs to get it running", items = { { "Base.CarBattery1", 1 }, { "Base.EngineParts", 4 } } },
-        { tier = 5, why = "she is building an armoured truck to get survivors out of the county", items = { { "Base.SheetMetal", 6 }, { "Base.WeldingRods", 4 }, { "Base.BlowTorch", 1 } } },
+        { tier = 5, notPath = { dewey_5a = true, dewey2a_5a = true, dewey2b_5a = true }, why = "she is building an armoured truck to get survivors out of the county", items = { { "Base.SheetMetal", 6 }, { "Base.WeldingRods", 4 }, { "Base.BlowTorch", 1 } } },
     },
     hunter = {
         { tier = 1, why = "his snares keep breaking and he needs fresh line", items = { { "Base.Twine", 4 } } },
@@ -99,7 +99,7 @@ Needs.TABLE = {
         { tier = 2, why = "they ran into a horde and burned through their shells", items = { { "Base.ShotgunShells", 15 } } },
         { tier = 2, why = "they are cutting through a fence to a warehouse", items = { { "Base.Saw", 1 }, { "Base.DuctTape", 3 } } },
         { tier = 3, why = "they are planning a big job and need rounds", items = { { "Base.Bullets9mmBox", 2 } } },
-        { tier = 3, why = "Vic's brother got cut open and it looks bad", items = { { "Base.Antibiotics", 1 }, { "Base.Pills", 2 } } },
+        { tier = 3, why = "one of the crew got cut open and it looks bad", items = { { "Base.Antibiotics", 1 }, { "Base.Pills", 2 } } },
         { tier = 4, why = "they plan to hit the prison armoury and need rifle rounds", items = { { "Base.556Box", 2 } } },
         { tier = 4, why = "the battery in their getaway truck is dead", items = { { "Base.CarBattery1", 1 }, { "Base.EngineParts", 4 } } },
         { tier = 5, why = "a rival crew is moving into their territory", items = { { "Base.HuntingRifle", 1 }, { "Base.308Box", 1 } } },
@@ -205,12 +205,29 @@ function Needs.listOf(fid)
     return Needs.TABLE[fid]
 end
 
+-- 이야기와 맞는 부탁인가 (2026-10-08 점검 B8): arc = 그 이야기 중일 때만, notPath = 그 장면을 지났으면 안 함
+-- (딸을 잃은 뒤의 "딸 찾으러 루이빌", 아버지가 돌아가신 뒤의 "아빠 심장약", 방주가 완성된 뒤의 "장갑 트럭")
+local function storyAllows(fid, n)
+    local Social = StoryEngine.Social
+    if not (n.arc or n.notPath) or not Social then return true end
+    local st = Social.story(fid)
+    if n.arc and StoryEngine.Stories.arcOf(fid, st.ep and st.ep.node or st.node) ~= n.arc then return false end
+    if n.notPath then
+        for _, e in ipairs(Social.storyPath(fid)) do
+            if n.notPath[e.node] then return false end
+        end
+    end
+    return true
+end
+
 -- 지금 형편에 맞는 부탁만 (when 이 있으면 그 형편일 때만, 3배 가중치). only 면 그 조건의 부탁만
 local function available(fid, only)
     local World = StoryEngine.World
     local out = {}
     for _, n in ipairs(Needs.listOf(fid) or {}) do
-        if n.when then
+        if not storyAllows(fid, n) then
+            -- 이야기와 어긋나는 부탁은 건너뛴다
+        elseif n.when then
             if World and World.active(n.when) and (not only or n.when == only) then
                 for _ = 1, 3 do out[#out + 1] = n end
             end

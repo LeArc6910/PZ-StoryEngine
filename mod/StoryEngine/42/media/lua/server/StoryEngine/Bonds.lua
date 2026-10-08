@@ -63,6 +63,21 @@ function Bonds.change(a, b, delta, text, mutual)
     return after - before
 end
 
+-- 후임이 이어받았다 (Voices.take): 그 채널이 보는 마음·그 채널을 보는 마음을 0 에서 다시 (점검 B2)
+function Bonds.reset(fid)
+    local s = state()
+    s.v[fid], s.last[fid] = {}, {}
+    for _, f in ipairs(Factions.list) do
+        if f.id ~= fid then
+            s.v[fid][f.id] = 0
+            s.v[f.id] = s.v[f.id] or {}
+            s.v[f.id][fid] = 0
+            if s.last[f.id] then s.last[f.id][fid] = nil end
+        end
+    end
+    log("bonds reset", fid)
+end
+
 -- 최근 변화 { d, text, day } (없으면 nil)
 function Bonds.recent(a, b)
     local row = state().last[a]
@@ -95,7 +110,8 @@ end
 function Bonds.onTradingPost()
     for _, f in ipairs(Factions.list) do
         if f.id ~= "rats" then
-            Bonds.change(f.id, "rats", 1, "Vic turned his crew's hideout into a trading post with the players' help", false)
+            Bonds.change(f.id, "rats", 1, tostring(Stories.NAMES.rats or "The Coalfield crew")
+                .. " turned the crew's hideout into a trading post with the players' help", false)
         end
     end
 end

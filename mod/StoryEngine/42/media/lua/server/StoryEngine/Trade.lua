@@ -853,7 +853,14 @@ function Trade.fromReply(fid, ps, trade, ctx)
                 return nil
             end
             local q = Quests.giftTrade(ps, fid, tier, gifts, Sensor.now())
-            if q then Trade.markSold(fid, gref) end
+            if q then
+                Trade.markSold(fid, gref)
+                -- 공짜로 내준 것도 그 NPC 몫에서 빠진다 (청한 물건 선물도, 점검 C9)
+                local Life = StoryEngine.Life
+                if Life then
+                    Life.change(fid, Value.RESOURCE_OF[trade.category] or "safety", -Life.SOLD_PER_TIER * tier, "gift_sold")
+                end
+            end
             return q, "gift"
         end
         -- 청한 물건이 공짜로 주기엔 크면 보통 제안으로

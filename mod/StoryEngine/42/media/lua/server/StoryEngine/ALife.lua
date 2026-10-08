@@ -886,6 +886,7 @@ end
 -- 적대 세력의 무장 무리를 보낸다 (협박 보복). 거리는 추적 무리와 같다.
 function ALife.sendAttack(player, fid, tries)
     if not ALife.enabled() or not ALife.available() or not ALife.FACTIONS[fid] then return false, "unavailable" end
+    if Factions.isGone(fid) then return false, "gone" end      -- 떠난 세력의 습격대는 없다 (점검 D4)
     tries = tries or 0
     local stage = Store.stage(Store.player(player))
     local ok, info = ALife.spawnSquad(player, fid, ALife.ATTACK_LEVEL[stage], ALife.ATTACK_SIZE[stage], false,

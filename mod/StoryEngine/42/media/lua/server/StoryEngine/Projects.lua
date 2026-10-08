@@ -173,7 +173,14 @@ end
 -- ---------------------------------------------------------------- 훅
 
 -- 이야기 부탁 완료 (Social.onQuest)
-function Projects.onStoryWin(fid, who) Projects.add(fid, Projects.STORY_POINTS, who, "story") end
+Projects.EPISODE_POINTS_PER_TIER = 15       -- 곁가지 부탁 완료 (점검 C6)
+function Projects.onStoryWin(fid, who, node, tier)
+    if node and (node.chapter == "ep" or node.ai) then
+        Projects.add(fid, Projects.EPISODE_POINTS_PER_TIER * math.max(1, tier or 1), who, "episode")
+        return
+    end
+    Projects.add(fid, Projects.STORY_POINTS, who, "story")
+end
 -- 위기에서 그 NPC 편 (Social.onChoice)
 function Projects.onCrisisHelped(fid, who) Projects.add(fid, Projects.CRISIS_POINTS, who, "crisis") end
 -- 3등급 이상 부탁 완료 (Life.onQuest, 이야기 부탁은 onStoryWin 으로 따로)

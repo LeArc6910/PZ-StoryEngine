@@ -888,19 +888,59 @@ Quests.notify = function(q) return notifyTarget(q) end
 
 -- 죽거나 떠난 NPC 의 부탁·거래를 조용히 거둔다 (신뢰도·반응·생활 상태 변화 없음, Fate.lua).
 -- 이미 놓인 보급(보상·선물)은 그대로 둔다.
-local CANCELABLE = { deliver = true, trade = true, horde = true, extort = true, volunteer = true }
+-- (2026-10-08 점검 A3: 아는 얼굴·찾아오기도 거두고, 위기 선택지에서 그 NPC 를 빼고, 위기 후속 부탁을 기다리던
+-- 다른 NPC 이야기가 멈추지 않게 결과 플래그를 남기고, 독촉 중인 빚을 지우고, 놓인 물건을 정리한다)
+local CANCELABLE = { deliver = true, trade = true, horde = true, extort = true, volunteer = true, named = true,
+                     fetch = true }
+local function cancelOne(q, fid, now)
+    q.state = "declined"
+    q.cancelled = true
+    q.endedT = now.t
+    q.history = q.history or {}
+    Store.push(q.history, { state = "cancelled", t = now.t }, 20)
+    if q.spawned then q.cleanup = true end
+    log("quest", q.id, q.kind, "cancelled (npc gone)", fid)
+    -- 위기 후속 부탁이었으면 그 위기를 기다리는 이야기(고른 NPC·함께 도운 NPC)가 넘어가게
+    local crisis = q.origin and q.origin.story and q.origin.story.crisis
+    if crisis and StoryEngine.Social then
+        local Social = StoryEngine.Social
+        Social.story(q.origin.faction).flags[crisis .. "_failed"] = true
+        local def = StoryEngine.Stories.crisisOption(crisis, q.origin.faction)
+        for _, a in ipairs(def and def.allies or {}) do Social.story(a).flags[crisis .. "_failed"] = true end
+    end
+    notifyTarget(q)
+end
+
 function Quests.cancelFor(fid, now)
+    local ch = StoryEngine.Radio.channel(fid)
+    if ch.favorOwed then
+        log("work favor dropped (npc gone)", fid)
+        ch.favorOwed = nil
+    end
     for _, q in pairs(all()) do
         local job = Quests.isWork(q) and Quests.isActive(q)     -- 거래 대가로 하던 일 (Work.lua)
-        if q.origin and q.origin.faction == fid and (job or (CANCELABLE[q.kind]
-            and (q.state == "proposed" or q.state == "accepted"))) then
-            q.state = "declined"
-            q.cancelled = true
-            q.endedT = now.t
-            q.history = q.history or {}
-            Store.push(q.history, { state = "cancelled", t = now.t }, 20)
-            log("quest", q.id, q.kind, "cancelled (npc gone)", fid)
-            notifyTarget(q)
+        if q.kind == "choice" and q.state == "proposed" then
+            -- 아직 고르지 않은 위기: 그 NPC 선택지만 뺀다. 둘 미만이 남으면 조용히 닫고 남은 NPC 는 넘어가게
+            local kept, had = {}, false
+            for _, o in ipairs(q.options or {}) do
+                if o.faction == fid then had = true else kept[#kept + 1] = o end
+            end
+            if had then
+                q.options = kept
+                if #kept < 2 then
+                    for _, o in ipairs(kept) do
+                        if StoryEngine.Social then
+                            StoryEngine.Social.story(o.faction).flags[tostring(q.crisis) .. "_skipped"] = true
+                        end
+                    end
+                    q.state, q.cancelled, q.endedT = "declined", true, now.t
+                    log("quest", q.id, "choice closed (npc gone)", fid)
+                end
+                notifyTarget(q)
+            end
+        elseif q.origin and q.origin.faction == fid and not Quests.isManaged(q) and (job or (CANCELABLE[q.kind]
+            and (q.state == "proposed" or Quests.isActive(q)))) then
+            cancelOne(q, fid, now)
         end
     end
 end
@@ -1227,6 +1267,7 @@ function Quests.propose(player, ps, fid, tier, now, opts)
         id = "Q" .. StoryEngine.intToString(d.questSeq),
         kind = "deliver", tier = need.tier, need = items, why = need.why, urgent = opts.urgent or nil,
         favorCall = opts.favor and true or nil,
+        noTrust = opts.favor and true or nil,          -- 빚을 갚는 부탁: 신뢰도는 갚았는지로만 (점검 C1)
         origin = { source = "director", faction = fid, initiator = "npc",
                    day = Store.dayIndex(now.dayKey), date = now.date, clock = now.clock },
         target = ps.key, targetName = ps.name,
@@ -1326,6 +1367,10 @@ function Quests.choose(player, qid, index)
     if q.state ~= "proposed" then return false, "not_proposed" end
     local opt = q.options and q.options[math.floor(tonumber(index) or 0)]
     if not opt then return false, "bad_option" end
+    local Fate = StoryEngine.Fate
+    if Factions.isGone(opt.faction) or (Fate and Fate.doomed and Fate.doomed(opt.faction)) then
+        return false, "gone"       -- 그사이 떠났거나 떠나기로 정해진 NPC (점검 A8)
+    end
     local ps = Store.player(player)
     local now = Sensor.now()
     q.target, q.targetName = ps.key, ps.name
@@ -1381,6 +1426,11 @@ end
 -- 대상이 접속해 있지 않으면 다음 접속 때 한다
 function Quests.punish(q)
     local fid0 = q.origin and q.origin.faction
+    if fid0 and Factions.isGone(fid0) then          -- 협박한 사람이 떠났다 (점검 D4)
+        q.punishPending = nil
+        log("extort punishment dropped (npc gone)", q.id, fid0)
+        return
+    end
     if not q.punishKey then
         local ch = fid0 and Radio.channel(fid0)
         q.punishKey = (ch and ch.lastOffender) or q.target
@@ -1428,7 +1478,10 @@ function Quests.punish(q)
             and ("They never paid what you demanded, so you lured a pack of the dead onto " .. who .. ", the one who last "
                 .. "crossed you. It will follow them. Tell them it is coming.")
             or ("They never paid what you demanded. A helicopter is now circling right over " .. who .. ", the one who last "
-                .. "crossed you, drawing every dead thing around. Gloat."), nil, ps)
+                .. "crossed you, drawing every dead thing around. Gloat."),
+            -- AI 가 없을 때도 무엇이 오는지 알린다 (점검 D3)
+            { text = "You never paid. Something is coming for you.",
+              lt = { key = "IGUI_StoryEngine_RadioSay_punish_" .. tostring(how) } }, ps)
     end
 end
 
@@ -1925,8 +1978,9 @@ function Quests.submit(player, qid, itemIds)
         Quests.addHelper(q, Store.player(player))
         -- 협박에 응하면 작은 대가(1등급)만 준다
         local rewardTier = q.kind == "extort" and 1 or q.tier
-        local reward = Quests.create("supply_drop", player, ps, rewardTier, now,
-            { source = "reward", faction = q.origin and q.origin.faction, rewardFor = q.id, rewardKind = q.kind })
+        -- 빚 독촉은 빚을 갚는 것이라 보상 보급이 없다 (점검 C1)
+        local reward = not q.favorCall and Quests.create("supply_drop", player, ps, rewardTier, now,
+            { source = "reward", faction = q.origin and q.origin.faction, rewardFor = q.id, rewardKind = q.kind }) or nil
         setState(q, "completed", now, { ps = ps })
         return true, reward
     end
@@ -2146,6 +2200,10 @@ function Quests.waiveReward(player, qid)
     local tier = Quests.waiveTier(q)
     if not tier then return false, "not_waivable" end
     if not Factions.canTalk(player) then return false, "no_radio" end
+    local key = Store.playerKey(player)
+    local parent = q.origin.rewardFor and all()[q.origin.rewardFor]
+    local mine = q.target == key or (parent and (parent.target == key or (parent.helpers and parent.helpers[key])))
+    if not mine then return false, "not_yours" end
     if q.spawned and q.placed then
         local left = atSpot(q, false)
         if left ~= nil and left < #q.placed then return false, "taken" end

@@ -47,6 +47,8 @@ Life.KEY = { ray = "food", guard = "safety", rats = "safety", casey = "morale", 
              dewey = "safety", hunter = "safety" }
 Life.DRIFT = 5                        -- 하루에 기준값 쪽으로 움직이는 양
 Life.SELF_MIN = 20                    -- 이 아래면 스스로 회복하지 못한다
+Life.NEGLECT_DAYS = 7                 -- 부탁을 외면·실패한 뒤 이만큼은 형편이 저절로 나아지지 않는다 (점검 C4)
+Life.SPILL_UP_WEEK_CAP = 2            -- 좋은 쪽 파급도 NPC 마다 주 +2 까지 (점검 C3)
 Life.LOW = 40                         -- 이 아래면 부족 (부탁·값에 반영)
 Life.PLENTY = 70                      -- 이 이상이면 넉넉
 Life.DONATE_GAP_MIN = 3 * 24 * 60     -- 물자 지원 간격 (NPC 당, 서버 전체)
@@ -181,11 +183,12 @@ function Life.daily()
         local n = Life.npc(f.id)
         n.prev = copy(n.res)
         if not first and not n.fate then
+            local neglected = n.neglectT and now.t - n.neglectT < Life.NEGLECT_DAYS * 24 * 60
             for _, r in ipairs(Life.RESOURCES) do
                 local v, b = n.res[r] or 0, Life.base(f.id, r)
                 if v > b then
                     n.res[r] = math.max(b, v - Life.DRIFT)
-                elseif v < b and v >= Life.SELF_MIN then
+                elseif v < b and v >= Life.SELF_MIN and not neglected then
                     n.res[r] = math.min(b, v + Life.DRIFT)
                 end
             end
@@ -255,15 +258,16 @@ end
 -- ---------------------------------------------------------------- 관계 파급
 
 local function weekSpill(n, now)
-    local kept, total = {}, 0
+    local kept, total, up = {}, 0, 0
     for _, e in ipairs(n.spill) do
         if now.t - e.t < Life.SPILL_WEEK_MIN then
             kept[#kept + 1] = e
             total = total + e.d
+            if e.d > 0 then up = up + e.d end
         end
     end
     n.spill = kept
-    return total
+    return total, up
 end
 
 -- 플레이어들이 fid 를 크게 도왔다. always = 소문 확률 없이 항상 알려짐 (위기 선택)
@@ -287,9 +291,11 @@ function Life.spill(fid, who, always, skip)
             local n = Life.npc(other)
             local delta = bond > 0 and 1 or -1
             local trust = Radio.channel(other).trust
-            if delta < 0 and (weekSpill(n, now) <= -Life.SPILL_WEEK_CAP or trust <= Life.SPILL_FLOOR) then
+            local week, weekUp = weekSpill(n, now)
+            if delta < 0 and (week <= -Life.SPILL_WEEK_CAP or trust <= Life.SPILL_FLOOR) then
                 delta = 0
             end
+            if delta > 0 and weekUp >= Life.SPILL_UP_WEEK_CAP then delta = 0 end
             if delta < 0 and fid == "rats" and StoryEngine.Projects and StoryEngine.Projects.done("rats") then
                 delta = 0
             end
@@ -326,11 +332,12 @@ function Life.onQuest(q, outcome, trustDelta)
     local tier = math.max(1, math.floor(q.tier or 1))
     if q.kind == "trade" then
         if outcome == "completed" then
-            Life.change(fid, Value.RESOURCE_OF[q.payCategory] or "safety", 10, "trade")
+            -- 빚으로 받은 거래는 아직 아무것도 받지 않았다 (점검 C1)
+            if not q.favor then Life.change(fid, Value.RESOURCE_OF[q.payCategory] or "safety", 10, "trade") end
             -- 내준 물건만큼 그 품목 자원이 준다 (등급 x SOLD_PER_TIER, 2026-10-03 점검)
             Life.change(fid, Value.RESOURCE_OF[q.category] or "safety", -Life.SOLD_PER_TIER * tier, "trade_sold")
             Life.record(fid, "trade_done", who, trustDelta)
-            if tier >= Life.SPILL_BIG_TIER then Life.spill(fid, who) end
+            if tier >= Life.SPILL_BIG_TIER and not q.favor then Life.spill(fid, who) end
         elseif outcome == "failed" then
             Life.record(fid, "trade_failed", who, trustDelta)
         end
@@ -342,7 +349,7 @@ function Life.onQuest(q, outcome, trustDelta)
         Life.change(fid, res, math.min(40, 10 * tier), "quest")
         if res == "medical" then Life.count(fid, "medical_help") end
         Life.record(fid, "quest_completed", who, trustDelta)
-        if tier >= Life.SPILL_BIG_TIER and q.kind ~= "extort" then
+        if tier >= Life.SPILL_BIG_TIER and q.kind ~= "extort" and not q.favorCall then
             -- 위기 후속 부탁이면 그 위기의 당사자는 이미 선택 때 반응했다 (두 번 깎지 않는다)
             local tag = q.origin and q.origin.story
             local c = tag and tag.crisis and StoryEngine.Stories and StoryEngine.Stories.crisis(tag.crisis)
@@ -353,11 +360,13 @@ function Life.onQuest(q, outcome, trustDelta)
             end
             Life.spill(fid, who, false, involved)
         end
-        if q.kind ~= "extort" and StoryEngine.Projects then StoryEngine.Projects.onBigQuest(q, who) end
+        if q.kind ~= "extort" and not q.favorCall and StoryEngine.Projects then StoryEngine.Projects.onBigQuest(q, who) end
     elseif outcome == "failed" or outcome == "declined" or outcome == "ignored" then
         if q.kind ~= "extort" then
             Life.change(fid, res, -10, "quest_" .. outcome)
             Life.change(fid, "morale", -5, "quest_" .. outcome)
+            -- 외면당한 뒤 NEGLECT_DAYS 동안은 형편이 저절로 나아지지 않는다 (이틀이면 되돌아가던 것, 점검 C4)
+            Life.npc(fid).neglectT = Sensor.now().t
         end
         Life.record(fid, "quest_" .. outcome, who, trustDelta)
     elseif outcome == "accepted" then

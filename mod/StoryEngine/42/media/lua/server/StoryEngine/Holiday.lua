@@ -344,7 +344,8 @@ function Holiday.onSay(player, ps, fid)
     s.greeted[k] = true
     local trust = Radio.channel(fid).trust
     local items = {}
-    if u.h.greet == "money" and fid ~= "casey" then
+    -- 케이시(16세)는 세뱃돈 대신 음식. 이어받은 노라는 어른이다 (점검 B7)
+    if u.h.greet == "money" and (fid ~= "casey" or (Factions.voice and Factions.voice.casey)) then
         for _ = 1, math.max(1, math.min(5, 1 + math.floor(trust / 25))) do items[#items + 1] = "Base.Money" end
     else
         items[1] = u.h.food

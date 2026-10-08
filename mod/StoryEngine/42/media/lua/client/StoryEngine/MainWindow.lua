@@ -336,7 +336,7 @@ end
 local function messageLine(fid, m)
     local clock = "[" .. tostring(m.clock or "") .. "] "
     if m.from == "npc" then
-        return " <RGB:0.95,0.75,0.4> " .. UI.escape(clock .. Factions.name(m.npc or fid) .. ": ")
+        return " <RGB:0.95,0.75,0.4> " .. UI.escape(clock .. Factions.nameAs(m.npc or fid, m.voice) .. ": ")
             .. " <RGB:0.9,0.9,0.85> " .. UI.escape(UI.textOf(m)) .. " <LINE> "
     elseif m.from == "system" and m.gift then
         return " <RGB:0.5,0.9,0.6> " .. UI.escape(clock .. getText("IGUI_StoryEngine_Trade_GiftLine",
@@ -372,7 +372,7 @@ local function messageLine(fid, m)
         return " <RGB:0.55,0.85,1> " .. UI.escape(clock .. line) .. " <LINE> "
     elseif m.from == "system" and m.fate then
         return " <RGB:0.75,0.6,0.9> " .. UI.escape(clock .. getText("IGUI_StoryEngine_Fate_Line_" .. tostring(m.fate),
-            Factions.name(fid))) .. " <LINE> "
+            Factions.nameAs(fid, m.voice))) .. " <LINE> "
     elseif m.from == "system" and m.asked then
         local a = m.asked
         return " <RGB:0.55,0.75,1> " .. UI.escape(clock .. getText("IGUI_StoryEngine_TradeAsk_Line", tostring(a.name or "?"),

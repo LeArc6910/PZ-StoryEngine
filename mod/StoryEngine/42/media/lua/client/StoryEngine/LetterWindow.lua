@@ -41,7 +41,7 @@ end
 
 function StoryEngineLetterWindow.body(info)
     if info.memorial then return memorialBody(info) end
-    local name = StoryEngine.Factions.name(tostring(info.from))
+    local name = StoryEngine.Factions.nameAs(tostring(info.from), info.voice)
     local parts = {}
     if info.title and info.title ~= "" then
         parts[#parts + 1] = " <CENTRE> <SIZE:medium> " .. UI.escape(info.title) .. " <SIZE:small> <LEFT> <LINE> <LINE> "
@@ -81,7 +81,7 @@ end
 function StoryEngineLetterWindow:setInfo(info)
     self.info = info
     self.title = info.memorial and getText("IGUI_StoryEngine_Memorial_Title", tostring(info.memorial))
-        or getText("IGUI_StoryEngine_Letter_Title", StoryEngine.Factions.name(tostring(info.from)))
+        or getText("IGUI_StoryEngine_Letter_Title", StoryEngine.Factions.nameAs(tostring(info.from), info.voice))
     self.text.text = StoryEngineLetterWindow.body(info)
     self.text:paginate()
     self.text:setYScroll(0)

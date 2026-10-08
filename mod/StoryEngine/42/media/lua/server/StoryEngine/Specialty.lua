@@ -34,6 +34,14 @@ local Life = StoryEngine.Life
 local ALife = StoryEngine.ALife
 local log = StoryEngine.log
 
+-- 특기 무전의 AI 없을 때 문장: 후임이 이어받았으면 그 사람 말투 (없으면 처음 사람 것, 점검 B7)
+local function specLine(fid, suffix)
+    local base = "IGUI_StoryEngine_RadioSay_spec_" .. fid .. (suffix or "")
+    local v = StoryEngine.Factions.voice and StoryEngine.Factions.voice[fid]
+    if v then return { key = "IGUI_StoryEngine_RadioSay_spec_" .. v .. (suffix or ""), alt = base } end
+    return { key = base }
+end
+
 local Specialty = {
     healPending = {},     -- psKey -> { fid, tier, ms }
 }
@@ -227,7 +235,7 @@ function Specialty.commit(fid, ps, tier, info)
     end
     if info.topic then
         Radio.react(fid, "event", info.topic .. " Keep it short and in character.",
-            { text = info.fallbackText or "On it.", lt = { key = "IGUI_StoryEngine_RadioSay_spec_" .. fid } }, ps,
+            { text = info.fallbackText or "On it.", lt = specLine(fid) }, ps,
             { overhead = true })
     end
     log("specialty", fid, "tier", tier, "for", ps and ps.name or "?")
@@ -472,7 +480,9 @@ local function runJobs(now)
     local jobs = state().jobs
     local keep = {}
     for _, job in ipairs(jobs) do
-        if job.kind == "repair" and now.t >= job.dueT then
+        if job.kind == "repair" and Factions.isGone("dewey") then
+            log("specialty repair dropped (dewey gone)", job.target)     -- 떠난 뒤에 고쳐지지 않는다 (점검 D4)
+        elseif job.kind == "repair" and now.t >= job.dueT then
             local v = findVehicle(job)
             if v then
                 local fixed = Specialty.repairVehicle(v, job.tier)
@@ -481,7 +491,7 @@ local function runJobs(now)
                 if ps then Store.addNote(ps, { kind = "specialty_dewey_done", faction = "dewey", clock = now.clock }) end
                 Radio.react("dewey", "event", "You just finished fixing up " .. tostring(ps and ps.name or "their")
                     .. " vehicle (" .. StoryEngine.intToString(fixed) .. " parts). Tell them it is ready. Keep it short.",
-                    { text = "Your ride's fixed.", lt = { key = "IGUI_StoryEngine_RadioSay_spec_dewey_done" } }, ps,
+                    { text = "Your ride's fixed.", lt = specLine("dewey", "_done") }, ps,
                     { overhead = true })
             elseif now.t - job.dueT < Specialty.REPAIR_KEEP_MIN then
                 keep[#keep + 1] = job
@@ -603,12 +613,13 @@ local function supply(player, ps, fid, tier, args)
         left = left - got
     end
     StoryEngine.Trust.apply(target, 1, "ray_supply", nil, nil)
-    StoryEngine.Bonds.change("ray", target, 1, "Ray drove a load of supplies over to them at the players' request", true)
+    local rayName = tostring(StoryEngine.Stories.NAMES.ray or "the farm")
+    StoryEngine.Bonds.change("ray", target, 1, rayName .. " drove a load of supplies over to them at the players' request", true)
     Life.record(target, "ray_supply", ps.name, 1)
     local name = StoryEngine.Stories.NAMES[target] or target
-    Radio.react(target, "event", "Ray Mercer just drove a load of supplies over to your people because "
+    Radio.react(target, "event", rayName .. " from the West Point farm just drove a load of supplies over to your people because "
         .. tostring(ps.name) .. " asked him to. Thank them both, in character.",
-        { text = "Ray dropped off supplies. Thank you.", lt = { key = "IGUI_StoryEngine_RadioSay_raysupply" } }, ps,
+        { text = "The farm dropped off supplies. Thank you.", lt = { key = "IGUI_StoryEngine_RadioSay_raysupply" } }, ps,
         { overhead = true })
     return true, { cost = Specialty.RAY_COST, costRes = "food", item = name, gained = gained,
                    topic = "You drove a load of supplies over to " .. name .. " because " .. tostring(ps.name)
@@ -780,7 +791,7 @@ function Specialty.assist(fid, player, args)
         if info.topic then
             Radio.react(fid, "event", info.topic .. " You are doing this to help with the repair operation the whole "
                 .. "county depends on. Keep it short and in character.",
-                { text = info.fallbackText or "On it.", lt = { key = "IGUI_StoryEngine_RadioSay_spec_" .. fid } }, ps,
+                { text = info.fallbackText or "On it.", lt = specLine(fid) }, ps,
                 { overhead = true })
         end
     end

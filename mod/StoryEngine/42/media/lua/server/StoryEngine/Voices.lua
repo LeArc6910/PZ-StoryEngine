@@ -61,9 +61,11 @@ end
 -- 이 채널의 후임 (정의 순서대로, ifNode 가 있으면 앞 사람 이야기가 그 노드에서 끝났을 때만)
 function Voices.pick(fid)
     local st = StoryEngine.Social and StoryEngine.Social.story(fid)
+    local node = st and (st.ep and st.ep.node or st.node)       -- 곁가지 중이었으면 큰 이야기의 결말로 (점검 A5)
+    local current = Voices.of(fid)
     for _, id in ipairs(Stories.VOICE_ORDER[fid] or {}) do
         local def = Stories.VOICES[id]
-        if def and (not def.ifNode or (st and def.ifNode[st.node])) then return id, def end
+        if def and id ~= current and (not def.ifNode or (node and def.ifNode[node])) then return id, def end
     end
     return nil
 end
@@ -92,8 +94,8 @@ function Voices.sendTo(player)
 end
 
 -- Fate.apply 가 부른다: 처음 사람이면 후임을 예약, 후임이었으면 끝
+-- (Social 옵션이 꺼져 있어도 예약은 해 둔다. 이어받기는 옵션이 켜져 있을 때 tick 이 한다, 점검 D6)
 function Voices.onFate(fid, kind, now, reason)
-    if not StoryEngine.option("Social", true) then return end
     if Voices.of(fid) then
         log("voice silent", fid, "the successor is gone too")
         return
@@ -142,6 +144,14 @@ function Voices.take(fid, now, cold)
     ch.trust = cold and 0 or math.max(0, math.floor((ch.trust or 0) * (def.share or 0.5)))
     ch.trustMarks = {}
     ch.followUp = nil
+    -- 앞 사람의 무전 기억·대화·사람별 기억은 후임 것이 아니다 (2026-10-08 점검 B1·B6)
+    ch.memory, ch.memorySeq, ch.voiceSeq = nil, ch.seq or 0, ch.seq or 0
+    ch.talked, ch.heard, ch.requests, ch.lastOffender, ch.workBurnT, ch.tradeTrust = {}, {}, nil, nil, nil, nil
+    ch.favorOwed = nil
+    n.byWho, n.log, n.counts = {}, {}, {}
+    Radio.queue[fid], Radio.again[fid] = nil, nil
+    if StoryEngine.Bonds and StoryEngine.Bonds.reset then pcall(StoryEngine.Bonds.reset, fid) end
+    if StoryEngine.Letters and StoryEngine.Letters.onVoice then pcall(StoryEngine.Letters.onVoice, fid) end
     -- 새 이야기
     local startNode = Stories.node(fid, def.start)
     ch.story = { node = def.start, since = now.t, told = false, flags = {}, past = {},
@@ -149,16 +159,14 @@ function Voices.take(fid, now, cold)
     if StoryEngine.Chronicle then
         StoryEngine.Chronicle.add(fid, { k = "voice", voice = id, prev = n.prevVoices[#n.prevVoices].voice })
     end
-    -- 바닥난 자원은 조금 채워서 시작 (그 거점의 다른 사람들이 모은 몫). 방치·실패로 잃었으면 바닥 그대로,
-    -- 장기 프로젝트도 절반이 무너진 채로
-    if cold then
-        if StoryEngine.Projects and StoryEngine.Projects.halve then pcall(StoryEngine.Projects.halve, fid) end
-    else
-        for _, r in ipairs(Life.RESOURCES) do
-            local v = Life.get(fid, r)
-            if v < Voices.MIN_RES then Life.change(fid, r, Voices.MIN_RES - v, "voice") end
-        end
+    -- 바닥난 자원은 조금 채워서 시작 (그 거점의 다른 사람들이 모은 몫). 방치·실패로 잃었으면 겨우 버틸 만큼만
+    -- (Life.SELF_MIN, 그 아래면 스스로 못 회복해 3일 뒤 또 떠난다 — 점검 A2), 장기 프로젝트도 절반이 무너진 채로
+    local floor = cold and Life.SELF_MIN or Voices.MIN_RES
+    for _, r in ipairs(Life.RESOURCES) do
+        local v = Life.get(fid, r)
+        if v < floor then Life.change(fid, r, floor - v, "voice") end
     end
+    if cold and StoryEngine.Projects and StoryEngine.Projects.halve then pcall(StoryEngine.Projects.halve, fid) end
     Radio.push(fid, { from = "system", voice = id, cold = cold or nil, clock = now.clock })
     if startNode then
         local mood = cold and (" You have heard that when " .. tostring(prevName) .. " needed help most, the players "
@@ -180,6 +188,7 @@ function Voices.take(fid, now, cold)
 end
 
 function Voices.tick()
+    if not StoryEngine.option("Social", true) then return end
     if not Voices.applied then
         Voices.applied = true
         Voices.apply()

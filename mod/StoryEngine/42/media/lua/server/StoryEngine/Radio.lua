@@ -88,9 +88,11 @@ Radio.LOG_MAX = 30
 Radio.LIFE_MAX = 60
 Radio.LOG_TEXT = 220
 
-function Radio.logLine(ps, fid, from, text, clock, day)
+function Radio.logLine(ps, fid, from, text, clock, day, voice)
     if not ps or type(text) ~= "string" or text == "" then return end
-    local line = { clock = clock, day = day, faction = fid, from = from, text = string.sub(text, 1, Radio.LOG_TEXT) }
+    if voice == nil then voice = Factions.voice and Factions.voice[fid] or false end   -- 그때 그 주파수의 사람
+    local line = { clock = clock, day = day, faction = fid, from = from, text = string.sub(text, 1, Radio.LOG_TEXT),
+                   voice = voice }
     ps.radioLog = ps.radioLog or {}
     ps.radioLife = ps.radioLife or {}
     Store.push(ps.radioLog, line, Radio.LOG_MAX)
@@ -103,6 +105,10 @@ local function push(fid, msg, audience)
     if not msg.day then msg.day = Store.dayIndex(Sensor.now().dayKey) end
     ch.seq = ch.seq + 1
     msg.n = ch.seq
+    -- 말한 사람 (후임이 이어받은 뒤에도 앞 사람의 줄은 앞 사람 이름으로, 점검 B1)
+    if msg.voice == nil and (msg.from == "npc" or msg.from == "system") then
+        msg.voice = Factions.voice and Factions.voice[msg.npc or fid] or false
+    end
     Store.push(ch.messages, msg, Radio.KEEP)
     if msg.from == "npc" and type(msg.text) == "string" and not msg.quiet then
         local who = msg.npc or fid       -- 공용 주파수에서는 말한 NPC
@@ -209,7 +215,8 @@ function Radio.request(fid, lang, opts)
     local history = {}
     for i = math.max(1, #ch.messages - Radio.PROMPT_HISTORY + 1), #ch.messages do
         local m = ch.messages[i]
-        if m.from == "player" or m.from == "npc" then
+        -- 후임에게는 이어받은 뒤의 대화만 (앞 사람의 말·약속을 자기 것으로 알지 않게, 점검 B1)
+        if (m.from == "player" or m.from == "npc") and (m.n or 0) > (ch.voiceSeq or 0) then
             history[#history + 1] = { from = m.from, name = m.name, clock = m.clock, text = m.text,
                                       auto = m.lt ~= nil or nil }
         end

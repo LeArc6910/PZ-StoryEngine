@@ -234,12 +234,15 @@ Stories.ENDINGS = {
     hunter_6a = { tone = "good", sequel = "hunter2a_1" }, hunter_6b = { tone = "bad", sequel = "hunter2b_1" },
 }
 
--- 듀이의 방주가 달리는가 (레이·닥 이야기가 갈린다)
-local ARK_RUNS = { { npc = "dewey", node = "dewey_5a" }, { npc = "dewey", arc = "dewey2a" }, { npc = "dewey", node = "dewey2b_5a" } }
+-- 듀이의 방주가 달리는가 (레이·닥 이야기가 갈린다). 듀이가 지나온 장면 중 가장 최근의 방주 결말로 정한다
+-- (지금 장면이 아니라: 방주가 도랑에 처박혔거나 듀이가 다음 장으로 넘어가도 맞게, 2026-10-08 점검 A7)
+Stories.ARK_STATE = { dewey_5a = true, dewey_5b = false, dewey2a_5a = true, dewey2a_5x = false,
+                      dewey2b_3x = false, dewey2b_5a = true, dewey2b_5x = false }
+-- 파이크 교회가 피난처인가 (행크 이야기가 갈린다)
+Stories.CHURCH_STATE = { pike_5a = true, pike_5b = false, pike2a_5a = true, pike2a_5r = true,
+                         pike2a_5g = false, pike2a_5x = false }
 local function arkWhen(go)
-    local out = {}
-    for _, w in ipairs(ARK_RUNS) do out[#out + 1] = { npc = w.npc, node = w.node, arc = w.arc, go = go } end
-    return out
+    return { { npc = "dewey", state = Stories.ARK_STATE, go = go } }
 end
 
 Stories.SEQUELS = {
@@ -590,7 +593,7 @@ Stories.SEQUELS = {
         { id = "hunter2a_3x", days = 2, next = "hunter2a_4",
           beat = "You could not get near the house. You read the hiker's notebook at night instead, and you talk about him like you knew him." },
         { id = "hunter2a_4", days = 1,
-          win = { default = "hunter2a_5a", when = { { npc = "pike", node = "pike_5a", go = "hunter2a_5c" }, { npc = "pike", arc = "pike2a", go = "hunter2a_5c" } } },
+          win = { default = "hunter2a_5a", when = { { npc = "pike", state = Stories.CHURCH_STATE, go = "hunter2a_5c" } } },
           lose = "hunter2a_5x",
           beat = "You are walking a dead man's notebook to his family and need supplies for the trip.",
           quest = { tier = 2, why = "he is walking a dead man's notebook to the man's family and needs supplies for the trip",
@@ -642,7 +645,7 @@ end
 
 -- 이야기 id: ray_3 -> "ray1", ray2a_3 -> "ray2a" (인물 탭 제목 IGUI_StoryEngine_Arc_<이야기>)
 function Stories.arcOf(fid, nodeId)
-    local a = nodeId and string.match(tostring(nodeId), "^(%a+%d%a*)_") or nil
+    local a = nodeId and string.match(tostring(nodeId), "^(%a+%d+%a*)_") or nil     -- rayai10_1 도 (점검 A4)
     return a or (fid .. "1")
 end
 
@@ -667,6 +670,13 @@ local CH2_TO_CH3 = {
     hunter2a_5a = "hunter3_1a", hunter2a_5c = "hunter3_1a", hunter2a_5x = "hunter3_1a", hunter2b_5a = "hunter3_1b",
 }
 for from, to in pairs(CH2_TO_CH3) do Stories.ENDINGS[from] = { sequel = to } end
+
+-- 죽음·떠남 결말인데 샌드박스로 NPC 죽음을 꺼서 살아남았을 때 이어지는 다음 장 (Fate.onStoryFate, 점검 A6)
+Stories.SURVIVED_SEQUEL = {
+    ray2a_7x = "ray3_1c", guard2a_6x = "guard3_1b", guard2b_5x = "guard3_1b",
+    rats2a_5x = "rats3_1b", rats2b_5g = "rats3_1b", rats2b_5x = "rats3_1b", hunter2b_5x = "hunter3_1b",
+    guard4_4l = "guard5_1",
+}
 
 Stories.CHAPTER3 = {
     ray = {
