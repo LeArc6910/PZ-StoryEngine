@@ -571,7 +571,7 @@ Stories.SEQUELS = {
         { id = "rats2b_5a", profile = { family = "regained" }, hit = { morale = 20 }, final = true, tone = "good",
           beat = "You are the boss again. Dutch is gone, the crew is smaller and quieter, and you swear it will stay that way." },
         { id = "rats2b_5g", final = true, tone = "mixed",
-          fate = { kind = "gone", text = "Whitaker's soldiers raided Coalfield. Dutch was killed, and Vic slipped away south, off the air for good." },
+          fate = { kind = "gone", graceful = true, text = "Whitaker's soldiers raided Coalfield. Dutch was killed, and Vic slipped away south, off the air for good." },
           beat = "The soldiers are raiding Coalfield. Dutch is finished, and so are you here. You are heading south." },
         { id = "rats2b_5x", final = true, tone = "bad",
           fate = { kind = "dead", text = "Dutch found out about the plan. Vic was killed, and the Coalfield frequency carries only Dutch's threats now." },
@@ -1639,7 +1639,7 @@ Stories.CHAPTER4 = {
                    { "knox_chose_casey", "guard4_4c" }, { "knox_chose_pike", "guard4_4s" }, { "knox_done", "guard4_4l" } } },
           beat = "You have to decide: go to Fort Knox with the squad, or stay with the people who depend on you here." },
         { id = "guard4_4l", final = true, tone = "mixed",
-          fate = { kind = "gone", text = "Sergeant Whitaker took the squad north to the Fort Knox regroup. He left Corporal Kowalski the radio and a list of who to look after." },
+          fate = { kind = "gone", graceful = true, text = "Sergeant Whitaker took the squad north to the Fort Knox regroup. He left Corporal Kowalski the radio and a list of who to look after." },
           beat = "You are going to Fort Knox. Orders are orders. You are leaving Kowalski the radio and a list of names." },
         { id = "guard4_4c", days = 2, next = "guard4_5",
           bonds = { { "guard", "casey", 1, "Casey checked the Fort Knox broadcast for you" } },
@@ -2188,6 +2188,75 @@ Stories.RELATIONS = {
         dewey = "Dewey is decent; she does not waste your time",
     },
 }
+
+-- 후임 목소리의 관계 메모 (2026-10-08). 앞 사람의 메모 대신 쓴다. 상대 채널에도 후임이 있으면 Stories.relationsOf 가
+-- "그 주파수를 이어받은 사람, 아직 알아 가는 중"으로 바꾼다
+Stories.VOICE_RELATIONS = {
+    martha = {
+        pike = "you have known him from church for thirty years and you trust him",
+        casey = "Ray worried about that girl like his own, so now you do too",
+        rats = "you have no patience for Vic's sort and say so",
+    },
+    nora = {
+        ray = "Casey called him her radio uncle; you are only starting to know him",
+        doc = "you ask her medical questions for the people who call the station",
+        guard = "the soldiers' radio discipline impresses you",
+    },
+    sam = {
+        pike = "the church sends you patients and he always says kind things about June",
+        casey = "she used to call June every evening and still checks on you",
+        guard = "the sergeant once carried a wounded man to the clinic and you have not forgotten",
+    },
+    esther = {
+        ray = "he used to bring vegetables for the church kitchen and you count on it",
+        doc = "you send her the sick and she sends back advice you write down",
+        rats = "you do not like the Coalfield crew, but you feed anyone who comes to the door",
+    },
+    lenny = {
+        ray = "he talks about Dewey like she was family, and that helps",
+        rats = "Vic's crew keeps asking for car parts and you are not sure you should help",
+        casey = "you fix her radio gear and she lets you ramble about engines",
+    },
+    kowalski = {
+        doc = "the clinic is the one place the squad trusts besides the camp",
+        rats = "the sergeant never trusted the Coalfield crew and neither do you",
+        pike = "the preacher's people need protecting, and you mean to keep the sergeant's promise",
+    },
+    red = {
+        ray = "the farm is your best honest trading partner and you want to keep it that way",
+        guard = "the soldiers raided Coalfield once; you trade with them, carefully",
+        dewey = "the garage keeps your truck running and you pay fair",
+    },
+    dutch = {
+        guard = "the soldiers are the only ones on the air with more guns than you, and you hate them for it",
+        ray = "an easy mark: a farm with food and nobody to guard it",
+        pike = "the church takes in anyone, which makes it full of people who owe you",
+    },
+    caleb = {
+        ray = "your father and Hank used to trade meat with him, and he welcomed you",
+        pike = "the church is where you learned Hank was gone",
+        doc = "June patched up your father once, years ago",
+    },
+}
+
+-- 이 채널(후임이 있으면 그 후임)이 다른 NPC 를 어떻게 보는가 { [다른 채널] = 메모 }. 상대 채널에 후임이 있으면 앞 사람에
+-- 대한 메모가 맞지 않으므로 "새로 이어받은 사람"으로
+function Stories.relationsOf(fid)
+    local Factions = StoryEngine.Factions
+    local voices = (Factions and Factions.voice) or {}
+    local voice = voices[fid]
+    local base = (voice and Stories.VOICE_RELATIONS[voice]) or (not voice and Stories.RELATIONS[fid]) or {}
+    local out = {}
+    for other, note in pairs(base) do
+        if voices[other] then
+            local prev = (StoryEngine.Voices and StoryEngine.Voices.BASE_NAMES[other]) or other
+            out[other] = "they took over that radio frequency after " .. tostring(prev) .. " was gone; you are still getting to know them"
+        else
+            out[other] = note
+        end
+    end
+    return out
+end
 
 -- NPC 사이 관계를 숫자로 (관계 파급, Life.spill): [그 NPC][다른 NPC] = +1 친함 / -1 적대. RELATIONS 문장과 맞춘다.
 -- 누군가를 크게 도우면 그를 좋아하는 NPC 는 신뢰도 +1, 싫어하는 NPC 는 -1.

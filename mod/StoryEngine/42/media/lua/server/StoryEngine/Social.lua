@@ -548,7 +548,7 @@ function Social.context(fid)
     local Bonds = StoryEngine.Bonds
     for _, f in ipairs(Factions.list) do
         local other = f.id
-        local note = (Stories.RELATIONS[fid] or {})[other]
+        local note = Stories.relationsOf(fid)[other]
         local bond = Bonds and Bonds.get(fid, other) or 0
         local recent = Bonds and Bonds.recent(fid, other) or nil
         if other ~= fid and (note or bond ~= 0 or recent) then
@@ -654,8 +654,9 @@ function Social.onQuest(q, outcome)
     -- 소문: 사이가 있는 NPC 들이 듣는다
     local fid = q.origin and q.origin.faction
     if fid and q.kind ~= "choice" and (outcome == "completed" or outcome == "failed") then
-        for other, rel in pairs(Stories.RELATIONS) do
-            if other ~= fid and rel[fid] then
+        for _, f in ipairs(Factions.list) do
+            local other = f.id
+            if other ~= fid and Stories.relationsOf(other)[fid] then
                 Social.news(other, "The players " .. (outcome == "completed" and "did a job for " or "let down ")
                     .. nameOf(fid) .. " recently.")
             end
@@ -844,7 +845,7 @@ function Social.pickContact(now)
             if not ch.lastPlayerT or now.t - ch.lastPlayerT > Social.SILENT_MIN then
                 add(fid, 3, "miss", "You have not heard from them in days. Check that they are alive and how they are doing.")
             end
-            local rel = Stories.RELATIONS[fid] or {}
+            local rel = Stories.relationsOf(fid)
             local others = {}
             for other, _ in pairs(rel) do others[#others + 1] = other end
             if #others > 0 then
@@ -1019,7 +1020,7 @@ end
 local function sceneTopic(ids)
     local a, b = ids[1], ids[2]
     local roll = ZombRand(100)
-    local relA = Stories.RELATIONS[a] or {}
+    local relA = Stories.relationsOf(a)
     if roll < 35 and relA[b] then
         return nameOf(a) .. " and " .. nameOf(b) .. " get talking; " .. nameOf(a) .. " feels this way about "
             .. nameOf(b) .. ": " .. relA[b] .. "."
@@ -1111,7 +1112,7 @@ function Social.scene(said, cut)
         local rel = {}
         local Bonds = StoryEngine.Bonds
         for _, other in ipairs(ids) do
-            local note = (Stories.RELATIONS[fid] or {})[other]
+            local note = Stories.relationsOf(fid)[other]
             local bond = Bonds and Bonds.get(fid, other) or 0
             local recent = Bonds and Bonds.recent(fid, other) or nil
             if other ~= fid and (note or bond ~= 0 or recent) then

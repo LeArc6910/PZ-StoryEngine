@@ -73,6 +73,22 @@ function Fate.of(fid)
     return Life.npc(fid).fate
 end
 
+-- 방치·실패로 잃었는가 (Voices.lua: 냉랭한 후임). 플레이어의 선택으로 떠난 결말은 노드 fate.graceful,
+-- 디버그도 실패가 아님
+function Fate.failed(reason)
+    reason = tostring(reason or "")
+    if reason == "debug" then return false end
+    local nodeId = string.match(reason, "^story2:(.+)$")
+    if nodeId then
+        for _, list in pairs(Stories.ARCS) do
+            for _, n in ipairs(list) do
+                if n.id == nodeId then return not (n.fate and n.fate.graceful) end
+            end
+        end
+    end
+    return true
+end
+
 function Fate.isGone(fid)
     return Fate.of(fid) ~= nil
 end
@@ -255,7 +271,7 @@ function Fate.apply(fid, kind, reason)
     pcall(Net.toAll, "npcFate", { faction = fid, kind = kind })
     -- 며칠 뒤 그 거점의 다른 사람이 주파수를 이어받는다 (Voices.lua, 후임까지 빠지면 끝)
     if StoryEngine.Voices then
-        local ok, err = pcall(StoryEngine.Voices.onFate, fid, kind, now)
+        local ok, err = pcall(StoryEngine.Voices.onFate, fid, kind, now, reason)
         if not ok then log("voice schedule error:", err) end
     end
 end

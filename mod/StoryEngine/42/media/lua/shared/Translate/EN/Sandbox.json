@@ -187,5 +187,10 @@
     "Sandbox_StoryEngine_SpecialtyScope_option2": "Per player",
     "Sandbox_StoryEngine_SpecialtyScope_option3": "Both (others wait 1 day)",
     "Sandbox_StoryEngine_AiSideStories": "AI side stories",
-    "Sandbox_StoryEngine_AiSideStories_tooltip": "When a contact has used up the written side stories (or none fit), and the AI bridge is connected, the AI writes a new short side story. The game decides the kind (a quiet moment, a request for items, a horde to clear), the items and the rewards; the AI only writes the story. The text stays in the language most players used at the time."
+    "Sandbox_StoryEngine_AiSideStories_tooltip": "When a contact has used up the written side stories (or none fit), and the AI bridge is connected, the AI writes a new short side story. The game decides the kind (a quiet moment, a request for items, a horde to clear), the items and the rewards; the AI only writes the story. The text stays in the language most players used at the time.",
+    "Sandbox_StoryEngine_SuccessorRule": "Successor after a lost contact",
+    "Sandbox_StoryEngine_SuccessorRule_tooltip": "What happens to a contact's frequency when they died or left because they were neglected or let down (their camp ran dry, story requests failed again and again, a bad ending of their second story, the fever event failed).\nSame as always: a successor in 5-10 days with half the trust, empty supplies topped up to 30.\nCold successor: a successor in 20-30 days with 0 trust, supplies left empty and the long project half undone, so trades and specialty help have to be earned again from nothing.\nNo successor: only static remains on that frequency.\nContacts who left because of the players' own choice (Whitaker going to Knox, Vic leaving after you sided with the soldiers) always get the usual successor.",
+    "Sandbox_StoryEngine_SuccessorRule_option1": "Same as always",
+    "Sandbox_StoryEngine_SuccessorRule_option2": "Cold successor",
+    "Sandbox_StoryEngine_SuccessorRule_option3": "No successor"
 }

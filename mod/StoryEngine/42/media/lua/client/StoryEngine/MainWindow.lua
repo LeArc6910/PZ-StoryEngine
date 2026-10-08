@@ -367,8 +367,9 @@ local function messageLine(fid, m)
     elseif m.from == "system" and m.withdrawn then
         return " <RGB:0.95,0.45,0.4> " .. UI.escape(clock .. getText("IGUI_StoryEngine_Trade_WithdrawnLine")) .. " <LINE> "
     elseif m.from == "system" and m.voice then
-        return " <RGB:0.55,0.85,1> " .. UI.escape(clock .. getText("IGUI_StoryEngine_Voice_Line",
-            getText("IGUI_StoryEngine_Voice_" .. tostring(m.voice)))) .. " <LINE> "
+        local line = getText("IGUI_StoryEngine_Voice_Line", getText("IGUI_StoryEngine_Voice_" .. tostring(m.voice)))
+        if m.cold then line = line .. " " .. getText("IGUI_StoryEngine_Voice_Cold") end
+        return " <RGB:0.55,0.85,1> " .. UI.escape(clock .. line) .. " <LINE> "
     elseif m.from == "system" and m.fate then
         return " <RGB:0.75,0.6,0.9> " .. UI.escape(clock .. getText("IGUI_StoryEngine_Fate_Line_" .. tostring(m.fate),
             Factions.name(fid))) .. " <LINE> "

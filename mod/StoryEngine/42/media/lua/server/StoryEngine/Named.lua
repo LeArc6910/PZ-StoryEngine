@@ -102,7 +102,9 @@ function Named.candidates()
     local s = state()
     local first, rest = {}, {}
     for _, p in ipairs(Named.PEOPLE) do
+        -- 후임이 이어받은 채널은 앞 사람의 아는 사람을 찾지 않는다
         local ok = not p.storyOnly and not s.used[p.id] and not Factions.isGone(p.npc)
+            and not (Factions.voice and Factions.voice[p.npc])
             and Radio.channel(p.npc).trust >= Named.MIN_TRUST
         if ok and p.requires then
             local st = StoryEngine.Social and StoryEngine.Social.story(p.npc)

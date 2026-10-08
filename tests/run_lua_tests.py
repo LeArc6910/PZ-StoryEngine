@@ -126,8 +126,14 @@ def line_key_errors() -> list[str]:
                 continue
             keys += [f"IGUI_StoryEngine_Line_{fid}_{kind}_{i}" for i in range(1, n + 1)]
     voices = re.findall(r'"(\w+)"', re.search(r"^Lines.VOICES = \{(.*?)\}", lines, re.M).group(1))
+    vonly = {}
+    vonly_body = re.search(r"^Lines.VOICE_ONLY = \{(.*?)^\}", lines, re.S | re.M).group(1)
+    for kind, body in re.findall(r"(\w+) = \{ ((?:\w+ = true,? ?)+)\}", vonly_body):
+        vonly[kind] = set(re.findall(r"(\w+) = true", body))
     for voice in voices:
         for kind, n in table("Lines.VOICE_COUNT").items():
+            if kind in vonly and voice not in vonly[kind]:
+                continue
             keys += [f"IGUI_StoryEngine_Line_{voice}_{kind}_{i}" for i in range(1, n + 1)]
     for group, n in table("Lines.BANTER").items():
         for i in range(1, n + 1):
