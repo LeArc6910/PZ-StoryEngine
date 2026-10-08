@@ -119,7 +119,8 @@ function Client.handlers.questSubmitResult(args)
     local player = getPlayer()
     if not player then return end
     if args.ok then
-        HaloTextHelper.addGoodText(player, getText("IGUI_StoryEngine_Quest_Submit_ok"))
+        HaloTextHelper.addGoodText(player, getText(args.partial and "IGUI_StoryEngine_Quest_Submit_partial"
+            or "IGUI_StoryEngine_Quest_Submit_ok"))
     else
         local key = "IGUI_StoryEngine_Quest_Submit_" .. tostring(args.error)
         local text = getText(key)
@@ -133,7 +134,8 @@ function Client.handlers.tradePayResult(args)
     local player = getPlayer()
     if not player then return end
     if args.ok then
-        HaloTextHelper.addGoodText(player, getText("IGUI_StoryEngine_Trade_Paid"))
+        HaloTextHelper.addGoodText(player, getText(args.partial and "IGUI_StoryEngine_Trade_PaidPartial"
+            or "IGUI_StoryEngine_Trade_Paid"))
     else
         local key = "IGUI_StoryEngine_Trade_Error_" .. tostring(args.error)
         local text = getText(key)

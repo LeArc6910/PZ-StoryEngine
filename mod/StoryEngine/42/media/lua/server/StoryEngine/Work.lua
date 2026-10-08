@@ -118,6 +118,8 @@ function Work.check(fid, how, q)
     if Factions.isGone(fid) then return false, "gone" end
     local trust = Radio.channel(fid).trust
     if (how == "credit" or how == "favor") and (Radio.channel(fid).workBurnT or 0) > now().t then return false, "burned" end
+    -- 대가를 일부 낸 거래는 외상(남은 값)으로만 바꿀 수 있다 (나눠 내기, 2026-10-08)
+    if q and (q.paid or 0) > 0 and how ~= "credit" then return false, "paid" end
     if how == "credit" and trust < Work.CREDIT_TRUST then return false, "trust", Work.CREDIT_TRUST end
     if how == "favor" then
         if trust < Work.FAVOR_TRUST then return false, "trust", Work.FAVOR_TRUST end
@@ -427,12 +429,14 @@ function Work.choose(player, qid, how, force)
             { overhead = true })
     elseif how == "credit" then
         q.credit = true
-        q.price = math.ceil((q.price or 0) * Work.CREDIT_INTEREST)
+        -- 이자는 아직 안 낸 값에만
+        local paid = q.paid or 0
+        q.price = paid + math.ceil(math.max(0, (q.price or 0) - paid) * Work.CREDIT_INTEREST)
         local days = Work.CREDIT_DAYS
         q.deadlineT = t.t + days * 24 * 60
         q.delivered = (deliver(q, player, ps, q.goods, t) or {}).id
         StoryEngine.Trade.markSold(fid, q.stockRef)
-        Radio.react(fid, "event", topic .. " They must pay " .. StoryEngine.intToString(q.price) .. " within "
+        Radio.react(fid, "event", topic .. " They must pay " .. StoryEngine.intToString(q.price - paid) .. " within "
             .. StoryEngine.intToString(days) .. " days.",
             Lines.fallback(fid, "work_credit", "Take it now. Pay me within a few days.", { { t = "num", v = days } }), ps)
     elseif how == "favor" then
@@ -459,6 +463,7 @@ function Work.onState(q, state, outcome, trustDelta)
             child.cleanup = true
         end
         if state == "failed" and q.credit then Work.default(q, "credit_default", t) end
+        if state == "failed" and not q.credit and not q.payKind and (q.paid or 0) > 0 then Work.partialGoods(q, t) end
     end
     if q.favorCall and (state == "completed" or state == "declined" or state == "failed") then
         local ch = Radio.channel(q.origin.faction)
@@ -468,6 +473,44 @@ function Work.onState(q, state, outcome, trustDelta)
     end
 end
 
+-- 대가를 일부만 내고 기한이 지난 거래: 낸 비율만큼 물건을 줄여 보낸다 (2026-10-08 사용자 결정 "낸 만큼 반영")
+function Work.partialGoods(q, t)
+    local share = Quests.paidShare(q)
+    local goods = Work.trim(q.goods or {}, share)
+    -- 반올림: 남은 몫이 빠진 물건 중 가장 싼 것 값의 절반 이상이면 그것도 (물건 하나짜리 묶음을 80% 냈는데 빈손이 되지 않게)
+    local Value = StoryEngine.Value
+    local total, used = 0, 0
+    for _, ft in ipairs(q.goods or {}) do total = total + (Value.of(ft) or 0) end
+    for _, ft in ipairs(goods) do used = used + (Value.of(ft) or 0) end
+    local taken, cheapest, cheapV = {}, nil, nil
+    for _, ft in ipairs(goods) do taken[ft] = (taken[ft] or 0) + 1 end
+    for _, ft in ipairs(q.goods or {}) do
+        if (taken[ft] or 0) > 0 then
+            taken[ft] = taken[ft] - 1
+        else
+            local v = Value.of(ft) or 0
+            if not cheapV or v < cheapV then cheapest, cheapV = ft, v end
+        end
+    end
+    if cheapest and total * share - used >= cheapV / 2 then goods[#goods + 1] = cheapest end
+    q.goodsKept = goods
+    if #goods == 0 then
+        log("trade partial: nothing fits", q.id, share)
+        return
+    end
+    local player = nil
+    for _, p in ipairs(Sensor.players()) do
+        if not player or Store.playerKey(p) == q.target then player = p end
+    end
+    if not player then
+        log("trade partial: nobody online", q.id)
+        return
+    end
+    local ps = Store.player(player)
+    q.delivered = (deliver(q, player, ps, goods, t) or {}).id
+    log("trade partial goods", q.id, "share", share, #goods, "/", #(q.goods or {}))
+end
+
 -- 외상·빚을 안 갚음: 등급별로 크게 깎고, 2주 동안 외상·빚 금지
 Work.DEFAULT_TRUST_TO = 30      -- 떼먹으면 신뢰도가 적어도 여기까지 떨어진다 (점검 C2: 일거리 몇 번으로 금방 되돌리지 못하게)
 function Work.default(q, reason, t)
@@ -475,9 +518,13 @@ function Work.default(q, reason, t)
     local tier = math.max(1, math.min(#Work.DEFAULT_PENALTY, q.tier or 1))
     local trust = Radio.channel(fid).trust or 0
     local penalty = math.max(Work.DEFAULT_PENALTY[tier], trust - Work.DEFAULT_TRUST_TO)
+    -- 외상을 일부 갚았으면 못 낸 비율만큼만 (나눠 내기, 2026-10-08)
+    local unpaid = 1 - (q.credit and Quests.paidShare(q) or 0)
+    penalty = math.max(1, math.floor(penalty * unpaid + 0.5))
     StoryEngine.Trust.apply(fid, -penalty, reason, q.id, q.target)
     if StoryEngine.Life and q.category then
-        StoryEngine.Life.change(fid, StoryEngine.Value.RESOURCE_OF[q.category] or "safety", -5 * tier, "work_default")
+        StoryEngine.Life.change(fid, StoryEngine.Value.RESOURCE_OF[q.category] or "safety",
+            -math.floor(5 * tier * unpaid + 0.5), "work_default")
     end
     Radio.channel(fid).workBurnT = t.t + Work.BURN_MIN
     log("work default", fid, q.id, reason, -Work.DEFAULT_PENALTY[tier])

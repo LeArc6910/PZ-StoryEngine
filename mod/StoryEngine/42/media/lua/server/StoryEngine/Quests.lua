@@ -810,6 +810,12 @@ function Quests.react(q, outcome)
     local fight = outcome == "completed" and Quests.fightText(q) or nil
     if fight then topic = topic .. " On the way " .. fight .. "." end
     if outcome == "completed" then topic = topic .. Quests.creditText(q) end
+    -- 나눠 내다 기한을 넘겼다 (2026-10-08): 받은 만큼은 알고 있다
+    local share = outcome == "failed" and Quests.paidShare(q) or 0
+    if share > 0 then
+        topic = topic .. " They did send part of it in time (about " .. StoryEngine.intToString(math.floor(share * 100 + 0.5))
+            .. "%)" .. (q.kind == "trade" and ", so you send goods for that share" or "") .. ". Be fair about that part."
+    end
     local lineKind = (REACT_LINES[Quests.noteKind(q)] or {})[outcome]
     local args = q.kind == "named" and { { t = "key", v = "IGUI_StoryEngine_Named_" .. tostring(q.person) .. "_name" } } or nil
     local fallback = lineKind and StoryEngine.Lines.fallback(fid, lineKind, REACT_TEXT[lineKind] or "...", args) or nil
@@ -1431,6 +1437,12 @@ function Quests.punish(q)
         log("extort punishment dropped (npc gone)", q.id, fid0)
         return
     end
+    -- 요구한 것의 절반 이상을 나눠 냈으면 보복하지 않는다 (나눠 내기, 2026-10-08)
+    if Quests.paidShare(q) >= 0.5 then
+        q.punishPending = nil
+        log("extort punishment dropped (half paid)", q.id, Quests.paidShare(q))
+        return
+    end
     if not q.punishKey then
         local ch = fid0 and Radio.channel(fid0)
         q.punishKey = (ch and ch.lastOffender) or q.target
@@ -1844,7 +1856,8 @@ function Quests.respond(player, qid, accept)
 end
 
 -- 품목 점수 항목에 낼 물건: chosen(플레이어가 고른 아이템 id 목록)이 있으면 그것만, 없으면 싼 것부터 자동으로.
--- 그 품목이고 낼 수 있는 물건(Value.payable: 퀘스트 물건·채집 재료·상한 것·입은 것 제외)만. 가치가 모자라면 nil
+-- 그 품목이고 낼 수 있는 물건(Value.payable: 퀘스트 물건·채집 재료·상한 것·입은 것 제외)만.
+-- 남은 점수(points)를 채우면 멈춘다. 모자라면 가진 만큼 (여러 번 나눠 낸다, 2026-10-08)
 local function pointItems(player, cat, points, chosen, used, minTier)
     local V = StoryEngine.Value
     local list = {}
@@ -1862,29 +1875,54 @@ local function pointItems(player, cat, points, chosen, used, minTier)
     end
     local out, total = {}, 0
     for _, it in ipairs(list) do
-        if total >= points then break end
+        if total + 0.001 >= points then break end
         out[#out + 1] = it
         total = total + V.pointValue(it)
     end
-    if total + 0.001 < points then return nil end
-    return out
+    return out, total
 end
 
--- 부탁 물건을 인벤토리에서 꺼낸다. 장착하지 않은 것부터 쓴다. 모자라면 아무것도 꺼내지 않고 false
--- 품목 점수 항목("cat:food")은 chosen(고른 아이템 id) 또는 자동으로 그 품목 물건을 가치 합만큼
-local function takeNeed(player, need, chosen)
+-- 부탁에서 아직 남은 양 (정해진 물건은 개수, 품목 점수는 가치)
+function Quests.needLeft(q, n)
+    return math.max(0, (n[2] or 1) - ((q.got or {})[n[1]] or 0))
+end
+
+-- 낸 비율 0~1 (항목마다 낸 비율의 평균). 기한 안에 다 못 채웠을 때 감점·형편·거래 물건을 이만큼 반영한다
+function Quests.paidShare(q)
+    if q.kind == "trade" then
+        if not q.price or q.price <= 0 then return 0 end
+        return math.max(0, math.min(1, (q.paid or 0) / q.price))
+    end
+    local need, sum = q.need or {}, 0
+    if #need == 0 then return 0 end
+    for _, n in ipairs(need) do
+        local want = n[2] or 1
+        sum = sum + (want > 0 and math.min(1, ((q.got or {})[n[1]] or 0) / want) or 1)
+    end
+    return sum / #need
+end
+
+-- 부탁 물건을 인벤토리에서 꺼낸다 (여러 번 나눠 낸다, 2026-10-08 사용자 요청: 한 번에 다 들고 와야 해서 무게·모으기 부담).
+-- 항목마다 남은 양까지만, 가진 만큼 꺼내 q.got 에 쌓는다. 장착하지 않은 것부터 쓴다.
+-- 품목 점수 항목("cat:food")은 chosen(고른 아이템 id) 또는 자동으로 그 품목 물건을 남은 가치만큼.
+-- 반환: 꺼낸 물건 수
+local function takeNeedSome(player, q, chosen)
     local inv = player:getInventory()
     local plan, used = {}, {}
-    for _, n in ipairs(need) do
-        if Quests.pointCat(n) then
-            local picked = pointItems(player, Quests.pointCat(n), n[2], chosen, used, n[3])
-            if not picked then return false end
-            for _, it in ipairs(picked) do used[it] = true end
-            plan[#plan + 1] = picked
+    q.got = q.got or {}
+    for _, n in ipairs(q.need or {}) do
+        local left = Quests.needLeft(q, n)
+        if left > 0 and Quests.pointCat(n) then
+            local picked, value = pointItems(player, Quests.pointCat(n), left, chosen, used, n[3])
+            if #picked > 0 then
+                for _, it in ipairs(picked) do used[it] = true end
+                plan[#plan + 1] = { key = n[1], items = picked, amount = value }
+            end
         end
     end
-    for _, n in ipairs(need) do
-        if not Quests.pointCat(n) then
+    for _, n in ipairs(q.need or {}) do
+        local left = Quests.needLeft(q, n)
+        if left > 0 and not Quests.pointCat(n) then
             local list = inv:getAllTypeRecurse(n[1])
             local free, equipped = {}, {}
             for i = 0, list:size() - 1 do
@@ -1895,17 +1933,26 @@ local function takeNeed(player, need, chosen)
                     if player:isEquipped(it) then equipped[#equipped + 1] = it else free[#free + 1] = it end
                 end
             end
-            if #free + #equipped < n[2] then return false end
             local picked = {}
-            for _, it in ipairs(free) do if #picked < n[2] then picked[#picked + 1] = it end end
-            for _, it in ipairs(equipped) do if #picked < n[2] then picked[#picked + 1] = it end end
-            plan[#plan + 1] = picked
+            for _, it in ipairs(free) do if #picked < left then picked[#picked + 1] = it end end
+            for _, it in ipairs(equipped) do if #picked < left then picked[#picked + 1] = it end end
+            if #picked > 0 then plan[#plan + 1] = { key = n[1], items = picked, amount = #picked } end
         end
     end
-    for _, picked in ipairs(plan) do
-        for _, it in ipairs(picked) do
+    local gave = 0
+    for _, p in ipairs(plan) do
+        for _, it in ipairs(p.items) do
             StoryEngine.Items.remove(it, player)
+            gave = gave + 1
         end
+        q.got[p.key] = (q.got[p.key] or 0) + p.amount
+    end
+    return gave
+end
+
+local function needDone(q)
+    for _, n in ipairs(q.need or {}) do
+        if Quests.needLeft(q, n) > 0.001 then return false end
     end
     return true
 end
@@ -1972,10 +2019,19 @@ function Quests.submit(player, qid, itemIds)
     if q.kind == "deliver" or q.kind == "extort" then
         if q.state ~= "accepted" then return false, "not_active" end
         if not Factions.canTalk(player) then return false, "no_radio" end
-        if not takeNeed(player, q.need, type(itemIds) == "table" and itemIds or nil) then return false, "missing_items" end
+        local gave = takeNeedSome(player, q, type(itemIds) == "table" and #itemIds > 0 and itemIds or nil)
+        if gave == 0 then return false, "missing_items" end
         local now = Sensor.now()
         local ps = Store.player(player)
-        Quests.addHelper(q, Store.player(player))
+        Quests.addHelper(q, ps)
+        q.givers = q.givers or {}
+        q.givers[ps.name] = (q.givers[ps.name] or 0) + gave
+        if not needDone(q) then
+            -- 아직 남았다: 낸 만큼 기록만 하고 계속 (다음에 나머지를)
+            log("quest partial", q.id, ps.name, gave, "share", Quests.paidShare(q))
+            notifyTarget(q)
+            return true, nil, "partial"
+        end
         -- 협박에 응하면 작은 대가(1등급)만 준다
         local rewardTier = q.kind == "extort" and 1 or q.tier
         -- 빚 독촉은 빚을 갚는 것이라 보상 보급이 없다 (점검 C1)
@@ -2287,7 +2343,8 @@ function Quests.listFor(psKey, now)
             if q.kind == "horde" then
                 item.size, item.killed, item.killsNeeded = q.size, q.killed or 0, q.killsNeeded
             end
-            if q.kind == "collect" then item.got, item.givers = q.got, q.givers end
+            if q.kind == "collect" or q.kind == "deliver" or q.kind == "extort" then item.got, item.givers = q.got, q.givers end
+            if q.kind == "trade" then item.paid, item.payers = q.paid, q.payers end
             if q.kind == "defend" then
                 item.progress, item.needMin, item.waves, item.present = q.progress or 0, q.needMin, q.waves or 0, q.present
             end

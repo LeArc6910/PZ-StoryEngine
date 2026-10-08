@@ -337,7 +337,10 @@ function Commands.debugLife(player, args)
     local fid = tostring(args.faction or "")
     if not StoryEngine.Factions.byId[fid] then return end
     StoryEngine.Life.debugAdjust(fid, math.floor(tonumber(args.delta) or 0), args.set)
-    if args.clearWait then StoryEngine.Life.npc(fid).donatedT = nil end
+    if args.clearWait then
+        StoryEngine.Life.npc(fid).donatedT = nil
+        StoryEngine.Life.npc(fid).donateWin = nil
+    end
     if args.clearSpec then StoryEngine.Specialty.clearWait(fid) end
     if args.project then StoryEngine.Projects.debugAdd(fid, math.floor(tonumber(args.project) or 0)) end
     -- NPC 사이 사건 시험 (간격·확률 무시): share | clash | raid
@@ -682,13 +685,13 @@ end
 function Commands.tradePay(player, args)
     local ids = {}
     for _, v in pairs(args.items or {}) do ids[#ids + 1] = v end
-    local ok, why = StoryEngine.Trade.pay(player, tostring(args.id or ""), ids)
-    reply(player, "tradePayResult", { ok = ok, error = not ok and why or nil })
+    local ok, why, partial = StoryEngine.Trade.pay(player, tostring(args.id or ""), ids)
+    reply(player, "tradePayResult", { ok = ok, error = not ok and why or nil, partial = ok and partial == "partial" or nil })
 end
 
 function Commands.questSubmit(player, args)
-    local ok, why = StoryEngine.Quests.submit(player, tostring(args.id or ""), type(args.items) == "table" and args.items or nil)
-    reply(player, "questSubmitResult", { ok = ok, error = not ok and why or nil })
+    local ok, why, partial = StoryEngine.Quests.submit(player, tostring(args.id or ""), type(args.items) == "table" and args.items or nil)
+    reply(player, "questSubmitResult", { ok = ok, error = not ok and why or nil, partial = ok and partial == "partial" or nil })
 end
 
 -- 디버그: 이 자리의 좀비 밀집도와 지역 기준 (Danger.lua, 마굴 거르기 기준 확인용)

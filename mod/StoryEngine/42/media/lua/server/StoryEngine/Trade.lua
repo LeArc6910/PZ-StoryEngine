@@ -1251,11 +1251,13 @@ function Trade.pay(player, qid, itemIds)
     if q.state ~= "accepted" then return false, "not_active" end
     if q.payKind and not q.credit then return false, "paying_with_work" end   -- 일로 갚는 중 (Work.lua)
     if not Factions.canTalk(player) then return false, "no_radio" end
+    -- 여러 번 나눠 낸다 (2026-10-08 사용자 요청): 낸 가치는 q.paid 에 쌓이고, 남은 값을 채우면 그 뒤 물건은 가져가지 않는다
     local inv = player:getInventory()
+    local left = math.max(0, (q.price or 0) - (q.paid or 0))
     local chosen, seen, total = {}, {}, 0
     for _, id in ipairs(itemIds or {}) do
         local n = math.floor(tonumber(id) or -1)
-        if not seen[n] then
+        if not seen[n] and total + 0.001 < left then
             seen[n] = true
             local item = inv:getItemWithIDRecursiv(n)
             if item and Value.payable(player, item, q.payCategory) then
@@ -1264,9 +1266,18 @@ function Trade.pay(player, qid, itemIds)
             end
         end
     end
-    if total < q.price then return false, "not_enough" end
+    if #chosen == 0 or total <= 0 then return false, "not_enough" end
     for _, item in ipairs(chosen) do StoryEngine.Items.remove(item, player) end
-    log("trade paid", qid, total, "/", q.price)
+    q.paid = (q.paid or 0) + total
+    local ps = Store.player(player)
+    Quests.addHelper(q, ps)
+    q.payers = q.payers or {}
+    q.payers[ps.name] = (q.payers[ps.name] or 0) + total
+    log("trade paid", qid, total, "->", q.paid, "/", q.price)
+    if q.paid + 0.001 < q.price then
+        Quests.notify(q)
+        return true, nil, "partial"
+    end
     return Quests.completeTrade(player, q)
 end
 
