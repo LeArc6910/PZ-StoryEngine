@@ -168,6 +168,29 @@ local function questOf(sg, role)
     return id and Store.data().quests[id] or nil
 end
 
+-- 이 사건의 퀘스트(모금·소탕·화물 등, origin.saga)에 한 번이라도 손을 보탠 사람들 { 키 = 이름 }
+function Saga.helpers(sg)
+    local out = {}
+    for _, q in pairs(Store.data().quests) do
+        if q.origin and q.origin.saga == sg.id then
+            for key, name in pairs(q.helpers or {}) do out[key] = name end
+        end
+    end
+    return out
+end
+
+-- 결말의 신뢰 (이유 "saga" = 무리의 일, 집단 신뢰). 개인 모드에서는 손을 보탠 사람에게 개인 보너스
+-- (오른 집단 신뢰 x GroupHelperTrust, 최소 1, DESIGN_PER_PLAYER_TRUST 5-1절). 싱글·공유 모드는 예전처럼 신뢰 하나
+function Saga.trust(sg, fid, delta)
+    local Trust = StoryEngine.Trust
+    local applied = Trust.apply(fid, delta, "saga", nil, nil)
+    if applied > 0 and Trust.personalMode() then
+        local share = StoryEngine.Tuning and StoryEngine.Tuning.num("GroupHelperTrust") or 0.5
+        Trust.bonus(fid, Saga.helpers(sg), applied, share, "group_help")
+    end
+    return applied
+end
+
 -- 모금이 얼마나 찼는지 (0~1)
 local function collectShare(q)
     if not q then return 0 end
@@ -436,7 +459,7 @@ function Epidemic.finish(sg, now)
     if share >= 1 then
         outcome = "cured"
         for _, f in ipairs(Factions.list) do lifeChange(f.id, "medical", 20, "saga") end
-        if StoryEngine.Trust and alive("doc") then StoryEngine.Trust.apply("doc", 3, "saga", nil, nil) end
+        if StoryEngine.Trust and alive("doc") then Saga.trust(sg, "doc", 3) end
         spread({ "doc", "pike" }, "The fever has broken across the county thanks to the medicine the players gathered.")
     elseif share >= 0.5 then
         outcome = "partial"

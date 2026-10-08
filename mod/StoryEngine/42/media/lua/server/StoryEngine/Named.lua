@@ -97,15 +97,16 @@ local function anyOpen()
     return nil
 end
 
--- 지금 부탁할 수 있는 사람 (NPC 가 살아 있고 신뢰도가 되고 아직 안 쓴 사람). 이야기 결말이 필요한 사람이 먼저
-function Named.candidates()
+-- 지금 부탁할 수 있는 사람 (NPC 가 살아 있고 신뢰도가 되고 아직 안 쓴 사람). 이야기 결말이 필요한 사람이 먼저.
+-- key: 개인 모드에서 받을 사람 (그 사람의 개인 신뢰로 판정)
+function Named.candidates(key)
     local s = state()
     local first, rest = {}, {}
     for _, p in ipairs(Named.PEOPLE) do
         -- 후임이 이어받은 채널은 앞 사람의 아는 사람을 찾지 않는다
         local ok = not p.storyOnly and not s.used[p.id] and not Factions.isGone(p.npc)
             and not (Factions.voice and Factions.voice[p.npc])
-            and Radio.channel(p.npc).trust >= Named.MIN_TRUST
+            and StoryEngine.Trust.of(p.npc, key) >= Named.MIN_TRUST
         if ok and p.requires then
             local st = StoryEngine.Social and StoryEngine.Social.story(p.npc)
             ok = st ~= nil and st.node == p.requires
@@ -141,7 +142,7 @@ function Named.propose(player, ps, person, now, opts)
         radius = Quests.RADIUS, distance = math.floor(found.distance),
         origin = { source = opts.story and "story" or "director", faction = person.npc, initiator = "npc", story = opts.story,
                    day = Store.dayIndex(now.dayKey), date = now.date, clock = now.clock },
-        target = ps.key, targetName = ps.name,
+        target = ps.key, targetName = ps.name, addressed = opts.addressed,
         state = "proposed", createdT = now.t, respondBy = now.t + Quests.RESPOND_MIN, spawned = false,
     }
     d.quests[q.id] = q
@@ -155,7 +156,7 @@ function Named.propose(player, ps, person, now, opts)
         .. (opts.why and (" This is part of what is going on in your life right now: " .. opts.why .. ".") or ""),
         StoryEngine.Lines.fallback(person.npc, "named_ask", "Someone I knew is out there, turned. Please put them to rest.",
             { { t = "key", v = "IGUI_StoryEngine_Named_" .. person.id .. "_name" }, { t = "town", v = place.town },
-              { t = "dir", v = code }, { t = "num", v = distance } }), ps)
+              { t = "dir", v = code }, { t = "num", v = distance } }), ps, { private = opts.addressed ~= nil })
     log("named proposed", q.id, person.id, person.npc, "at", cx, cy, "for", ps.name)
     Quests.notify(q)
     return q
@@ -164,6 +165,7 @@ end
 -- 하루 한 번 (EveryHours 에서 날짜가 바뀌면)
 function Named.daily(now)
     if not Named.enabled() then return end
+    if StoryEngine.Trust and StoryEngine.Trust.personalMode() then return end   -- 개인 모드는 개인별 부탁이 맡는다
     local s = state()
     local day = Store.dayIndex(now.dayKey)
     if s.rollDay == day then return end

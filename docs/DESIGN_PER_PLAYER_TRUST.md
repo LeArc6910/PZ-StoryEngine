@@ -1,4 +1,4 @@
-# 개인 신뢰 (2026-10-08 설계, 2026-10-09 다시 정리, 아직 구현 안 함)
+# 개인 신뢰 (2026-10-08 설계, 2026-10-09 다시 정리·구현, Lua 테스트 통과, 인게임 미검증)
 
 ## 1. 목적과 가정
 
@@ -280,3 +280,21 @@
 - (2026-10-09, 점검 보완) 개인별 부탁의 답할 시간은 받은 사람이 접속한 동안만, 큰 이야기를 막지 않음, 디렉터 사건 나누기(5-3절 표),
   2→1 되돌리면 집단 = max(집단, 개인 평균), 파급은 아는 NPC 에게만, 복구 작전 NPC 지원은 집단 신뢰, 일지 교신 기록도 받은 사람에게만,
   퀘스트 탭 "다른 사람 부탁" 묶음, 개인 신뢰 디버그
+
+## 12. 구현 메모 (2026-10-09)
+
+- 핵심 `server/StoryEngine/Trust.lua`: `Trust.personalMode()`(멀티 서버 + `TrustBenefits` 2), `Trust.of(fid, key)`(혜택 판정),
+  `Trust.personal`(읽기만: 모르는 사이면 처음 연락할 때 받을 값을 보여 주고 기록은 안 만듦), `Trust.ensure`(처음 연락: 기록을 만듦),
+  `Trust.addPersonal`, `Trust.apply(..., scope)`(이유별 `Trust.SCOPE`), `Trust.forQuest`(무리의 일/개인의 일, 도운 사람 몫),
+  `Trust.bonus`, `Trust.chat`(사람마다 하루 +1, 40 까지), `Trust.daily/hourly`(식음, 접속한 날), `Trust.checkMode`(모드 전환),
+  `Trust.forget`(죽음), `Trust.resetPersonal`(후임), `Trust.personContext`(AI 의 "이 사람").
+- **처음 연락**(기록이 생기는 때): 그 NPC 에게 무전으로 말함, 개인별 부탁을 받음, 그 NPC 의 일에 손을 보탬(`Quests.addHelper`),
+  그 사람의 개인 신뢰가 바뀜. 목록·툴팁·AI 맥락을 만드는 것만으로는 생기지 않는다 (파급·식음이 아는 사이에만 가므로).
+- 개인별 부탁 `Director.personalAsks`(매시): 종류 가중치 물건 45·소탕 30·찾아오기 15·아는 얼굴 10, 건물을 못 찾거나 오류면 물건 부탁으로.
+  못 냈으면 6시간 뒤 다시. 디버그 `debugPersonalAsk`.
+- 받은 사람에게만: `msg.to`(+ `private` 면 다른 사람에게 "따로 연락했다" 줄, `Radio.viewFor`), 거래 막힘 줄도 청한 사람에게만(`Radio.mineOnly`).
+- 거래 재고는 NPC 공유, 다른 사람의 열린 거래가 잡아 둔 묶음은 품절로 보임(`Trade.reserved`). 공용 주파수 제안은 잡아 두지 않음.
+- **남은 한계**: 빚(`ch.favorOwed`)은 NPC 마다 하나라 남의 빚이 내 빚 자격을 막는다. A-Life 자동·요청 지원은 테스트 틀에 A-Life 가 없어 미검증.
+  공유 모드의 거래 막힘 줄·`ALife.channelInfo` 는 집단 신뢰 그대로.
+- 모드 확인: 서버 시작(`OnServerStarted`)과 첫 사용 때 `Trust.checkMode`. 처음 보는 세이브가 이틀 넘게 진행됐으면 예전 공유 세이브로 보고 옮긴다.
+- 테스트: `test_personal_trust`(19), `test_personal_benefits`(18), `test_personal_group`(19), `test_personal_client`(8), 브릿지 `tests/test_personal.py`(6).

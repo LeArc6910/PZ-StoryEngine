@@ -443,12 +443,41 @@ function Ops.start(kind, why)
     return true, op
 end
 
+-- 개인 모드 (DESIGN_PER_PLAYER_TRUST 5-1절, 2026-10-09 사용자 결정): 막을 끝내면 그 막 퀘스트에 손을 보탠 사람마다
+-- 작전을 이끄는 NPC 에게 개인 신뢰 +1 (막마다 한 사람 한 번). 집단 신뢰는 그대로. 싱글·공유 모드는 아무것도 안 함
+Ops.HELPER_TRUST = 1
+
+function Ops.rewardHelpers(op, n)
+    local Trust = StoryEngine.Trust
+    if not Trust or not Trust.personalMode() then return 0 end
+    local fid = op.lead
+    if not fid or not Factions.byId[fid] or Factions.isGone(fid) then return 0 end
+    op.rewarded = op.rewarded or {}
+    local done = op.rewarded[n] or {}
+    op.rewarded[n] = done
+    local count = 0
+    for _, qid in ipairs(op.quests[n] or {}) do
+        local q = Store.data().quests[qid]
+        for key in pairs(q and q.helpers or {}) do
+            local ps = Store.data().players[key]
+            if not done[key] and ps and not ps.dead then
+                done[key] = true
+                Trust.addPersonal(fid, key, Ops.HELPER_TRUST, "op_help", qid)
+                count = count + 1
+            end
+        end
+    end
+    if count > 0 then log("ops act helpers", op.id, n, count) end
+    return count
+end
+
 function Ops.actDone()
     local op = state().current
     if not op then return end
     local now = Sensor.now()
     local a = act(op)
     log("ops act done", op.id, op.act, a.id)
+    Ops.rewardHelpers(op, op.act)
     if a.kind == "defend" then
         -- 파이크가 버틴 사람들을 위로한다
         for _, qid in ipairs(op.quests[op.act] or {}) do

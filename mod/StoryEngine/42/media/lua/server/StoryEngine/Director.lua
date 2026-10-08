@@ -112,11 +112,12 @@ Director.events.storm = {
     end,
 }
 
--- 이 플레이어(와 이 세력)에게 줄 수 있는 최고 등급: 진행 단계 상한과 세력 신뢰도 상한 중 낮은 쪽
+-- 이 플레이어(와 이 세력)에게 줄 수 있는 최고 등급: 진행 단계 상한과 세력 신뢰도 상한 중 낮은 쪽.
+-- 개인 모드는 그 사람의 개인 신뢰로 (DESIGN_PER_PLAYER_TRUST 4절)
 function Director.tierCap(ps, fid)
     local cap = Store.STAGE_MAX_TIER[Store.stage(ps)] or Director.MAX_INTENSITY
     if fid and StoryEngine.Factions.byId[fid] then
-        local trust = StoryEngine.Radio.channel(fid).trust
+        local trust = StoryEngine.Trust.of(fid, ps and ps.key)
         for _, row in ipairs(Store.TRUST_MAX_TIER) do
             if trust >= row.min then
                 cap = math.min(cap, row.tier)
@@ -267,8 +268,14 @@ local function questRunner(kind, done, picker)
 end
 
 -- NPC 의 부탁: 이미 답을 기다리거나 진행 중인 부탁이 있으면 새로 하지 않는다
-local function requestEligible(ctx, entry)
+local function openRequestFor(ctx, entry)
     return not (Quests.openFor(entry.ps.key, "deliver") or Quests.openFor(entry.ps.key, "horde"))
+end
+
+local function requestEligible(ctx, entry)
+    -- 개인 모드는 사람마다 따로 오는 개인별 부탁(Director.personalAsks)이 맡는다 (급한 부탁은 그대로 서버 전체)
+    if StoryEngine.Trust.personalMode() then return false end
+    return openRequestFor(ctx, entry)
 end
 
 Director.events.npc_request = {
@@ -297,12 +304,12 @@ Director.events.npc_request = {
 
 -- 급한 부탁: 핵심 자원이 바닥인 NPC 가 NPC 별 관문을 무시하고 청한다 (NpcEvents, 서버 전체 하루 간격)
 Director.events.npc_emergency = {
-    canRun = anyEligible(requestEligible, function(ctx)
+    canRun = anyEligible(openRequestFor, function(ctx)
         local NE = StoryEngine.NpcEvents
         return NE ~= nil and NE.emergencyGapOk(ctx.now) and NE.emergency() ~= nil
     end),
     weight = function(ctx, entry) return 4 end,
-    eligible = requestEligible,
+    eligible = openRequestFor,
     run = function(ctx, entry, intensity)
         local NE = StoryEngine.NpcEvents
         local fid, res = NE.emergency()
@@ -328,7 +335,11 @@ Director.events.supply_drop = {
 }
 
 -- 회수 부탁도 NPC 가 청하는 일이라 공통 관문을 쓴다
-local fetchEligible = questEligible("fetch")
+local fetchEligible0 = questEligible("fetch")
+local function fetchEligible(ctx, entry)
+    if StoryEngine.Trust.personalMode() then return false end      -- 개인별 부탁이 맡는다
+    return fetchEligible0(ctx, entry)
+end
 Director.events.fetch_item = {
     canRun = anyEligible(fetchEligible, Director.askOpen),
     weight = function(ctx, entry) return 1 end,
@@ -449,11 +460,11 @@ Director.events.rescue_signal = {
     end,
 }
 
--- 신뢰하는 세력이 먼저 챙겨 주는 보급 (낮은 등급만)
-local function friendFaction()
+-- 신뢰하는 세력이 먼저 챙겨 주는 보급 (낮은 등급만). 개인 모드는 그 사람의 개인 신뢰로, 사람마다 3일 간격
+local function friendFaction(key)
     local list = {}
     for _, f in ipairs(StoryEngine.Factions.list) do
-        if StoryEngine.Radio.channel(f.id).trust >= Director.FRIEND_TRUST and not StoryEngine.Factions.isGone(f.id) then
+        if StoryEngine.Trust.of(f.id, key) >= Director.FRIEND_TRUST and not StoryEngine.Factions.isGone(f.id) then
             list[#list + 1] = f.id
         end
     end
@@ -462,8 +473,13 @@ local function friendFaction()
 end
 
 local function friendEligible(ctx, entry)
-    if not serverGap(ctx, "lastFriendT", Director.FRIEND_GAP_MIN) then return false end
-    return friendFaction() ~= nil
+    if StoryEngine.Trust.personalMode() then
+        local last = entry.ps.friendGiftT
+        if last and ctx.now.t - last < Director.FRIEND_GAP_MIN then return false end
+    elseif not serverGap(ctx, "lastFriendT", Director.FRIEND_GAP_MIN) then
+        return false
+    end
+    return friendFaction(entry.ps.key) ~= nil
 end
 
 Director.events.friend_gift = {
@@ -471,7 +487,7 @@ Director.events.friend_gift = {
     weight = function(ctx, entry) return 2 end,
     eligible = friendEligible,
     run = function(ctx, entry, intensity)
-        local fid = friendFaction()
+        local fid = friendFaction(entry.ps.key)
         if not fid then return false end
         local tier = math.min(intensity, Director.FRIEND_MAX_TIER, Director.tierCap(entry.ps, fid))
         local q, why = Quests.create("supply_drop", entry.player, entry.ps, tier, ctx.now,
@@ -481,15 +497,17 @@ Director.events.friend_gift = {
             return false
         end
         state().lastFriendT = ctx.now.t
+        entry.ps.friendGiftT = ctx.now.t
         return true
     end,
 }
 
--- 신뢰도가 바닥인 험한 세력의 협박. open 이 있으면 관문이 열린 세력 중에서만
-local function threatFaction(open)
+-- 신뢰도가 바닥인 험한 세력의 협박. open 이 있으면 관문이 열린 세력 중에서만.
+-- 개인 모드는 그 사람(key)의 개인 신뢰가 바닥일 때 그 사람을 (DESIGN_PER_PLAYER_TRUST 4절)
+local function threatFaction(open, key)
     local best, bestTrust = nil, nil
     for _, f in ipairs(StoryEngine.Factions.list) do
-        local trust = StoryEngine.Radio.channel(f.id).trust
+        local trust = StoryEngine.Trust.of(f.id, key)
         -- 장기 프로젝트: 빅 교역소 완성이면 협박 중단, 방위대 검문소 완성이면 빅의 협박이 절반
         local P = StoryEngine.Projects
         local quiet = f.id == "rats" and P ~= nil and (P.done("rats") or P.ratsQuietToday())
@@ -506,7 +524,7 @@ local function extortEligible(ctx, entry)
     if Quests.openFor(entry.ps.key, "extort") then return false end
     local open = Director.openAskers(ctx)
     if not open and not ctx.forced then return false end
-    return threatFaction(open) ~= nil
+    return threatFaction(open, entry.ps.key) ~= nil
 end
 
 Director.events.extortion = {
@@ -514,8 +532,8 @@ Director.events.extortion = {
     weight = function(ctx, entry) return 1 end,
     eligible = extortEligible,
     run = function(ctx, entry, intensity)
-        local fid = threatFaction(Director.openAskers(ctx))
-        if not fid and ctx.forced then fid = threatFaction() end
+        local fid = threatFaction(Director.openAskers(ctx), entry.ps.key)
+        if not fid and ctx.forced then fid = threatFaction(nil, entry.ps.key) end
         if not fid then return false end
         local q, why = Quests.demand(entry.player, entry.ps, fid, math.min(intensity, Director.tierCap(entry.ps)), ctx.now)
         if not q then
@@ -748,6 +766,138 @@ function Director.statusText()
     end
     return table.concat(parts, " | ")
 end
+
+-- ---------------------------------------------------------------- 개인별 부탁 (개인 모드, DESIGN_PER_PLAYER_TRUST 5-3절)
+-- 디렉터 사건(서버 전체 이틀에 하나) 대신 접속자마다 PersonalAskMinDays~MaxDays 일에 하나. 받은 사람만 수락·거절하고,
+-- 결과는 그 사람의 개인 신뢰로 (도운 사람은 HelperTrustShare 배). 상태 ps.pask = { nextT, last = { fid = t } }
+Director.PERSONAL_FIRST_DAYS = 2           -- 새 캐릭터는 처음 이만큼 없음
+Director.PERSONAL_NPC_GAP_DAYS = 4         -- 같은 NPC 가 같은 사람에게
+Director.PERSONAL_KINDS = { { "deliver", 45 }, { "horde", 30 }, { "fetch", 15 }, { "named", 10 } }
+
+local function askDays()
+    local T = StoryEngine.Tuning
+    local lo = math.max(0.5, T and T.num("PersonalAskMinDays") or 2)
+    local hi = math.max(lo, T and T.num("PersonalAskMaxDays") or 5)
+    return lo + ZombRandFloat(0, hi - lo)
+end
+
+local function openPersonal(key)
+    for _, q in pairs(Store.data().quests) do
+        if q.addressed == key and (q.state == "proposed" or Quests.isActive(q)) then return q end
+    end
+    return nil
+end
+
+-- 그 사람에게 청할 NPC: 개인 신뢰 가중치(+10), 같은 NPC 는 PERSONAL_NPC_GAP_DAYS 간격
+local function personalAsker(ps, now)
+    local Factions, Trust = StoryEngine.Factions, StoryEngine.Trust
+    local last = ps.pask and ps.pask.last or {}
+    local total, list = 0, {}
+    for _, f in ipairs(Factions.list) do
+        local t = last[f.id]
+        if not Factions.isGone(f.id) and not (t and now.t - t < Director.PERSONAL_NPC_GAP_DAYS * 24 * 60) then
+            local w = Trust.of(f.id, ps.key) + 10
+            list[#list + 1] = { id = f.id, w = w }
+            total = total + w
+        end
+    end
+    if #list == 0 then return nil end
+    local roll = ZombRandFloat(0, total)
+    for _, it in ipairs(list) do
+        roll = roll - it.w
+        if roll <= 0 then return it.id end
+    end
+    return list[#list].id
+end
+
+local function pickKind()
+    local total = 0
+    for _, k in ipairs(Director.PERSONAL_KINDS) do total = total + k[2] end
+    local r = ZombRand(total)
+    for _, k in ipairs(Director.PERSONAL_KINDS) do
+        r = r - k[2]
+        if r < 0 then return k[1] end
+    end
+    return "deliver"
+end
+
+-- 한 사람에게 개인별 부탁 하나. force: 간격 무시 (디버그). 반환: 퀘스트 | nil, 이유
+function Director.personalAsk(player, ps, now, force, forceKind)
+    local Trust = StoryEngine.Trust
+    if not Trust.personalMode() then return nil, "not_personal" end
+    if openPersonal(ps.key) then return nil, "open" end
+    if not force then
+        if StoryEngine.Ops and StoryEngine.Ops.active() then return nil, "ops" end
+        if StoryEngine.Saga and StoryEngine.Saga.active() then return nil, "saga" end
+    end
+    local fid = personalAsker(ps, now)
+    if not fid then return nil, "no_npc" end
+    local tier = math.min(Director.randomIntensity(), Director.tierCap(ps, fid))
+    local kind = forceKind or pickKind()
+    local q, why
+    -- 건물을 못 찾는 등으로 안 되면 물건 부탁으로 (오류도 막는다)
+    local function try(fn, ...)
+        local ok, a, b = pcall(fn, ...)
+        if not ok then
+            log("personal ask " .. kind .. " error:", a)
+            return nil, "error"
+        end
+        return a, b
+    end
+    if kind == "named" and StoryEngine.Named and StoryEngine.Named.enabled() then
+        local list = StoryEngine.Named.candidates(ps.key)
+        local person = nil
+        for _, p in ipairs(list) do if p.npc == fid then person = p end end
+        person = person or list[1]
+        if person then
+            q, why = try(StoryEngine.Named.propose, player, ps, person, now, { addressed = ps.key })
+            if q then fid = person.npc end
+        end
+    elseif kind == "horde" then
+        q, why = try(Quests.proposeHorde, player, ps, fid, tier, now, { addressed = ps.key })
+    elseif kind == "fetch" then
+        q, why = try(Quests.create, "fetch", player, ps, tier, now, { source = "director", faction = fid, addressed = ps.key })
+    end
+    if not q then q, why = Quests.propose(player, ps, fid, tier, now, { addressed = ps.key }) end
+    if not q then return nil, why end
+    ps.pask = ps.pask or { last = {} }
+    ps.pask.last = ps.pask.last or {}
+    ps.pask.last[fid] = now.t
+    ps.pask.nextT = now.t + math.floor(askDays() * 24 * 60)
+    Trust.ensure(fid, ps.key)          -- 개인별 부탁을 받는 것도 처음 연락이다
+    log("personal ask", q.id, q.kind, fid, "for", ps.name, "next in", StoryEngine.intToString(math.floor((ps.pask.nextT - now.t) / 60)), "h")
+    return q
+end
+
+-- 게임 내 1시간마다: 접속자마다 차례가 됐으면
+function Director.personalAsks()
+    local Trust = StoryEngine.Trust
+    if not Trust.personalMode() then return end
+    if StoryEngine.option("Director", true) ~= true or StoryEngine.option("NpcRequests", true) ~= true then return end
+    local now = Sensor.now()
+    for _, p in ipairs(Sensor.players()) do
+        local ps = Store.player(p)
+        if ps and not ps.dead then
+            ps.pask = ps.pask or { last = {} }
+            if not ps.pask.nextT then
+                ps.pask.nextT = now.t + Director.PERSONAL_FIRST_DAYS * 24 * 60
+            elseif now.t >= ps.pask.nextT and not openPersonal(ps.key) then
+                local ok, q, why = pcall(Director.personalAsk, p, ps, now)
+                if not ok then
+                    log("personal ask error:", q)
+                elseif not q then
+                    ps.pask.nextT = now.t + 6 * 60          -- 못 냈으면 6시간 뒤 다시
+                    log("personal ask skipped", ps.name, tostring(why))
+                end
+            end
+        end
+    end
+end
+
+Events.EveryHours.Add(function()
+    local ok, err = pcall(Director.personalAsks)
+    if not ok then log("personal asks error:", err) end
+end)
 
 -- 08:00 / 20:00 (EveryTenMinutes 는 매시 00~09분 사이에 한 번 온다)
 Events.EveryTenMinutes.Add(function()

@@ -357,15 +357,43 @@ function Quests.openFor(psKey, kind)
     return nil
 end
 
--- 이 세력과 진행 중이거나 답을 기다리는 거래 (서버 전체에서 세력당 하나)
-function Quests.openTrade(fid)
+-- 이 세력과 진행 중이거나 답을 기다리는 거래 (서버 전체에서 세력당 하나).
+-- 개인 모드(DESIGN_PER_PLAYER_TRUST 4절)는 (NPC, 사람)마다 하나: key 를 주면 그 사람의 거래만 본다
+function Quests.openTrade(fid, key)
+    local perPerson = key ~= nil and StoryEngine.Trust ~= nil and StoryEngine.Trust.personalMode()
     for _, q in pairs(all()) do
-        if q.kind == "trade" and (Quests.isActive(q) or q.state == "proposed") and q.origin and q.origin.faction == fid then
+        if q.kind == "trade" and (Quests.isActive(q) or q.state == "proposed") and q.origin and q.origin.faction == fid
+            and (not perPerson or q.target == key) then
             return q
         end
     end
     return nil
 end
+
+function Quests.isOnline(key)
+    for _, p in ipairs(Sensor.players()) do
+        if Store.playerKey(p) == key then return true end
+    end
+    return false
+end
+
+-- 받은 사람이 접속하지 않은 채 답할 시간이 지났다: 감점·반응 없이 닫는다 (DESIGN_PER_PLAYER_TRUST 5-3절)
+function Quests.lapse(q, now)
+    q.state, q.endedT, q.lapsed = "declined", now.t, true
+    q.history = q.history or {}
+    Store.push(q.history, { state = "lapsed", t = now.t }, 20)
+    log("quest lapsed (addressee away)", q.id, q.addressed)
+    Quests.notify(q)
+end
+
+-- 개인 모드의 개인별 부탁: 받은 사람만 보이는 무전 (DESIGN_PER_PLAYER_TRUST 8절)
+local function privateTo(q)
+    if not (StoryEngine.Trust and StoryEngine.Trust.personalMode()) then return nil end
+    if q.addressed then return q.addressed end
+    local parent = q.origin and q.origin.rewardFor and all()[q.origin.rewardFor]
+    return parent and parent.addressed or nil
+end
+Quests.privateTo = privateTo
 
 -- 퀘스트는 서버의 모든 플레이어가 함께 본다. 바뀌면 접속한 모두에게 알린다.
 local function notifyTarget(q)
@@ -819,7 +847,8 @@ function Quests.react(q, outcome)
     local lineKind = (REACT_LINES[Quests.noteKind(q)] or {})[outcome]
     local args = q.kind == "named" and { { t = "key", v = "IGUI_StoryEngine_Named_" .. tostring(q.person) .. "_name" } } or nil
     local fallback = lineKind and StoryEngine.Lines.fallback(fid, lineKind, REACT_TEXT[lineKind] or "...", args) or nil
-    Radio.react(fid, "event", topic, fallback, Store.data().players[q.target])
+    local to = privateTo(q)
+    Radio.react(fid, "event", topic, fallback, Store.data().players[to or q.target], { private = to ~= nil })
 end
 
 -- outcome: 신뢰도·반응에 쓰는 결과 이름 (무응답은 state = declined, outcome = ignored)
@@ -1018,7 +1047,9 @@ function Quests.announce(q, player)
     -- 그 NPC 의 말투로 (Lines.lua). 없으면 위의 공통 문장
     local Lines = StoryEngine.Lines
     if Lines and Lines.has(fid, lineKind) then lt = Lines.lt(fid, lineKind, lt.args) end
-    Radio.push(fid, { from = "npc", text = text, lt = lt, clock = Sensor.now().clock, quest = q.id })
+    local to = privateTo(q)
+    Radio.push(fid, { from = "npc", text = text, lt = lt, clock = Sensor.now().clock, quest = q.id,
+                      to = to, private = to and true or nil })
 end
 
 -- ---------------------------------------------------------------- create / submit
@@ -1070,6 +1101,7 @@ function Quests.create(kind, player, ps, tier, now, origin, itemsOverride)
         state = "offered", createdT = now.t,
         deadlineT = now.t + Quests.deadlineMinutes(found.distance),
         spawned = false, items = items,
+        addressed = origin.addressed,
     }
     -- NPC 편지를 실을 수 있으면 물건에 더한다 (Letters.lua)
     if StoryEngine.Letters then
@@ -1276,12 +1308,12 @@ function Quests.propose(player, ps, fid, tier, now, opts)
         noTrust = opts.favor and true or nil,          -- 빚을 갚는 부탁: 신뢰도는 갚았는지로만 (점검 C1)
         origin = { source = "director", faction = fid, initiator = "npc",
                    day = Store.dayIndex(now.dayKey), date = now.date, clock = now.clock },
-        target = ps.key, targetName = ps.name,
+        target = ps.key, targetName = ps.name, addressed = opts.addressed,
         state = "proposed", createdT = now.t, respondBy = now.t + Quests.RESPOND_MIN,
     }
     d.quests[q.id] = q
     note(ps, "deliver_proposed", q, now, nil)
-    log("quest proposed", q.id, fid, Quests.needText(q), "for", ps.name)
+    log("quest proposed", q.id, fid, Quests.needText(q), "for", ps.name, opts.addressed and "(personal)" or "")
     local tierWord = ({ "small", "modest", "good", "large", "huge" })[q.tier] or "small"
     local urgency = opts.urgent and (" This is URGENT: your people have almost run out and cannot wait; they have one day"
         .. " once they agree.") or ""
@@ -1293,7 +1325,7 @@ function Quests.propose(player, ps, fid, tier, now, opts)
         .. "." .. urgency .. " Payment: a " .. tierWord .. " supply cache.",
         StoryEngine.Lines.fallback(fid, opts.favor and "favor_call" or "request",
             "Could you find me " .. Quests.needText(q) .. "? I will pay you back. Answer me on the radio.",
-            { { t = "need", v = q.need } }), ps)
+            { { t = "need", v = q.need } }), ps, { private = opts.addressed ~= nil })
     notifyTarget(q)
     return q
 end
@@ -1445,7 +1477,9 @@ function Quests.punish(q)
     end
     if not q.punishKey then
         local ch = fid0 and Radio.channel(fid0)
-        q.punishKey = (ch and ch.lastOffender) or q.target
+        -- 개인 모드는 협박받은 그 사람 (개인 신뢰가 바닥인 사람, DESIGN_PER_PLAYER_TRUST 4절)
+        q.punishKey = (StoryEngine.Trust and StoryEngine.Trust.personalMode() and q.target)
+            or (ch and ch.lastOffender) or q.target
     end
     local target = nil
     for _, p in ipairs(Sensor.players()) do
@@ -1606,7 +1640,13 @@ function Quests.pickMarket(player, qid, index)
     if not opt then return false, "bad_option" end
     local ps = Store.player(player)
     if Quests.openFor(ps.key, "trade") then return false, "open_deal" end
-    if Factions.isGone(opt.faction) or Quests.openTrade(opt.faction) then return false, "seller_busy" end
+    if Factions.isGone(opt.faction) or Quests.openTrade(opt.faction, ps.key) then return false, "seller_busy" end
+    -- 개인 모드: 같은 재고 묶음을 다른 사람의 거래가 이미 잡아 두었으면 품절
+    local ref = opt.stockRef
+    if ref and StoryEngine.Trade and StoryEngine.Trade.reserved
+        and StoryEngine.Trade.reserved(opt.faction, ref.category, ref.tier, ref.index, ref.seq) then
+        return false, "sold_out"
+    end
     local now = Sensor.now()
     local trade = Quests.proposeTrade(ps, opt.faction, {
         tier = opt.tier, category = opt.category, goods = opt.goods, payCategory = opt.payCategory, price = opt.price,
@@ -1657,7 +1697,7 @@ function Quests.proposeHorde(player, ps, fid, tier, now, opts)
         size = size, killsNeeded = math.ceil(size * Quests.HORDE_CLEAR), killed = 0,
         origin = { source = opts.story and "story" or "director", faction = fid, initiator = "npc", story = opts.story,
                    day = Store.dayIndex(now.dayKey), date = now.date, clock = now.clock },
-        target = ps.key, targetName = ps.name, why = opts.why,
+        target = ps.key, targetName = ps.name, why = opts.why, addressed = opts.addressed,
         state = "proposed", createdT = now.t, respondBy = now.t + Quests.RESPOND_MIN,
         spawned = false,
     }
@@ -1677,7 +1717,8 @@ function Quests.proposeHorde(player, ps, fid, tier, now, opts)
         StoryEngine.Lines.fallback(fid, "horde", "About " .. StoryEngine.intToString(size)
             .. " dead are gathered around a building near " .. place.town .. ", about " .. StoryEngine.intToString(distance)
             .. " tiles " .. dirEn .. " of you. Can you clear them out? I will leave you something for it.",
-            { { t = "town", v = place.town }, { t = "dir", v = code }, { t = "num", v = distance }, { t = "num", v = size } }), ps)
+            { { t = "town", v = place.town }, { t = "dir", v = code }, { t = "num", v = distance }, { t = "num", v = size } }), ps,
+        { private = opts.addressed ~= nil })
     notifyTarget(q)
     return q
 end
@@ -1700,6 +1741,12 @@ function Quests.addHelper(q, ps)
     if not q or not ps or not ps.key then return end
     q.helpers = q.helpers or {}
     q.helpers[ps.key] = ps.name
+    local fid = q.origin and q.origin.faction
+    if fid and StoryEngine.Trust then
+        StoryEngine.Trust.touch(fid, ps.key)
+        -- 그 NPC 의 일에 손을 보탠 것도 처음 연락이다 (개인 모드)
+        if StoryEngine.Trust.personalMode() and StoryEngine.Factions.byId[fid] then StoryEngine.Trust.ensure(fid, ps.key) end
+    end
 end
 
 -- Sensor 10분 샘플: 진행 중인 위치 퀘스트 근처에 있던 플레이어를 참여자로 남긴다
@@ -1844,6 +1891,14 @@ function Quests.respond(player, qid, accept)
     if q.state ~= "proposed" then return false, "not_proposed" end
     local ps = Store.player(player)
     local now = Sensor.now()
+    -- 개인 모드의 개인별 부탁은 받은 사람만 수락·거절한다 (다른 사람은 도울 수만 있다)
+    if q.addressed and q.addressed ~= ps.key and StoryEngine.Trust and StoryEngine.Trust.personalMode() then
+        return false, "not_addressed"
+    end
+    -- 개인 모드의 거래는 (NPC, 사람)마다 하나: 그 사람의 신뢰로 정해진 제안이라 다른 사람이 받거나 거절하지 못한다
+    if q.kind == "trade" and q.target and q.target ~= ps.key and StoryEngine.Trust and StoryEngine.Trust.personalMode() then
+        return false, "not_yours"
+    end
     q.target, q.targetName = ps.key, ps.name
     if accept then
         q.deadlineT = now.t + ((q.kind == "horde" or q.kind == "named") and Quests.deadlineMinutes(q.distance or 0)
@@ -2191,7 +2246,17 @@ function Quests.track(entries, now)
         if q.state == "proposed" and q.kind == "market" then
             if now.t > (q.respondBy or 0) then closeMarket(q, now) end
         elseif q.state == "proposed" then
-            if now.t > (q.respondBy or 0) then setState(q, "declined", now, nil, "ignored") end
+            if q.addressed and StoryEngine.Trust and StoryEngine.Trust.personalMode() and not Quests.isOnline(q.addressed) then
+                -- 받은 사람이 접속하지 않은 동안은 답할 시간을 멈추고, RESPOND_MIN 넘게 비우면 감점 없이 닫는다
+                local step = math.max(0, now.t - (q.awayCheckT or now.t))
+                q.awayCheckT = now.t
+                q.respondBy = (q.respondBy or now.t) + step
+                q.awayMin = (q.awayMin or 0) + step
+                if q.awayMin >= Quests.RESPOND_MIN then Quests.lapse(q, now) end
+            else
+                q.awayCheckT = now.t
+                if now.t > (q.respondBy or 0) then setState(q, "declined", now, nil, "ignored") end
+            end
         elseif Quests.isActive(q) and not Quests.hasLocation(q) then
             if now.t > q.deadlineT then setState(q, "failed", now, nil) end
         elseif Quests.isActive(q) then
@@ -2313,6 +2378,19 @@ function Quests.listFor(psKey, now)
                 created = q.createdT,
                 owner = q.targetName, mine = q.target == psKey or nil,
             }
+            -- 개인 신뢰 (DESIGN_PER_PLAYER_TRUST): 받은 사람·무리의 일
+            local Trust = StoryEngine.Trust
+            if Trust and Trust.personalMode() then
+                item.personalMode = true
+                if q.addressed then
+                    local aps = Store.data().players[q.addressed]
+                    item.addressed = true
+                    item.addressedName = aps and aps.name or q.targetName
+                    item.forMe = q.addressed == psKey or nil
+                end
+                item.group = Trust.isGroupWork(q) or nil
+                item.lapsed = q.lapsed
+            end
             if not Quests.hasLocation(q) then item.x, item.y = nil, nil end
             if q.kind == "trade" then
                 item.goods, item.payCategory, item.price, item.category = q.goods, q.payCategory, q.price, q.category
@@ -2325,7 +2403,7 @@ function Quests.listFor(psKey, now)
                 item.goodsKept, item.parcelEnd = q.goodsKept, q.parcel
                 local Work = StoryEngine.Work
                 if Work and (state == "proposed" or (state == "accepted" and not q.payKind)) then
-                    item.workOptions, item.workWeekLeft = Work.options(q)
+                    item.workOptions, item.workWeekLeft = Work.options(q, psKey)
                 end
             end
             if Quests.isWork(q) then

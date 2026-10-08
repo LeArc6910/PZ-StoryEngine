@@ -199,6 +199,43 @@ function UI.textOf(entry)
     return tostring(entry.text or "")
 end
 
+-- ---------------------------------------------------------------- 개인 신뢰 (2026-10-09, docs/DESIGN_PER_PLAYER_TRUST.md 9절)
+-- 멀티 + 샌드박스 TrustBenefits = 2 일 때만 서버가 personal(보는 사람의 개인 신뢰)을 함께 보낸다.
+-- entry: 채널(channelList)·거점(lifeList)·인물 항목처럼 trust = 무리 신뢰, personal = 내 신뢰인 표.
+-- 내 신뢰, 무리 신뢰를 돌려준다. 개인 모드가 아니면 nil (싱글·공유 모드는 지금처럼 신뢰 하나)
+function UI.trustPair(fid, entry)
+    local C = StoryEngine.Cache or {}
+    local function pick(e)
+        if type(e) == "table" and e.personal ~= nil then return tonumber(e.personal) or 0, tonumber(e.trust) end
+        return nil
+    end
+    local my, group = pick(entry)
+    if my == nil and fid then my, group = pick((C.channels or {})[fid]) end
+    if my == nil and fid then
+        for _, n in ipairs(C.life or {}) do
+            if n.id == fid then my, group = pick(n) end
+        end
+    end
+    if my == nil then return nil end
+    if group == nil and fid then group = tonumber(((C.channels or {})[fid] or {}).trust) end
+    return my, group or 0
+end
+
+-- "내 신뢰 35  무리 60" (개인 모드), 아니면 nil
+function UI.trustPairText(fid, entry)
+    local my, group = UI.trustPair(fid, entry)
+    if my == nil then return nil end
+    return getText("IGUI_StoryEngine_Trust_Mine", StoryEngine.intToString(my)) .. "  "
+        .. getText("IGUI_StoryEngine_Trust_Group", StoryEngine.intToString(group))
+end
+
+-- 0.5 -> "0.5", 1 -> "1"
+function UI.shareText(v)
+    v = math.floor((tonumber(v) or 0) * 100 + 0.5) / 100
+    if v == math.floor(v) then return StoryEngine.intToString(v) end
+    return tostring(v)
+end
+
 -- ---------------------------------------------------------------- 창 위치·크기 기억 (2026-10-04)
 -- 닫을 때 저장하고 다음에 열 때 그 자리·크기로 연다. 게임을 다시 켜도 남도록 Zomboid/Lua/StoryEngine/windows.txt 에 쓴다
 -- (한 줄에 "이름=x,y,w,h"). 화면이 작아졌으면 화면 안으로 줄인다.

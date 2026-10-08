@@ -83,6 +83,17 @@ end
 
 StoryEngineTradeCatalogWindow = ISCollapsableWindow:derive("StoryEngineTradeCatalogWindow")
 
+-- 머리줄: 신뢰도와 대가 품목. 개인 모드(서버가 personal = true, trust = 내 신뢰)면 "내 신뢰 35  무리 60"
+function StoryEngineTradeCatalogWindow.headerText(d, wants)
+    if d.personal then
+        local ch = ((StoryEngine.Cache or {}).channels or {})[d.faction] or {}
+        local pair = getText("IGUI_StoryEngine_Trust_Mine", StoryEngine.intToString(d.trust or 0)) .. "  "
+            .. getText("IGUI_StoryEngine_Trust_Group", StoryEngine.intToString(ch.trust or 0))
+        return getText("IGUI_StoryEngine_Catalog_HeaderPersonal", pair, wants)
+    end
+    return getText("IGUI_StoryEngine_Catalog_Header", StoryEngine.intToString(d.trust or 0), wants)
+end
+
 function StoryEngineTradeCatalogWindow:createChildren()
     ISCollapsableWindow.createChildren(self)
     local th = self:titleBarHeight()
@@ -128,7 +139,7 @@ function StoryEngineTradeCatalogWindow:render()
     local d = self.data or {}
     local wants = {}
     for _, w in ipairs(d.wants or {}) do wants[#wants + 1] = catName(w) end
-    local text = getText("IGUI_StoryEngine_Catalog_Header", StoryEngine.intToString(d.trust or 0), table.concat(wants, ", "))
+    local text = StoryEngineTradeCatalogWindow.headerText(d, table.concat(wants, ", "))
     if d.restockIn then
         text = text .. "  |  " .. getText("IGUI_StoryEngine_Catalog_Restock", StoryEngine.intToString(d.restockIn))
     end
@@ -141,6 +152,9 @@ end
 -- 왼쪽 목록: 품목마다 1~최고 등급
 function StoryEngineTradeCatalogWindow:fill()
     local d = self.data or {}
+    if self.askButton then
+        self.askButton.tooltip = d.personal and getText("IGUI_StoryEngine_Trust_BenefitTip") or nil
+    end
     self.tiers:clear()
     self.rows = {}
     -- 빅 교역소의 이번 주 암시장 물건 (신뢰도와 상관없이)

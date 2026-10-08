@@ -91,20 +91,56 @@ local function has(fid, how)
     return false
 end
 
--- 이번 주에 이 NPC 와 쓴 횟수 (일·외상·빚 합쳐서)
-function Work.weekUsed(fid, t)
-    local ch = Radio.channel(fid)
-    local kept = {}
-    for _, x in ipairs(ch.workLog or {}) do
-        if t - x < Work.WEEK_MIN then kept[#kept + 1] = x end
-    end
-    ch.workLog = kept
-    return #kept
+-- ---------------------------------------------------------------- 개인 신뢰 (DESIGN_PER_PLAYER_TRUST 4절)
+-- 외상(60)·빚(40) 자격, 일거리 청하기 등급은 청한 사람의 신뢰 (Trust.of), 주간 횟수·떼먹은 뒤 금지도 개인 모드면 사람마다
+local function personalMode()
+    return StoryEngine.Trust ~= nil and StoryEngine.Trust.personalMode()
 end
 
--- 이 품목을 지금 몇 등급까지 거래할 수 있나 (신뢰도·생활 자원, Trade.offerContext)
-function Work.maxTier(fid, category)
-    local ctx = StoryEngine.Trade.offerContext(fid, Radio.channel(fid).trust)
+local function trustOf(fid, key)
+    if StoryEngine.Trust then return StoryEngine.Trust.of(fid, key) end
+    return Radio.channel(fid).trust or 0
+end
+
+-- 보여 주기만 할 때 (거점 탭): 처음 연락 전이면 개인 신뢰를 정하지 않는다 (Trade.trustPeek)
+local function trustPeek(fid, key)
+    local Trade = StoryEngine.Trade
+    if Trade and Trade.trustPeek then return Trade.trustPeek(fid, key) end
+    return trustOf(fid, key)
+end
+
+-- 시각 기록 목록 (ch[field], 개인 모드에서 key 가 있으면 ch[field .. "By"][key]) 을 WEEK_MIN 안의 것만 남긴다
+local function weekLog(fid, field, t, key)
+    local ch = Radio.channel(fid)
+    local perPerson = key ~= nil and personalMode()
+    local src = ch[field]
+    if perPerson then
+        ch[field .. "By"] = ch[field .. "By"] or {}
+        src = ch[field .. "By"][key]
+    end
+    local kept = {}
+    for _, x in ipairs(src or {}) do
+        if t - x < Work.WEEK_MIN then kept[#kept + 1] = x end
+    end
+    if perPerson then ch[field .. "By"][key] = kept else ch[field] = kept end
+    return kept
+end
+
+-- 외상·빚을 떼먹은 뒤 금지가 끝나는 시각 (개인 모드는 떼먹은 사람만, ch.workBurnBy[키])
+local function burnUntil(fid, key)
+    local ch = Radio.channel(fid)
+    if key ~= nil and personalMode() then return (ch.workBurnBy or {})[key] or 0 end
+    return ch.workBurnT or 0
+end
+
+-- 이번 주에 이 NPC 와 쓴 횟수 (일·외상·빚 합쳐서). key: 개인 모드에서 그 사람의 횟수
+function Work.weekUsed(fid, t, key)
+    return #weekLog(fid, "workLog", t, key)
+end
+
+-- 이 품목을 지금 몇 등급까지 거래할 수 있나 (신뢰도·생활 자원, Trade.offerContext). key: 거래하는 사람
+function Work.maxTier(fid, category, key)
+    local ctx = StoryEngine.Trade.offerContext(fid, trustOf(fid, key), key)
     for _, g in ipairs(ctx.allowed and ctx.goods or {}) do
         if g.category == category then return g.maxTier end
     end
@@ -112,12 +148,14 @@ function Work.maxTier(fid, category)
 end
 
 -- 이 방식을 지금 쓸 수 있나. how = "labor"(일로 갚기, 종류는 무작위) | 일 종류 | "credit" | "favor"
+-- key: 고르는 사람 (없으면 거래한 사람 q.target). 개인 모드에서 신뢰·주간 횟수·금지를 그 사람으로 본다
 -- 반환: true | false, 이유("trust" + 필요 신뢰도 | "week" | "kind" | "gone" | "owed" | "burned")
-function Work.check(fid, how, q)
+function Work.check(fid, how, q, key)
     if not has(fid, how) then return false, "kind" end
     if Factions.isGone(fid) then return false, "gone" end
-    local trust = Radio.channel(fid).trust
-    if (how == "credit" or how == "favor") and (Radio.channel(fid).workBurnT or 0) > now().t then return false, "burned" end
+    key = key or (q and q.target) or nil
+    local trust = trustOf(fid, key)
+    if (how == "credit" or how == "favor") and burnUntil(fid, key) > now().t then return false, "burned" end
     -- 대가를 일부 낸 거래는 외상(남은 값)으로만 바꿀 수 있다 (나눠 내기, 2026-10-08)
     if q and (q.paid or 0) > 0 and how ~= "credit" then return false, "paid" end
     if how == "credit" and trust < Work.CREDIT_TRUST then return false, "trust", Work.CREDIT_TRUST end
@@ -125,22 +163,23 @@ function Work.check(fid, how, q)
         if trust < Work.FAVOR_TRUST then return false, "trust", Work.FAVOR_TRUST end
         if Radio.channel(fid).favorOwed then return false, "owed" end
     end
-    if Work.weekUsed(fid, now().t) >= Work.PER_WEEK then return false, "week" end
+    if Work.weekUsed(fid, now().t, key) >= Work.PER_WEEK then return false, "week" end
     return true
 end
 
--- 퀘스트 탭에 보여 줄 방식 목록: 일로 갚기(하나) / 외상 / 빚
-function Work.options(q)
+-- 퀘스트 탭에 보여 줄 방식 목록: 일로 갚기(하나) / 외상 / 빚. key: 보는 사람 (없으면 거래한 사람)
+function Work.options(q, key)
     local fid = q.origin and q.origin.faction
     if not fid or not Work.KINDS[fid] then return nil end
+    key = key or q.target
     local out = {}
     for _, how in ipairs(Work.ORDER) do
         if has(fid, how) then
-            local ok, why, need = Work.check(fid, how, q)
+            local ok, why, need = Work.check(fid, how, q, key)
             out[#out + 1] = { how = how, ok = ok or nil, why = why, need = need }
         end
     end
-    return out, math.max(0, Work.PER_WEEK - Work.weekUsed(fid, now().t))
+    return out, math.max(0, Work.PER_WEEK - Work.weekUsed(fid, now().t, key))
 end
 
 -- 일로 갚기: 이 NPC 가 받는 일 종류를 무작위 순서로
@@ -396,9 +435,12 @@ function Work.choose(player, qid, how, force)
     if not (q.state == "proposed" or (q.state == "accepted" and not q.payKind)) then return false, "not_open" end
     if not Factions.canTalk(player) then return false, "no_radio" end
     local fid = q.origin and q.origin.faction
-    local ok, why = Work.check(fid, how, q)
-    if not ok then return false, why end
     local ps = Store.player(player)
+    -- 개인 모드: 거래는 (NPC, 사람)마다 하나라 대가 방식도 거래한 사람만 고른다
+    if personalMode() and q.target and q.target ~= ps.key then return false, "not_yours" end
+    if StoryEngine.Trust then StoryEngine.Trust.contact(fid, ps.key) end
+    local ok, why = Work.check(fid, how, q, ps.key)
+    if not ok then return false, why end
     local t = now()
     local child = nil
     if how == "labor" or Work.LABOR[how] then
@@ -417,8 +459,8 @@ function Work.choose(player, qid, how, force)
     q.target, q.targetName = ps.key, ps.name
     q.payKind = how
     local ch = Radio.channel(fid)
-    ch.workLog = ch.workLog or {}
-    ch.workLog[#ch.workLog + 1] = t.t
+    local used = weekLog(fid, "workLog", t.t, ps.key)          -- 개인 모드는 그 사람의 기록
+    used[#used + 1] = t.t
     local Lines = StoryEngine.Lines
     local topic = ps.name .. " agreed to the trade, but instead of paying with goods " .. TOPIC[how] .. "."
     if child then
@@ -516,7 +558,8 @@ Work.DEFAULT_TRUST_TO = 30      -- 떼먹으면 신뢰도가 적어도 여기까
 function Work.default(q, reason, t)
     local fid = q.origin.faction
     local tier = math.max(1, math.min(#Work.DEFAULT_PENALTY, q.tier or 1))
-    local trust = Radio.channel(fid).trust or 0
+    -- 개인 모드: 빚진 사람의 개인 신뢰 기준 (감점도 Trust.apply 의 byKey 로 그 사람에게)
+    local trust = trustOf(fid, q.target) or 0
     local penalty = math.max(Work.DEFAULT_PENALTY[tier], trust - Work.DEFAULT_TRUST_TO)
     -- 외상을 일부 갚았으면 못 낸 비율만큼만 (나눠 내기, 2026-10-08)
     local unpaid = 1 - (q.credit and Quests.paidShare(q) or 0)
@@ -526,7 +569,13 @@ function Work.default(q, reason, t)
         StoryEngine.Life.change(fid, StoryEngine.Value.RESOURCE_OF[q.category] or "safety",
             -math.floor(5 * tier * unpaid + 0.5), "work_default")
     end
-    Radio.channel(fid).workBurnT = t.t + Work.BURN_MIN
+    local ch = Radio.channel(fid)
+    if q.target and personalMode() then
+        ch.workBurnBy = ch.workBurnBy or {}
+        ch.workBurnBy[q.target] = t.t + Work.BURN_MIN
+    else
+        ch.workBurnT = t.t + Work.BURN_MIN
+    end
     log("work default", fid, q.id, reason, -Work.DEFAULT_PENALTY[tier])
 end
 
@@ -607,8 +656,9 @@ Work.VOLUNTEER_TRUST = 2
 Work.VOLUNTEER_LIFE = 10
 Work.VOLUNTEER_BANDS = { 20, 40, 60, 80 }
 
-function Work.volunteerTier(fid)
-    local trust = Radio.channel(fid).trust
+-- key: 청하는 사람 (개인 모드면 그 사람의 개인 신뢰로 등급). peek: 보여 주기만 할 때 (처음 연락을 정하지 않음)
+function Work.volunteerTier(fid, key, peek)
+    local trust = peek and trustPeek(fid, key) or trustOf(fid, key)
     local tier = 1
     for i, b in ipairs(Work.VOLUNTEER_BANDS) do
         if trust >= b then tier = i + 1 end
@@ -617,31 +667,32 @@ function Work.volunteerTier(fid)
     return math.max(1, math.min(tier, cap, Quests.MAX_TIER))
 end
 
-function Work.volunteerUsed(fid, t)
-    local ch = Radio.channel(fid)
-    local kept = {}
-    for _, x in ipairs(ch.volunteerLog or {}) do
-        if t - x < Work.WEEK_MIN then kept[#kept + 1] = x end
-    end
-    ch.volunteerLog = kept
-    return #kept
+-- 이번 주에 이 NPC 에게 일거리를 청한 횟수 (개인 모드에서 key 가 있으면 그 사람의 횟수)
+function Work.volunteerUsed(fid, t, key)
+    return #weekLog(fid, "volunteerLog", t, key)
 end
 
-local function openVolunteer(fid)
+-- 진행 중인 일거리 (NPC 마다 하나, 개인 모드는 사람마다 하나)
+local function openVolunteer(fid, key)
+    local perPerson = key ~= nil and personalMode()
     for _, q in pairs(Store.data().quests) do
-        if q.kind == "volunteer" and q.origin and q.origin.faction == fid and q.state == "accepted" then return q end
+        if q.kind == "volunteer" and q.origin and q.origin.faction == fid and q.state == "accepted"
+            and (not perPerson or q.target == key) then
+            return q
+        end
     end
     return nil
 end
 
 -- 지금 일거리를 청할 수 있나 (거점 탭 버튼). 반환 { ok, why, tier, gain, left }
-function Work.volunteerStatus(fid)
+-- key: 보는(청하는) 사람. 거점 탭 표시는 처음 연락을 정하지 않는다 (Work.volunteer 는 정함)
+function Work.volunteerStatus(fid, key, contact)
     local t = now().t
-    local tier = Work.volunteerTier(fid)
+    local tier = Work.volunteerTier(fid, key, not contact)
     local out = { tier = tier, gain = tier * Work.VOLUNTEER_TRUST,
-                  left = math.max(0, Work.VOLUNTEER_PER_WEEK - Work.volunteerUsed(fid, t)) }
+                  left = math.max(0, Work.VOLUNTEER_PER_WEEK - Work.volunteerUsed(fid, t, key)) }
     if Factions.isGone(fid) then out.why = "gone"
-    elseif openVolunteer(fid) then out.why = "open"
+    elseif openVolunteer(fid, key) then out.why = "open"
     elseif out.left <= 0 then out.why = "week" end
     out.ok = out.why == nil or nil
     return out
@@ -650,9 +701,10 @@ end
 function Work.volunteer(player, fid, force)
     if not Factions.byId[fid] then return false, "no_faction" end
     if not Factions.canTalk(player) then return false, "no_radio" end
-    local st = Work.volunteerStatus(fid)
-    if not st.ok then return false, st.why end
     local ps = Store.player(player)
+    if StoryEngine.Trust then StoryEngine.Trust.contact(fid, ps.key) end   -- 일을 맡는 것도 연락
+    local st = Work.volunteerStatus(fid, ps.key, true)
+    if not st.ok then return false, st.why end
     local t = now()
     local d = Store.data()
     d.questSeq = (d.questSeq or 0) + 1
@@ -675,9 +727,8 @@ function Work.volunteer(player, fid, force)
     end
     parent.workId = child.id
     parent.deadlineT = child.deadlineT + 24 * 60
-    local ch = Radio.channel(fid)
-    ch.volunteerLog = ch.volunteerLog or {}
-    ch.volunteerLog[#ch.volunteerLog + 1] = t.t
+    local used = weekLog(fid, "volunteerLog", t.t, ps.key)     -- 개인 모드는 그 사람의 기록
+    used[#used + 1] = t.t
     Radio.react(fid, "event", ps.name .. " offered to help you for nothing, just to earn your trust. You gave them a job: "
         .. (TOPIC[parent.payKind] or "some work"):gsub(" instead", "") .. ". Tell them briefly where (from them): it is in the quest log. "
         .. "You cannot pay for it and you say so; you are grateful.",

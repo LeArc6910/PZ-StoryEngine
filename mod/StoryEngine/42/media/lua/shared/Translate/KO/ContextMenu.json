@@ -95,5 +95,7 @@
     "ContextMenu_StoryEngine_DebugAiTale_any": "무작위 종류",
     "ContextMenu_StoryEngine_DebugAiTale_quiet": "조용한 곁가지",
     "ContextMenu_StoryEngine_DebugAiTale_items": "물건 부탁 곁가지",
-    "ContextMenu_StoryEngine_DebugAiTale_horde": "소탕 부탁 곁가지"
+    "ContextMenu_StoryEngine_DebugAiTale_horde": "소탕 부탁 곁가지",
+    "ContextMenu_StoryEngine_PersonalTrust": "StoryEngine: 개인 신뢰 조절 (%1, 내 것, 개인 모드)",
+    "ContextMenu_StoryEngine_PersonalAsk": "StoryEngine: 개인별 부탁 지금 받기 (개인 모드)"
 }

@@ -391,13 +391,19 @@ function Journal.onDeath(ps, death, now)
         local ok, err = pcall(StoryEngine.Banter.onDeath, ps.name)
         if not ok then log("banter death error:", err) end
     end
+    -- 죽은 캐릭터의 개인 신뢰 기록은 지운다 (세이브가 커지지 않게, DESIGN_PER_PLAYER_TRUST 2절)
+    if StoryEngine.Trust and StoryEngine.Trust.forget then pcall(StoryEngine.Trust.forget, ps.key) end
 end
 
 -- 회고록. 사망은 서버 OnPlayerDeath 와 클라이언트 보고 양쪽에서 올 수 있어 ps.dead 로 한 번만 처리한다.
 function Journal.memoir(player, ps)
     if ps.dead then return end
     ps.dead = true
-    if StoryEngine.option("Journal", true) ~= true then return end
+    if StoryEngine.option("Journal", true) ~= true then
+        -- 일지를 꺼도 죽은 캐릭터의 개인 신뢰 기록은 지운다 (Journal.onDeath 를 거치지 않으므로)
+        if StoryEngine.Trust and StoryEngine.Trust.forget then pcall(StoryEngine.Trust.forget, ps.key) end
+        return
+    end
     Sensor.flush(ps)
 
     local now = Sensor.now()

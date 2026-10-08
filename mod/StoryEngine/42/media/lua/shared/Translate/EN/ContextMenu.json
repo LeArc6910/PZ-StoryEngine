@@ -95,5 +95,7 @@
     "ContextMenu_StoryEngine_DebugAiTale_any": "Any kind",
     "ContextMenu_StoryEngine_DebugAiTale_quiet": "Quiet side story",
     "ContextMenu_StoryEngine_DebugAiTale_items": "Side story asking for items",
-    "ContextMenu_StoryEngine_DebugAiTale_horde": "Side story asking to clear a horde"
+    "ContextMenu_StoryEngine_DebugAiTale_horde": "Side story asking to clear a horde",
+    "ContextMenu_StoryEngine_PersonalTrust": "StoryEngine: adjust personal trust (%1, mine, personal mode)",
+    "ContextMenu_StoryEngine_PersonalAsk": "StoryEngine: get a personal request now (personal mode)"
 }

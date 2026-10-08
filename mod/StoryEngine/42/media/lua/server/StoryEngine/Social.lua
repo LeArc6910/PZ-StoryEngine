@@ -251,10 +251,11 @@ function Social.startSequel(fid, now)
 end
 
 -- 이 NPC 에게 답을 기다리거나 진행 중인 부탁이 있는가
+-- 개인 모드의 개인별 부탁(q.addressed)은 세지 않는다: 사람이 많을수록 이야기가 밀리지 않게 (DESIGN_PER_PLAYER_TRUST 5-3절)
 local function openQuestFor(fid)
     for _, q in pairs(Store.data().quests) do
         if q.origin and q.origin.faction == fid and (q.kind == "deliver" or q.kind == "horde" or q.kind == "named")
-            and (q.state == "proposed" or q.state == "accepted") then
+            and not q.addressed and (q.state == "proposed" or q.state == "accepted") then
             return q
         end
     end
@@ -507,6 +508,7 @@ function Social.advance(fid, now)
         if q then
             st.questId, st.told = q.id, true    -- 부탁하는 무전이 곧 이야기다
             state().lastStoryAskT = now.t
+            Social.announceGroupAsk(fid, q, now)
             log("story quest", fid, node.id, q.id, q.kind)
         end
         return
@@ -716,6 +718,7 @@ function Social.startCrisis(now, forceId)
     if not q then return false, "quest_failed" end
     s.crisesUsed[c.id] = true
     s.lastCrisisT = now.t
+    Social.announceCrisis(c, q, now)
     for _, opt in ipairs(c.options) do
         local rivals = {}
         for _, o in ipairs(c.options) do
@@ -975,6 +978,50 @@ end
 -- key = AI 가 없을 때 쓰는 준비된 대화 화제 (Social.OFFLINE_TOPICS), arg = 그 대사의 두 번째 인자 (lt arg)
 function Social.queueTopic(ids, topic, key, arg)
     state().queuedTopic = { ids = ids, topic = string.sub(tostring(topic), 1, 400), key = key, arg = arg }
+end
+
+-- ---------------------------------------------------------------- 무리의 부탁 알림 (개인 모드, DESIGN_PER_PLAYER_TRUST 8절 C)
+-- 큰 이야기·곁가지·AI 곁가지 부탁과 위기는 지금처럼 그 NPC 주파수로 오고, 개인 모드에서는 공용 주파수에도 시스템 줄
+-- ("레이가 무리에게 도움을 청했다", 위기는 "레이·닥·빅이 서로 다른 도움을 청했다")을 남기고 다음 장면의 화제로 넣는다.
+-- 이미 다른 화제(나눔·충돌·세계 변화·명절)가 기다리고 있으면 그것을 지우지 않는다. 싱글·공유 모드는 아무것도 안 함
+
+local function personalOn()
+    local Trust = StoryEngine.Trust
+    return Trust ~= nil and Trust.personalMode()
+end
+
+function Social.announceGroupAsk(fid, q, now)
+    if not q or not personalOn() then return false end
+    now = now or Sensor.now()
+    Radio.push(Social.OPEN, { from = "system", groupAsk = fid, quest = q.id, clock = now.clock })
+    if not state().queuedTopic then
+        local ids = pickParticipants(2, fid)
+        if #ids >= 2 then
+            Social.queueTopic(ids, nameOf(fid) .. " just asked the players, as a group, for help: "
+                .. tostring(q.why or (q.origin and q.origin.why) or "something they need") .. ". They talk about it.")
+        end
+    end
+    log("group ask announced", fid, q.id)
+    return true
+end
+
+function Social.announceCrisis(c, q, now)
+    if not q or not personalOn() then return false end
+    now = now or Sensor.now()
+    local fids, names = {}, {}
+    for _, o in ipairs(c.options or {}) do
+        fids[#fids + 1] = o.faction
+        names[#names + 1] = nameOf(o.faction)
+    end
+    Radio.push(Social.OPEN, { from = "system", groupCrisis = fids, quest = q.id, clock = now.clock })
+    if not state().queuedTopic and #fids >= 2 then
+        local ids = {}
+        for i = 1, math.min(3, #fids) do ids[i] = fids[i] end
+        Social.queueTopic(ids, table.concat(names, ", ") .. " are all asking the players for different help at the same "
+            .. "time, and the players can only help one of them: " .. tostring(c.situation or "") .. " They talk about it.")
+    end
+    log("group crisis announced", c.id, q.id)
+    return true
 end
 
 -- ---------------------------------------------------------------- AI 없는 공용 주파수 (2026-10-05)

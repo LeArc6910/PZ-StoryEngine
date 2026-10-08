@@ -47,6 +47,9 @@ Projects.DONATE_CAP = 100             -- 프로젝트 지원 한 번에 최대 �
 Projects.CRISIS_POINTS = 50           -- 2026-09-30: 10 -> 50
 Projects.BIG_QUEST_POINTS = 25        -- 2026-09-30: 10 -> 25
 Projects.BIG_QUEST_TIER = 3
+-- 개인 모드(멀티 + TrustBenefits 2)에서 완성하면 그 NPC 의 집단 신뢰 + (DESIGN_PER_PLAYER_TRUST 5-1·6절: 개인 모드의
+-- 집단 신뢰는 무리의 일로만 올라 이야기만으로는 카운티 회의 조건에 못 미친다). 싱글·공유 모드는 없음
+Projects.GROUP_TRUST = 15
 Projects.BASE_BONUS = 20
 Projects.RAY_GIFT_DAYS = 7
 
@@ -107,7 +110,12 @@ local function complete(fid, who)
     if StoryEngine.Chronicle then StoryEngine.Chronicle.add(fid, { k = "project", done = true, who = who }) end
     local def = Projects.DEF[fid]
     log("project done", fid, who or "")
-    Life.record(fid, "project_done", who, 0)
+    local Trust = StoryEngine.Trust
+    local gained = 0
+    if Trust and Trust.personalMode() then
+        gained = Trust.apply(fid, Projects.GROUP_TRUST, "project_done", nil, nil, nil, "group")
+    end
+    Life.record(fid, "project_done", who, gained)
     -- 기준값이 오른 자원은 바로 새 기준까지 끌어올린다
     if def.base then
         local target = (Life.BASE[fid] or {})[def.base] or 40

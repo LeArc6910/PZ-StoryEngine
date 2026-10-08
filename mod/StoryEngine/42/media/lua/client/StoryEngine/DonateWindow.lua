@@ -141,7 +141,9 @@ function StoryEngineDonateWindow:render()
         if points >= win.points then line1 = line1 .. "  " .. getText("IGUI_StoryEngine_Project_CapReached") end
     end
     self:drawText(line1, PAD, y, 0.8, 0.9, 0.7, 1, UIFont.Small)
-    local line2 = getText("IGUI_StoryEngine_Life_Preview", fmt(total), "+" .. StoryEngine.intToString(trust))
+    -- 개인 모드: 지원으로 오르는 것은 내 신뢰 (3일 통도 사람마다)
+    local previewKey = (self.npc and self.npc.personalMode) and "IGUI_StoryEngine_Life_PreviewPersonal" or "IGUI_StoryEngine_Life_Preview"
+    local line2 = getText(previewKey, fmt(total), "+" .. StoryEngine.intToString(trust))
     if win.value > 0 then line2 = line2 .. "  " .. getText("IGUI_StoryEngine_Life_WindowSoFar", fmt(win.value)) end
     self:drawText(line2, PAD, y + FONT_H + 2, trust > 0 and 0.5 or 0.8, trust > 0 and 0.9 or 0.8, trust > 0 and 0.5 or 0.8, 1, UIFont.Small)
     self.sendButton:setEnable(total > 0)

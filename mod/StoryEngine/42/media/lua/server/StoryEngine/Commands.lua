@@ -143,7 +143,7 @@ end
 
 function Commands.radioChannels(player, args)
     reply(player, "radioChannels", {
-        channels = StoryEngine.Radio.channelList(),
+        channels = StoryEngine.Radio.channelList(StoryEngine.Store.playerKey(player)),
         hasRadio = StoryEngine.Factions.canTalk(player),
         support = StoryEngine.ALife.channelInfo(),     -- A-Life 연동이 켜져 있을 때만 (세력별 지원 가능 여부)
     })
@@ -162,7 +162,7 @@ function Commands.supportRequest(player, args)
         count = ok and info.count or nil, wait = wait,
     })
     reply(player, "radioChannels", {
-        channels = StoryEngine.Radio.channelList(), hasRadio = StoryEngine.Factions.canTalk(player),
+        channels = StoryEngine.Radio.channelList(StoryEngine.Store.playerKey(player)), hasRadio = StoryEngine.Factions.canTalk(player),
         support = StoryEngine.ALife.channelInfo(),
     })
 end
@@ -381,7 +381,8 @@ function Commands.debugLife(player, args)
     elseif args.fate == "dead" or args.fate == "gone" then
         StoryEngine.Fate.apply(fid, args.fate, "debug")
     end
-    reply(player, "debugStatus", { text = StoryEngine.Life.statusText() .. " | " .. StoryEngine.Tuning.statusText() })
+    reply(player, "debugStatus", { text = StoryEngine.Life.statusText() .. " | " .. StoryEngine.Tuning.statusText()
+        .. Commands.personalStatus() })
     reply(player, "lifeList", { npcs = StoryEngine.Life.list(StoryEngine.Store.playerKey(player)) })
 end
 
@@ -397,11 +398,79 @@ function Commands.debugTrust(player, args)
     local delta = math.floor(tonumber(args.delta) or 0)
     if args.set ~= nil then delta = math.floor(tonumber(args.set) or ch.trust) - ch.trust end
     StoryEngine.Trust.apply(fid, delta, "debug", nil, StoryEngine.Store.playerKey(player))
-    reply(player, "debugStatus", { text = "trust " .. fid .. " = " .. StoryEngine.intToString(ch.trust) })
+    reply(player, "debugStatus", { text = "trust " .. fid .. " = " .. StoryEngine.intToString(ch.trust) .. Commands.personalStatus() })
     reply(player, "radioChannels", {
-        channels = StoryEngine.Radio.channelList(), hasRadio = StoryEngine.Factions.canTalk(player),
+        channels = StoryEngine.Radio.channelList(StoryEngine.Store.playerKey(player)), hasRadio = StoryEngine.Factions.canTalk(player),
         support = StoryEngine.ALife.channelInfo(),
     })
+end
+
+-- 개인 모드 디버그 상태 줄: "personal ray: Alice=35 Bob=20; casey: ..." (개인 모드가 아니면 빈 문자열)
+local function personalStatus()
+    local Trust = StoryEngine.Trust
+    if not Trust.personalMode() then return "" end
+    local players = StoryEngine.Store.data().players or {}
+    local parts = {}
+    for _, f in ipairs(StoryEngine.Factions.list) do
+        local list = {}
+        for key, v in pairs(StoryEngine.Radio.channel(f.id).personal or {}) do
+            local ps = players[key]
+            list[#list + 1] = tostring(ps and ps.name or key) .. "=" .. StoryEngine.intToString(v)
+        end
+        if #list > 0 then
+            table.sort(list)
+            parts[#parts + 1] = f.id .. ": " .. table.concat(list, " ")
+        end
+    end
+    return " | personal " .. (#parts > 0 and table.concat(parts, "; ") or "none")
+end
+Commands.personalStatus = personalStatus
+
+-- 디버그: 요청한 사람의 개인 신뢰 조절 (개인 모드). args = { faction, delta } 또는 { faction, set }
+function Commands.debugPersonalTrust(player, args)
+    if not canUseDebug(player) then return end
+    local Trust = StoryEngine.Trust
+    local fid = tostring(args.faction or "")
+    if not StoryEngine.Factions.byId[fid] then
+        reply(player, "debugStatus", { text = "personal trust: unknown faction " .. fid })
+        return
+    end
+    if not Trust.personalMode() then
+        reply(player, "debugStatus", { text = "personal trust: not in personal trust mode (multiplayer + TrustBenefits 2)" })
+        return
+    end
+    local key = StoryEngine.Store.playerKey(player)
+    local now = Trust.personal(fid, key)
+    local delta = math.floor(tonumber(args.delta) or 0)
+    if args.set ~= nil then delta = math.floor(tonumber(args.set) or now) - now end
+    if delta ~= 0 then Trust.addPersonal(fid, key, delta, "debug") end
+    reply(player, "debugStatus", { text = "personal trust " .. fid .. " = " .. StoryEngine.intToString(Trust.personal(fid, key))
+        .. " (group " .. StoryEngine.intToString(StoryEngine.Radio.channel(fid).trust) .. ")" .. personalStatus() })
+    reply(player, "radioChannels", {
+        channels = StoryEngine.Radio.channelList(key), hasRadio = StoryEngine.Factions.canTalk(player),
+        support = StoryEngine.ALife.channelInfo(),
+    })
+    reply(player, "lifeList", { npcs = StoryEngine.Life.list(key) })
+end
+
+-- 디버그: 개인별 부탁을 지금 받기 (간격 무시). args = { kind = "deliver" | "horde" | "fetch" | "named" | nil }
+function Commands.debugPersonalAsk(player, args)
+    if not canUseDebug(player) then return end
+    local kind = args.kind
+    if kind ~= "deliver" and kind ~= "horde" and kind ~= "fetch" and kind ~= "named" then kind = nil end
+    local ps = StoryEngine.Store.player(player)
+    local ok, q, why = pcall(StoryEngine.Director.personalAsk, player, ps, StoryEngine.Sensor.now(), true, kind)
+    local text
+    if not ok then
+        text = "personal ask error: " .. tostring(q)
+    elseif q then
+        text = "personal ask " .. tostring(q.id) .. " " .. tostring(q.kind) .. " from "
+            .. tostring(q.origin and q.origin.faction) .. " tier " .. tostring(q.tier)
+    else
+        text = "personal ask skipped: " .. tostring(why)
+    end
+    reply(player, "debugStatus", { text = text })
+    reply(player, "questList", { quests = StoryEngine.Quests.listFor(ps.key, StoryEngine.Sensor.now()) })
 end
 
 -- 디버그: 곁의 동료와 바로 잡담 (간격 무시)
@@ -428,7 +497,7 @@ end
 
 function Commands.radioHistory(player, args)
     local fid = tostring(args.faction or "")
-    reply(player, "radioHistory", { faction = fid, messages = StoryEngine.Radio.history(fid) })
+    reply(player, "radioHistory", { faction = fid, messages = StoryEngine.Radio.history(fid, StoryEngine.Store.playerKey(player)) })
 end
 
 function Commands.radioSay(player, args)
@@ -719,7 +788,7 @@ function Commands.debugStatus(player, args)
         .. " | " .. StoryEngine.Ops.statusText() .. " | " .. StoryEngine.Saga.statusText()
         .. " | " .. StoryEngine.Work.statusText() .. " | " .. StoryEngine.Named.statusText()
         .. " | " .. StoryEngine.AiTales.statusText()
-        .. " | " .. StoryEngine.Holiday.statusText() })
+        .. " | " .. StoryEngine.Holiday.statusText() .. personalStatus() })
 end
 
 local function onClientCommand(module, command, player, args)

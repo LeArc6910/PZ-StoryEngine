@@ -267,17 +267,30 @@ function Holiday.celebrate(u, now)
         end
     end
     if full and inst.host then
-        for name, _ in pairs(q.givers or {}) do
-            local ps = Store.findByName(name)
-            StoryEngine.Trust.apply(inst.host, 1, "holiday_help", q.id, ps and ps.key or nil)
+        local Trust = StoryEngine.Trust
+        if Trust.personalMode() then
+            -- 개인 모드: 명절 모금은 무리의 일. 주관 NPC 집단 신뢰 +1 한 번, 낸 사람마다 손을 보탠 보너스 (DESIGN 5-1절)
+            Trust.apply(inst.host, 1, "holiday_help", q.id, nil, nil, "group")
+            local keys = {}
+            for name, _ in pairs(q.givers or {}) do
+                local ps = Store.findByName(name)
+                if ps and ps.key then keys[ps.key] = name end
+            end
+            local share = StoryEngine.Tuning and StoryEngine.Tuning.num("GroupHelperTrust") or 0.5
+            Trust.bonus(inst.host, keys, 1, share, "group_help", q.id)
+        else
+            for name, _ in pairs(q.givers or {}) do
+                local ps = Store.findByName(name)
+                Trust.apply(inst.host, 1, "holiday_help", q.id, ps and ps.key or nil)
+            end
         end
     end
-    -- 접속자마다 명절 음식, 가장 친한 NPC 의 작은 선물
+    -- 접속자마다 명절 음식, 가장 친한 NPC 의 작은 선물 (개인 모드: 그 사람이 가장 믿는 NPC, 처음 연락 전인 NPC 는 정하지 않고 본다)
     for _, p in ipairs(Sensor.players()) do
         local ps = Store.player(p)
         local friend, best = nil, Holiday.FRIEND_TRUST - 1
         for _, f in ipairs(Factions.list) do
-            local t = Radio.channel(f.id).trust
+            local t = StoryEngine.Trade and StoryEngine.Trade.trustPeek(f.id, ps.key) or Radio.channel(f.id).trust
             if not Factions.isGone(f.id) and t > best then friend, best = f.id, t end
         end
         local extra = friend and StoryEngine.Loot.roll(1, friend) or nil
@@ -342,7 +355,7 @@ function Holiday.onSay(player, ps, fid)
     local k = u.key .. "|" .. ps.key .. "|" .. fid
     if s.greeted[k] then return end
     s.greeted[k] = true
-    local trust = Radio.channel(fid).trust
+    local trust = StoryEngine.Trust.of(fid, ps.key)        -- 세뱃돈은 인사한 사람의 신뢰 (개인 모드면 개인 신뢰)
     local items = {}
     -- 케이시(16세)는 세뱃돈 대신 음식. 이어받은 노라는 어른이다 (점검 B7)
     if u.h.greet == "money" and (fid ~= "casey" or (Factions.voice and Factions.voice.casey)) then
