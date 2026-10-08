@@ -256,6 +256,35 @@ function T.ray_supplies_lowest_resources()
     H.ok(H.lastBridge("radio", "event"), "someone thanks")
     local ps = StoryEngine.Store.player(p)
     H.eq(ps.notes[#ps.notes].kind, "specialty_ray")
+    -- 같은 NPC 에게 7일 안에 또 보내면 자원은 오르지만 신뢰도·관계 +1 은 없다
+    local bond = StoryEngine.Bonds.get("ray", "doc")
+    Sp.clearWait("ray")
+    StoryEngine.Life.npc("ray").res.food = 60
+    H.ok(Sp.request(p, "ray", { target = "doc" }))
+    H.eq(StoryEngine.Radio.channel("doc").trust, 26, "no second +1 within 7 days")
+    H.eq(StoryEngine.Bonds.get("ray", "doc"), bond, "no second bond +1")
+    H.advanceDays(7)
+    Sp.clearWait("ray")
+    StoryEngine.Life.npc("ray").res.food = 60
+    H.ok(Sp.request(p, "ray", { target = "doc" }))
+    H.eq(StoryEngine.Radio.channel("doc").trust, 27, "again after 7 days")
+end
+
+-- 멀티에서 레이 대기 범위가 개인별·둘 다면 보급량 절반 (여럿이 번갈아 써서 자원을 끌어올리지 않게, 2026-10-09)
+function T.ray_supply_is_halved_when_players_take_turns()
+    setup()
+    local Sp = S()
+    H.eq(Sp.raySupply(3), 45, "single player: full, whatever the scope")
+    SandboxVars.StoryEngine.SpecialtyScope_ray = 2
+    H.eq(Sp.raySupply(3), 45, "single player stays full with a per-player wait")
+    local was = isServer
+    isServer = function() return true end
+    H.eq(Sp.raySupply(1), 10)
+    H.eq(Sp.raySupply(2), 15)
+    H.eq(Sp.raySupply(3), 25)
+    SandboxVars.StoryEngine.SpecialtyScope_ray = 1
+    H.eq(Sp.raySupply(3), 45, "server-wide wait in multiplayer: full")
+    isServer = was
 end
 
 function T.pike_comfort_companions_and_stiffness()

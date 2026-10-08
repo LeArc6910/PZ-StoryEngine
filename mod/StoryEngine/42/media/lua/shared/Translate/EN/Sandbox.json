@@ -152,7 +152,7 @@
     "Sandbox_StoryEngine_RequestMinTier_option3": "Request tier -1 or better",
     "Sandbox_StoryEngine_RequestMinTier_option4": "Request tier or better",
     "Sandbox_StoryEngine_SpecialtyScope_ray": "Specialty wait: Ray (emergency supplies)",
-    "Sandbox_StoryEngine_SpecialtyScope_ray_tooltip": "Who waits after this specialty is used.\n- Server-wide: everyone waits together.\n- Per player: only the one who used it waits. Same as server-wide in single player.\n- Both: the user waits the full days, everyone else 1 day.\nEach use still drains the contact's key resource, and below 20 it can't be used. Ray's supplies raise other contacts' resources for everyone, so per-player waits would let a group pump them; the default is server-wide.",
+    "Sandbox_StoryEngine_SpecialtyScope_ray_tooltip": "Who waits after this specialty is used.\n- Server-wide: everyone waits together.\n- Per player: only the one who used it waits. Same as server-wide in single player.\n- Both: the user waits the full days, everyone else 1 day.\nEach use still drains the contact's key resource, and below 20 it can't be used. Ray's supplies raise other contacts' resources for everyone, so per-player waits would let a group pump them; the default is server-wide.\nFor Ray, per player or both in multiplayer halves the supply (+10/+15/+25), since several people can take turns.",
     "Sandbox_StoryEngine_SpecialtyDays_ray": "Specialty wait days: Ray",
     "Sandbox_StoryEngine_SpecialtyDays_ray_tooltip": "In-game days before this specialty can be used again (default 7). 0 means no wait.\nThe 'Specialty wait multiplier' (including difficulty presets) is applied on top.",
     "Sandbox_StoryEngine_SpecialtyScope_casey": "Specialty wait: Casey (scouting)",

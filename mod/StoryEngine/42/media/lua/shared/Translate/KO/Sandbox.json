@@ -152,7 +152,7 @@
     "Sandbox_StoryEngine_RequestMinTier_option3": "부탁 등급 -1 이상",
     "Sandbox_StoryEngine_RequestMinTier_option4": "부탁 등급 이상",
     "Sandbox_StoryEngine_SpecialtyScope_ray": "특기 대기 범위: 레이 (긴급 보급)",
-    "Sandbox_StoryEngine_SpecialtyScope_ray_tooltip": "이 특기를 쓴 뒤 기다리는 시간을 누구에게 적용할지.\n- 서버 전체: 누가 쓰든 모두 함께 기다린다.\n- 개인별: 쓴 사람만 기다린다. 싱글에서는 둘이 같다.\n- 둘 다: 쓴 사람은 대기 일수만큼, 다른 사람도 1일은 기다린다.\n쓸 때마다 NPC의 핵심 자원이 줄고 20 미만이면 못 쓰는 규칙은 그대로. 레이의 보급은 다른 NPC의 자원을 올리는 세계 효과라, 여러 명이 개인별로 쓰면 자원을 계속 끌어올릴 수 있어 기본이 서버 전체다.",
+    "Sandbox_StoryEngine_SpecialtyScope_ray_tooltip": "이 특기를 쓴 뒤 기다리는 시간을 누구에게 적용할지.\n- 서버 전체: 누가 쓰든 모두 함께 기다린다.\n- 개인별: 쓴 사람만 기다린다. 싱글에서는 둘이 같다.\n- 둘 다: 쓴 사람은 대기 일수만큼, 다른 사람도 1일은 기다린다.\n쓸 때마다 NPC의 핵심 자원이 줄고 20 미만이면 못 쓰는 규칙은 그대로. 레이의 보급은 다른 NPC의 자원을 올리는 세계 효과라, 여러 명이 개인별로 쓰면 자원을 계속 끌어올릴 수 있어 기본이 서버 전체다.\n레이는 멀티에서 개인별·둘 다로 두면 여럿이 번갈아 쓸 수 있어 보급량이 절반(+10/+15/+25)이 된다.",
     "Sandbox_StoryEngine_SpecialtyDays_ray": "특기 대기 일수: 레이",
     "Sandbox_StoryEngine_SpecialtyDays_ray_tooltip": "이 특기를 쓴 뒤 다시 쓰기까지의 게임 일수 (기본 7일). 0이면 바로 다시 쓸 수 있다.\n'특기 대기 배율'(난이도 프리셋 포함)이 이 값에 곱해진다.",
     "Sandbox_StoryEngine_SpecialtyScope_casey": "특기 대기 범위: 케이시 (정찰)",
