@@ -505,7 +505,7 @@ function Trust.forget(key)
     for _, f in ipairs(Factions.list) do
         local ch = Radio.channel(f.id)
         for _, map in ipairs({ ch.personal, ch.personalIdle, ch.touchBy, ch.tradeTrustBy, ch.chatTrustBy,
-                               ch.requestLogBy, ch.workLogBy, ch.volunteerLogBy, ch.workBurnBy }) do
+                               ch.requestLogBy, ch.workLogBy, ch.volunteerLogBy, ch.workBurnBy, ch.favorOwedBy }) do
             if map then map[key] = nil end
         end
         local Life = StoryEngine.Life

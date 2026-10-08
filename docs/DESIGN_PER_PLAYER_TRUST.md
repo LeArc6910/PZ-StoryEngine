@@ -294,7 +294,9 @@
   못 냈으면 6시간 뒤 다시. 디버그 `debugPersonalAsk`.
 - 받은 사람에게만: `msg.to`(+ `private` 면 다른 사람에게 "따로 연락했다" 줄, `Radio.viewFor`), 거래 막힘 줄도 청한 사람에게만(`Radio.mineOnly`).
 - 거래 재고는 NPC 공유, 다른 사람의 열린 거래가 잡아 둔 묶음은 품절로 보임(`Trade.reserved`). 공용 주파수 제안은 잡아 두지 않음.
-- **남은 한계**: 빚(`ch.favorOwed`)은 NPC 마다 하나라 남의 빚이 내 빚 자격을 막는다. A-Life 자동·요청 지원은 테스트 틀에 A-Life 가 없어 미검증.
+- 빚(2026-10-09): 개인 모드는 사람마다(`ch.favorOwedBy`). 독촉은 빚진 사람이 접속해 있을 때 그 사람 앞의 개인별 부탁으로, 떼먹은 감점도 그 사람에게.
+- 받은 사람이 개인별 부탁에 대해 무전으로 한 말과 그 답장은 공개로 둔다 (2026-10-09 사용자 결정: 같이 하는 무리라 문제 아님).
+- **남은 한계**: A-Life 자동·요청 지원은 테스트 틀에 A-Life 가 없어 미검증.
   공유 모드의 거래 막힘 줄·`ALife.channelInfo` 는 집단 신뢰 그대로.
 - 모드 확인: 서버 시작(`OnServerStarted`)과 첫 사용 때 `Trust.checkMode`. 처음 보는 세이브가 이틀 넘게 진행됐으면 예전 공유 세이브로 보고 옮긴다.
 - 테스트: `test_personal_trust`(19), `test_personal_benefits`(18), `test_personal_group`(19), `test_personal_client`(8), 브릿지 `tests/test_personal.py`(6).
