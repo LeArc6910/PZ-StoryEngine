@@ -147,6 +147,33 @@ function Work.maxTier(fid, category, key)
     return 0
 end
 
+-- 빚 기록 (Work.choose 의 "빚"). 공유 모드는 NPC 마다 하나(ch.favorOwed), 개인 모드는 사람마다(ch.favorOwedBy[키]):
+-- 남의 빚이 내 빚을 막지 않고, 독촉은 빚진 사람 앞으로만 간다 (2026-10-09)
+function Work.owed(fid, key)
+    local ch = Radio.channel(fid)
+    if personalMode() then return key and ch.favorOwedBy and ch.favorOwedBy[key] or nil end
+    return ch.favorOwed
+end
+
+local function setOwed(fid, key, rec)
+    local ch = Radio.channel(fid)
+    if personalMode() and key then
+        ch.favorOwedBy = ch.favorOwedBy or {}
+        ch.favorOwedBy[key] = rec
+    else
+        ch.favorOwed = rec
+    end
+end
+
+-- 이 NPC 에게 진 빚 기록 전부 (독촉·정리용): { 키 = 기록 }. 공유 모드 기록은 "_" 키로
+local function allOwed(fid)
+    local ch = Radio.channel(fid)
+    local out = {}
+    if ch.favorOwed then out["_"] = ch.favorOwed end
+    for key, rec in pairs(ch.favorOwedBy or {}) do out[key] = rec end
+    return out
+end
+
 -- 이 방식을 지금 쓸 수 있나. how = "labor"(일로 갚기, 종류는 무작위) | 일 종류 | "credit" | "favor"
 -- key: 고르는 사람 (없으면 거래한 사람 q.target). 개인 모드에서 신뢰·주간 횟수·금지를 그 사람으로 본다
 -- 반환: true | false, 이유("trust" + 필요 신뢰도 | "week" | "kind" | "gone" | "owed" | "burned")
@@ -161,7 +188,7 @@ function Work.check(fid, how, q, key)
     if how == "credit" and trust < Work.CREDIT_TRUST then return false, "trust", Work.CREDIT_TRUST end
     if how == "favor" then
         if trust < Work.FAVOR_TRUST then return false, "trust", Work.FAVOR_TRUST end
-        if Radio.channel(fid).favorOwed then return false, "owed" end
+        if Work.owed(fid, key) then return false, "owed" end
     end
     if Work.weekUsed(fid, now().t, key) >= Work.PER_WEEK then return false, "week" end
     return true
@@ -484,7 +511,7 @@ function Work.choose(player, qid, how, force)
     elseif how == "favor" then
         q.favor, q.noTrust = true, true
         q.delivered = (deliver(q, player, ps, q.goods, t) or {}).id
-        ch.favorOwed = { qid = q.id, key = ps.key, name = ps.name, sinceT = t.t, tier = q.tier or 1 }
+        setOwed(fid, ps.key, { qid = q.id, key = ps.key, name = ps.name, sinceT = t.t, tier = q.tier or 1 })
         Quests.setState(q, "completed", t, { ps = ps })
         Radio.react(fid, "event", topic, Lines.fallback(fid, "work_favor", "Take it. You owe me one."), ps)
     end
@@ -508,9 +535,19 @@ function Work.onState(q, state, outcome, trustDelta)
         if state == "failed" and not q.credit and not q.payKind and (q.paid or 0) > 0 then Work.partialGoods(q, t) end
     end
     if q.favorCall and (state == "completed" or state == "declined" or state == "failed") then
-        local ch = Radio.channel(q.origin.faction)
-        if state ~= "completed" then Work.default(q, "favor_broken", t) end
-        ch.favorOwed = nil
+        -- 받은 사람이 자리를 비워 감점 없이 닫혔으면(q.lapsed) 빚은 그대로 두고 다시 독촉한다
+        local debtor = q.favorKey or q.target
+        if q.lapsed then
+            local rec = Work.owed(q.origin.faction, debtor)
+            if rec then rec.called = nil end
+            log("work favor call lapsed, will call again", q.id)
+            return
+        end
+        if state ~= "completed" then
+            q.target = debtor                -- 떼먹은 감점은 빚진 사람에게
+            Work.default(q, "favor_broken", t)
+        end
+        setOwed(q.origin.faction, debtor, nil)
         log("work favor settled", q.id, state)
     end
 end
@@ -819,10 +856,13 @@ function Work.tick(entries, t)
     Work.callFavors(t)
 end
 
-local function openFrom(fid)
+-- key: 개인 모드에서 그 사람에게 열린 것만 본다 (다른 사람의 개인별 부탁이 독촉을 막지 않게)
+local function openFrom(fid, key)
+    local personal = personalMode() and key ~= nil
     for _, q in pairs(Store.data().quests) do
         if q.origin and q.origin.faction == fid and (q.state == "proposed" or Quests.isActive(q))
-            and (q.kind == "deliver" or q.kind == "horde") then
+            and (q.kind == "deliver" or q.kind == "horde")
+            and (not personal or q.addressed == key or (not q.addressed and q.target == key)) then
             return true
         end
     end
@@ -830,24 +870,29 @@ local function openFrom(fid)
 end
 
 -- 빚을 진 지 이틀이 지나면 그 NPC 가 부탁을 한다 (빚진 사람이 접속해 있으면 그 사람에게)
+-- 개인 모드는 빚진 사람이 접속해 있을 때만, 그 사람 앞의 개인별 부탁으로 (받은 사람만 답하고, 떼먹은 감점도 그 사람에게)
 function Work.callFavors(t)
+    local personal = personalMode()
     for _, f in ipairs(Factions.list) do
-        local ch = Radio.channel(f.id)
-        local owed = ch.favorOwed
-        if owed and not owed.called then
-            if Factions.isGone(f.id) or t.t - owed.sinceT >= Work.FAVOR_EXPIRE_MIN then
-                ch.favorOwed = nil
-            elseif t.t - owed.sinceT >= Work.FAVOR_CALL_MIN and not openFrom(f.id) then
-                local player = nil
-                for _, p in ipairs(Sensor.players()) do
-                    if Store.playerKey(p) == owed.key then player = p end
-                end
-                player = player or Sensor.players()[1]
-                if player then
-                    local q = Quests.propose(player, Store.player(player), f.id, owed.tier or 1, t, { favor = owed.name })
-                    if q then
-                        owed.called = q.id
-                        log("work favor called", f.id, q.id, "owed by", owed.name)
+        for slot, owed in pairs(allOwed(f.id)) do
+            local key = slot ~= "_" and slot or nil
+            if not owed.called then
+                if Factions.isGone(f.id) or t.t - owed.sinceT >= Work.FAVOR_EXPIRE_MIN then
+                    if key then Radio.channel(f.id).favorOwedBy[key] = nil else Radio.channel(f.id).favorOwed = nil end
+                elseif t.t - owed.sinceT >= Work.FAVOR_CALL_MIN and not openFrom(f.id, personal and owed.key or nil) then
+                    local player = nil
+                    for _, p in ipairs(Sensor.players()) do
+                        if Store.playerKey(p) == owed.key then player = p end
+                    end
+                    if not personal then player = player or Sensor.players()[1] end
+                    if player then
+                        local q = Quests.propose(player, Store.player(player), f.id, owed.tier or 1, t,
+                            { favor = owed.name, addressed = personal and owed.key or nil })
+                        if q then
+                            q.favorKey = owed.key
+                            owed.called = q.id
+                            log("work favor called", f.id, q.id, "owed by", owed.name)
+                        end
                     end
                 end
             end
@@ -860,9 +905,13 @@ function Work.statusText()
     for _, f in ipairs(Factions.list) do
         local ch = Radio.channel(f.id)
         local used = Work.weekUsed(f.id, now().t)
-        if used > 0 or ch.favorOwed then
+        local owedText = {}
+        for _, rec in pairs(allOwed(f.id)) do
+            owedText[#owedText + 1] = " owed=" .. tostring(rec.name) .. (rec.called and "*" or "")
+        end
+        if used > 0 or #owedText > 0 then
             parts[#parts + 1] = f.id .. ":" .. StoryEngine.intToString(used) .. "/" .. StoryEngine.intToString(Work.PER_WEEK)
-                .. (ch.favorOwed and (" owed=" .. tostring(ch.favorOwed.name) .. (ch.favorOwed.called and "*" or "")) or "")
+                .. table.concat(owedText)
         end
     end
     return "work " .. (#parts > 0 and table.concat(parts, " ") or "none")

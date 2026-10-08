@@ -383,6 +383,11 @@ function Quests.lapse(q, now)
     q.history = q.history or {}
     Store.push(q.history, { state = "lapsed", t = now.t }, 20)
     log("quest lapsed (addressee away)", q.id, q.addressed)
+    -- 빚 독촉이면 빚은 그대로 두고 다음에 다시 독촉하게 (Work.onState 의 lapsed)
+    if q.favorCall and StoryEngine.Work then
+        local ok, err = pcall(StoryEngine.Work.onState, q, "declined", "lapsed")
+        if not ok then log("work favor lapse error:", err) end
+    end
     Quests.notify(q)
 end
 
@@ -948,9 +953,9 @@ end
 
 function Quests.cancelFor(fid, now)
     local ch = StoryEngine.Radio.channel(fid)
-    if ch.favorOwed then
+    if ch.favorOwed or ch.favorOwedBy then
         log("work favor dropped (npc gone)", fid)
-        ch.favorOwed = nil
+        ch.favorOwed, ch.favorOwedBy = nil, nil
     end
     for _, q in pairs(all()) do
         local job = Quests.isWork(q) and Quests.isActive(q)     -- 거래 대가로 하던 일 (Work.lua)

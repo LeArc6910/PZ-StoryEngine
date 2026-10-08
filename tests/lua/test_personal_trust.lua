@@ -279,4 +279,42 @@ function T.personal_asks_only_in_personal_mode()
     H.eq(why, "not_personal")
 end
 
+-- 빚은 사람마다 (2026-10-09): 남의 빚이 내 빚을 막지 않고, 독촉은 빚진 사람 앞으로만, 떼먹은 감점도 그 사람에게
+function T.debts_are_per_person()
+    local a, b, pa, pb = setup(true)
+    local W, ray = StoryEngine.Work, ch("ray")
+    ray.personal = { [pa.key] = 60, [pb.key] = 60 }
+    ray.favorOwedBy = { [pa.key] = { qid = "Q0", key = pa.key, name = pa.name, sinceT = -5000, tier = 1 } }
+    H.ok(W.owed("ray", pa.key), "Alice owes Ray")
+    H.eq(W.owed("ray", pb.key), nil, "Bob owes nothing")
+    local ok, why = W.check("ray", "favor", nil, pb.key)
+    H.ok(ok, "Alice's debt does not block Bob: " .. tostring(why))
+    local okA, whyA = W.check("ray", "favor", nil, pa.key)
+    H.eq(okA, false)
+    H.eq(whyA, "owed")
+    -- 독촉: 빚진 앨리스 앞으로
+    W.callFavors(StoryEngine.Sensor.now())
+    local call
+    for _, q in pairs(StoryEngine.Store.data().quests) do if q.favorCall then call = q end end
+    H.ok(call and call.addressed == pa.key and call.favorKey == pa.key, "the call is addressed to Alice")
+    local okB, whyB = StoryEngine.Quests.respond(b, call.id, true)
+    H.eq(okB, false)
+    H.eq(whyB, "not_addressed", "Bob cannot answer Alice's debt")
+    local bBefore = Tr().personal("ray", pb.key)
+    H.ok(StoryEngine.Quests.respond(a, call.id, false))
+    H.ok(Tr().personal("ray", pa.key) <= 30, "Alice broke the favor: big loss")
+    H.eq(Tr().personal("ray", pb.key), bBefore, "Bob untouched")
+    H.eq(W.owed("ray", pa.key), nil, "settled")
+end
+
+function T.debt_call_waits_for_the_debtor()
+    local _, b, pa = setup(true)
+    local W, ray = StoryEngine.Work, ch("ray")
+    ray.favorOwedBy = { [pa.key] = { qid = "Q0", key = pa.key, name = pa.name, sinceT = -5000, tier = 1 } }
+    for i, p in ipairs(H.players) do if StoryEngine.Store.playerKey(p) == pa.key then table.remove(H.players, i) end end
+    W.callFavors(StoryEngine.Sensor.now())
+    for _, q in pairs(StoryEngine.Store.data().quests) do H.ok(not q.favorCall, "no call to someone else while Alice is away") end
+    H.ok(b ~= nil)
+end
+
 return T

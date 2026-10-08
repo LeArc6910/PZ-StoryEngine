@@ -147,7 +147,7 @@ function Voices.take(fid, now, cold)
     -- 앞 사람의 무전 기억·대화·사람별 기억은 후임 것이 아니다 (2026-10-08 점검 B1·B6)
     ch.memory, ch.memorySeq, ch.voiceSeq = nil, ch.seq or 0, ch.seq or 0
     ch.talked, ch.heard, ch.requests, ch.lastOffender, ch.workBurnT, ch.tradeTrust = {}, {}, nil, nil, nil, nil
-    ch.favorOwed = nil
+    ch.favorOwed, ch.favorOwedBy = nil, nil
     -- 개인 모드의 개인 신뢰도 모두 처음부터 (다음에 만나면 소개 몫으로 새로, DESIGN_PER_PLAYER_TRUST 5-4절)
     if StoryEngine.Trust and StoryEngine.Trust.resetPersonal then StoryEngine.Trust.resetPersonal(fid) end
     n.byWho, n.log, n.counts = {}, {}, {}
