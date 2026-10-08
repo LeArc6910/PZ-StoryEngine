@@ -339,6 +339,11 @@ function Life.onQuest(q, outcome, trustDelta)
             Life.record(fid, "trade_done", who, trustDelta)
             if tier >= Life.SPILL_BIG_TIER and not q.favor then Life.spill(fid, who) end
         elseif outcome == "failed" then
+            -- 대가를 일부 냈으면 그만큼은 받았다 (나눠 내기, 2026-10-08)
+            local share = StoryEngine.Quests.paidShare(q)
+            if share > 0 and not q.credit then
+                Life.change(fid, Value.RESOURCE_OF[q.payCategory] or "safety", math.floor(10 * share + 0.5), "trade_partial")
+            end
             Life.record(fid, "trade_failed", who, trustDelta)
         end
         return
@@ -365,8 +370,14 @@ function Life.onQuest(q, outcome, trustDelta)
         if q.kind ~= "extort" then
             Life.change(fid, res, -10, "quest_" .. outcome)
             Life.change(fid, "morale", -5, "quest_" .. outcome)
+            -- 나눠 내다 기한을 넘겼으면 낸 만큼은 형편이 나아진다 (2026-10-08 사용자 결정 "낸 만큼 반영")
+            local share = outcome == "failed" and StoryEngine.Quests.paidShare(q) or 0
+            if share > 0 then
+                Life.change(fid, res, math.floor(math.min(40, 10 * tier) * share + 0.5), "quest_partial")
+            end
             -- 외면당한 뒤 NEGLECT_DAYS 동안은 형편이 저절로 나아지지 않는다 (이틀이면 되돌아가던 것, 점검 C4)
-            Life.npc(fid).neglectT = Sensor.now().t
+            -- 절반 넘게 채워 준 사람이 있으면 외면당했다고 보지 않는다
+            if share < 0.5 then Life.npc(fid).neglectT = Sensor.now().t end
         end
         Life.record(fid, "quest_" .. outcome, who, trustDelta)
     elseif outcome == "accepted" then
@@ -419,10 +430,60 @@ end
 
 -- ---------------------------------------------------------------- 물자 지원
 
-function Life.donateWait(fid, now)
-    local last = Life.npc(fid).donatedT
-    if not last then return 0 end
-    return math.max(0, math.ceil((Life.DONATE_GAP_MIN - (now.t - last)) / 60))
+-- 지원 통 (2026-10-08 사용자 결정 "3일 한도 통"): 처음 낸 때부터 DONATE_GAP_MIN 동안 한도까지 여러 번 나눠 낸다.
+-- 한도: 자원마다 +DONATE_CAP, 프로젝트 Projects.DONATE_CAP 점. 신뢰도는 그동안 낸 가치 합으로 DONATE_TRUST 단계마다 한 번씩.
+-- 물자 지원과 프로젝트 지원은 한 통을 같이 쓴다 (신뢰도 단계를 두 번 받지 않게). n.donateWin = { t, value, trust, res, points }
+local function donateWindow(fid, now)
+    local n = Life.npc(fid)
+    local w = n.donateWin
+    if w and now.t - (w.t or 0) >= Life.DONATE_GAP_MIN then
+        n.donateWin = nil
+        w = nil
+    end
+    if not w and n.donatedT and now.t - n.donatedT < Life.DONATE_GAP_MIN then
+        -- 예전 세이브: 한 번에 내던 때의 대기는 다 쓴 통으로
+        w = { t = n.donatedT, value = 999, trust = 3, res = {}, points = 999999, legacy = true }
+        for _, r in ipairs(Life.RESOURCES) do w.res[r] = Life.DONATE_CAP end
+        n.donateWin = w
+    end
+    return w
+end
+
+local function pointsCap()
+    return StoryEngine.Projects and StoryEngine.Projects.DONATE_CAP or 100
+end
+
+-- 이 통에 남은 것: { res = { food = 남은 증가 }, points = 남은 프로젝트 점수, hours = 새 통까지(통이 열려 있으면), value, trust }
+function Life.donateStatus(fid, now)
+    local w = donateWindow(fid, now)
+    local out = { res = {}, points = pointsCap(), value = 0, trust = 0 }
+    for _, r in ipairs(Life.RESOURCES) do out.res[r] = Life.DONATE_CAP end
+    if not w then return out end
+    for _, r in ipairs(Life.RESOURCES) do out.res[r] = math.max(0, Life.DONATE_CAP - ((w.res or {})[r] or 0)) end
+    out.points = math.max(0, pointsCap() - (w.points or 0))
+    out.value, out.trust = math.min(w.value or 0, 999), w.trust or 0
+    out.hours = math.max(0, math.ceil((Life.DONATE_GAP_MIN - (now.t - w.t)) / 60))
+    return out
+end
+
+-- 물자 지원(mode nil)·프로젝트 지원("project") 을 지금 더 낼 수 없으면 새 통까지 남은 시간, 낼 수 있으면 0
+function Life.donateWait(fid, now, mode)
+    local st = Life.donateStatus(fid, now)
+    if not st.hours then return 0 end
+    if mode == "project" then
+        return st.points <= 0 and st.hours or 0
+    end
+    for _, r in ipairs(Life.RESOURCES) do
+        if st.res[r] > 0 then return 0 end
+    end
+    return st.hours
+end
+
+local function trustStep(value)
+    for _, row in ipairs(Life.DONATE_TRUST) do
+        if value >= row[1] then return row[2] end
+    end
+    return 0
 end
 
 local RES_WORDS = { food = "food", medical = "medicine", safety = "weapons and ammunition", morale = "comforts" }
@@ -437,8 +498,9 @@ function Life.donate(player, fid, itemIds, mode)
     if project and Projects.done(fid) then return false, "project_done" end
     if not Factions.canTalk(player) then return false, "no_radio" end
     local now = Sensor.now()
-    local wait = Life.donateWait(fid, now)
+    local wait = Life.donateWait(fid, now, mode)
     if wait > 0 then return false, "cooldown", wait end
+    local st = Life.donateStatus(fid, now)
     local inv = player:getInventory()
     local chosen, seen, byRes, total, names = {}, {}, {}, 0, {}
     local rule = project and Projects.rule(fid) or nil
@@ -456,8 +518,8 @@ function Life.donate(player, fid, itemIds, mode)
                 sameType[ft] = (sameType[ft] or 0) + 1
                 if sameType[ft] > Value.SAME_ITEM_CAP then item = nil end
             end
-            if item and project and projectPoints >= Projects.DONATE_CAP then
-                item = nil       -- 한 번에 최대 점수를 채웠다: 나머지 물건은 가져가지 않는다
+            if item and project and projectPoints >= st.points then
+                item = nil       -- 이 통의 점수 한도를 채웠다: 나머지 물건은 가져가지 않는다
             end
             if item and project then
                 -- 프로젝트: NPC 마다 받는 물건 규칙 (듀이 차량 부품, 빅 무엇이든 x0.8)
@@ -469,6 +531,8 @@ function Life.donate(player, fid, itemIds, mode)
                 end
             elseif item then
                 res, value = Value.donatable(player, item)
+                -- 그 자원은 이 통의 한도를 채웠다: 가져가지 않는다
+                if res and (byRes[res] or 0) * Life.DONATE_MULT >= (st.res[res] or 0) then res = nil end
             end
             if res then
                 chosen[#chosen + 1] = item
@@ -484,30 +548,43 @@ function Life.donate(player, fid, itemIds, mode)
 
     local ps = Store.player(player)
     local n = Life.npc(fid)
+    local w = n.donateWin
+    local fresh = w == nil
+    if not w then
+        w = { t = now.t, value = 0, trust = 0, res = {}, points = 0 }
+        n.donateWin = w
+    end
+    w.res = w.res or {}
     local wasLow = {}
     local gains = {}
     local points = 0
     if project then
         -- 프로젝트 지원: 자원 대신 진행도로 (받는 자원의 물건 1점, 나머지 0.5점)
-        points = Projects.add(fid, math.min(Projects.DONATE_CAP, math.floor(projectPoints + 0.5)), ps.name, "donation")
+        local add = math.min(st.points, math.floor(projectPoints + 0.5))
+        w.points = (w.points or 0) + add
+        points = Projects.add(fid, add, ps.name, "donation")
     else
         for res, value in pairs(byRes) do
             if (n.res[res] or 0) < Life.LOW then wasLow[#wasLow + 1] = RES_WORDS[res] end
-            gains[res] = Life.change(fid, res, math.min(Life.DONATE_CAP, math.floor(value * Life.DONATE_MULT + 0.5)), "donation")
+            local add = math.min(st.res[res] or 0, math.floor(value * Life.DONATE_MULT + 0.5))
+            w.res[res] = (w.res[res] or 0) + add
+            gains[res] = Life.change(fid, res, add, "donation")
             if res == "medical" then Life.count(fid, "medical_help") end
         end
     end
-    local trust = 0
-    for _, row in ipairs(Life.DONATE_TRUST) do
-        if total >= row[1] then
-            trust = row[2]
-            break
-        end
-    end
+    -- 신뢰도: 이 통에서 낸 가치 합이 새 단계를 넘을 때만 (나눠 내도 한 번에 낸 것과 같다)
+    local before = w.trust or 0
+    w.value = (w.value or 0) + total
+    local step = trustStep(w.value)
+    local trust = math.max(0, step - before)
+    w.trust = math.max(before, step)
     local applied = trust > 0 and StoryEngine.Trust.apply(fid, trust, "donation", nil, nil) or 0
-    n.donatedT = now.t
+    n.donatedT = nil          -- 예전 대기 기록 (이제는 통 n.donateWin)
     Life.record(fid, project and "project_gift" or "donation", ps.name, applied)
-    if applied >= 2 then Life.spill(fid, ps.name) end
+    if w.trust >= 2 and not w.spilled then
+        w.spilled = true
+        Life.spill(fid, ps.name)
+    end
 
     -- 목록 문장 (AI·일지용, 영어 이름이 아니어도 된다)
     local list = {}
@@ -525,8 +602,9 @@ function Life.donate(player, fid, itemIds, mode)
         topic = topic .. " You were running low on " .. table.concat(wasLow, " and ") .. ", so this really helps."
     end
     topic = topic .. " Thank them in character, by name."
-    -- 프로젝트를 완성시킨 지원이면 완성 무전이 따로 가므로 감사 무전은 생략
-    if not (project and Projects.done(fid)) then
+    -- 프로젝트를 완성시킨 지원이면 완성 무전이 따로 가므로 감사 무전은 생략.
+    -- 나눠 낼 때는 통의 첫 지원과 신뢰도가 오를 때만 감사한다 (조금씩 낼 때마다 무전이 쏟아지지 않게)
+    if not (project and Projects.done(fid)) and (fresh or applied > 0) then
         Radio.react(fid, "event", topic, StoryEngine.Lines.fallback(fid, "donation", "Got your supplies. Thank you."), ps)
     end
     log(project and "project donation" or "donation", fid, "by", ps.name, "value", total, "trust", applied, "points", points)
@@ -568,7 +646,8 @@ function Life.list(psKey)
         for _, e in ipairs(dk) do dislikes[#dislikes + 1] = e.id; bondVals[e.id] = e.v end
         out[#out + 1] = {
             id = f.id, trust = Radio.channel(f.id).trust, res = copy(n.res), prev = copy(n.prev),
-            donateWait = Life.donateWait(f.id, now), records = recs, tags = Life.tags(f.id),
+            donateWait = Life.donateWait(f.id, now), projectWait = Life.donateWait(f.id, now, "project"),
+            donate = Life.donateStatus(f.id, now), records = recs, tags = Life.tags(f.id),
             likes = likes, dislikes = dislikes, bondVals = bondVals, key = Life.KEY[f.id], fate = n.fate and n.fate.kind or nil,
             fateDay = n.fate and n.fate.day or nil, starve = n.starve,
             spec = StoryEngine.Specialty and StoryEngine.Specialty.status(f.id, psKey) or nil,

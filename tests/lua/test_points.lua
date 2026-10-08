@@ -160,10 +160,13 @@ function T.any_gun_worth_the_points_is_accepted()
     H.eq(q.need[1][1], "cat:firearm")
     H.eq(q.need[1][2], 34, "tier 3 firearm base")
     H.give(p, "Base.Pistol")
-    local ok = StoryEngine.Quests.submit(p, q.id)
-    H.ok(not ok, "one pistol (30) is not worth a tier 3 gun request (34)")
+    local ok, _, partial = StoryEngine.Quests.submit(p, q.id)
+    H.ok(ok and partial == "partial", "one pistol (30) is sent as a part of a tier 3 gun request (34)")
+    H.eq(q.state, "accepted")
+    H.eq(q.got["cat:firearm"], 30)
     H.give(p, "Base.Pistol")
-    H.ok(StoryEngine.Quests.submit(p, q.id), "two pistols are")
+    H.ok(StoryEngine.Quests.submit(p, q.id), "the second pistol finishes it")
+    H.eq(q.state, "completed")
     H.eq(count(p, "Base.Pistol"), 0)
 end
 
@@ -178,25 +181,30 @@ function T.any_food_worth_the_points_is_accepted()
     H.eq(q.state, "completed")
 end
 
-function T.chosen_items_must_cover_the_points()
+-- 나눠 내기 (2026-10-08): 고른 물건이 모자라도 낸 만큼 쌓이고, 남은 점수까지만 더 가져간다
+function T.chosen_items_can_be_sent_in_parts()
     local p, ps = setup()
     local q = ask(p, ps, { { "Base.TinnedBeans", 3 } })
     local ids = {}
     for _ = 1, 4 do ids[#ids + 1] = H.give(p, "Base.CannedChili"):getID() end
-    local ok, why = StoryEngine.Quests.submit(p, q.id, { ids[1], ids[2] })
-    H.ok(not ok and why == "missing_items", "3 points is not enough")
-    H.eq(count(p, "Base.CannedChili"), 4, "nothing taken when short")
-    H.ok(StoryEngine.Quests.submit(p, q.id, ids))
-    H.eq(count(p, "Base.CannedChili"), 1, "only as many chosen cans as the 4 points need")
+    local ok, _, partial = StoryEngine.Quests.submit(p, q.id, { ids[1], ids[2] })
+    H.ok(ok and partial == "partial", "3 points is a part")
+    H.eq(count(p, "Base.CannedChili"), 2, "the two chosen cans were sent")
+    H.eq(q.state, "accepted")
+    H.ok(StoryEngine.Quests.submit(p, q.id, { ids[3], ids[4] }))
+    H.eq(q.state, "completed")
+    H.eq(count(p, "Base.CannedChili"), 1, "only as many cans as the remaining points need")
 end
 
-function T.not_enough_food_is_refused()
+function T.nothing_to_send_is_refused()
     local p, ps = setup()
     local q = ask(p, ps, { { "Base.TinnedBeans", 3 } })
-    H.give(p, "Base.Crisps")
     local ok, why = StoryEngine.Quests.submit(p, q.id)
     H.ok(not ok and why == "missing_items")
-    H.eq(count(p, "Base.Crisps"), 1)
+    H.give(p, "Base.Crisps")
+    H.ok(StoryEngine.Quests.submit(p, q.id), "a bag of crisps is a part")
+    H.eq(count(p, "Base.Crisps"), 0)
+    H.ok(StoryEngine.Quests.paidShare(q) > 0 and StoryEngine.Quests.paidShare(q) < 1)
 end
 
 function T.points_follow_the_tier_scale()

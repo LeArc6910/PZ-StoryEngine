@@ -114,6 +114,15 @@ function Trust.forQuest(q, outcome)
             local mult = Store.STAGE_PENALTY[stage] or 1
             delta = -math.max(1, math.floor(-delta * mult + 0.5))
         end
+        -- 나눠 내다 기한을 넘겼으면 못 낸 비율만큼만 깎는다 (2026-10-08 사용자 결정 "낸 만큼 반영")
+        local share = outcome == "failed" and StoryEngine.Quests.paidShare and StoryEngine.Quests.paidShare(q) or 0
+        if share > 0 then
+            delta = -math.floor(-delta * (1 - share) + 0.5)
+            if delta == 0 then
+                log("quest failure forgiven (paid share)", q.id, share)
+                return 0
+            end
+        end
     end
     -- 거래로 오르는 신뢰도는 NPC 마다 게임 7일에 TRADE_WEEK_CAP 까지 (2026-10-03 점검: 거래로 신뢰도를 사는 것 방지)
     if who == "player" and q.kind == "trade" and delta > 0 then

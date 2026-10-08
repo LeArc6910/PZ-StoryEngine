@@ -22,9 +22,24 @@ local BUTTON_H = FONT_H + 12
 local ROW_H = FONT_H + 10
 local MULT, CAP = 2, 40
 local TRUST_STEPS = { { 30, 3 }, { 15, 2 }, { 5, 1 } }
--- 프로젝트 지원 한 번에 최대 점수 (서버 Projects.DONATE_CAP, 샌드박스 ProjectDonateCap)
+-- 프로젝트 지원 3일 통의 최대 점수 (서버 Projects.DONATE_CAP, 샌드박스 ProjectDonateCap)
 local function projectCap()
     return math.max(10, math.floor(StoryEngine.Tuning.num("ProjectDonateCap")))
+end
+
+-- 이 통에 남은 한도 (서버 Life.donateStatus, 거점 목록의 npc.donate). 없으면 새 통
+local function windowOf(npc)
+    local d = npc and npc.donate or {}
+    local res = {}
+    for _, r in ipairs(Value.RESOURCES) do res[r] = (d.res or {})[r] or CAP end
+    return { res = res, points = d.points or projectCap(), value = d.value or 0, trust = d.trust or 0 }
+end
+
+local function trustStep(value)
+    for _, s in ipairs(TRUST_STEPS) do
+        if value >= s[1] then return s[2] end
+    end
+    return 0
 end
 
 StoryEngineDonateWindow = ISCollapsableWindow:derive("StoryEngineDonateWindow")
@@ -104,33 +119,31 @@ end
 function StoryEngineDonateWindow:render()
     ISCollapsableWindow.render(self)
     local byRes, total, points = self:totals()
+    local win = windowOf(self.npc)
     local gains = {}
     for _, r in ipairs(Value.RESOURCES) do
         if byRes[r] then
-            gains[#gains + 1] = resName(r) .. " +" .. StoryEngine.intToString(math.min(CAP, math.floor(byRes[r] * MULT + 0.5)))
+            gains[#gains + 1] = resName(r) .. " +" .. StoryEngine.intToString(math.min(win.res[r], math.floor(byRes[r] * MULT + 0.5)))
+                .. " / " .. StoryEngine.intToString(win.res[r])
         end
     end
-    local trust = 0
-    for _, s in ipairs(TRUST_STEPS) do
-        if total >= s[1] then
-            trust = s[2]
-            break
-        end
-    end
+    -- 신뢰도는 이 통에서 낸 가치 합으로 단계마다 한 번씩 (나눠 내도 같다)
+    local trust = math.max(0, trustStep(win.value + total) - win.trust)
     local y = self.sendButton:getY() - FONT_H * 2 - PAD
     local line1 = #gains > 0 and table.concat(gains, ", ") or getText("IGUI_StoryEngine_Life_PickItems")
     if self.mode == "project" and self.npc.project then
         -- 프로젝트 지원: 점수는 물건마다 Value.projectItem (서버와 같은 규칙)
-        local pts = math.min(projectCap(), math.floor(points + 0.5))
+        local pts = math.min(win.points, math.floor(points + 0.5))
         local goal = self.npc.project.goal or 1000
         local now = math.min(goal, (self.npc.project.points or 0) + pts)
         line1 = getText("IGUI_StoryEngine_Project_Preview", StoryEngine.intToString(pts), StoryEngine.intToString(now),
-            StoryEngine.intToString(goal))
-        if points >= projectCap() then line1 = line1 .. "  " .. getText("IGUI_StoryEngine_Project_CapReached") end
+            StoryEngine.intToString(goal)) .. "  " .. getText("IGUI_StoryEngine_Project_WindowLeft", StoryEngine.intToString(win.points))
+        if points >= win.points then line1 = line1 .. "  " .. getText("IGUI_StoryEngine_Project_CapReached") end
     end
     self:drawText(line1, PAD, y, 0.8, 0.9, 0.7, 1, UIFont.Small)
-    self:drawText(getText("IGUI_StoryEngine_Life_Preview", fmt(total), "+" .. StoryEngine.intToString(trust)),
-        PAD, y + FONT_H + 2, trust > 0 and 0.5 or 0.8, trust > 0 and 0.9 or 0.8, trust > 0 and 0.5 or 0.8, 1, UIFont.Small)
+    local line2 = getText("IGUI_StoryEngine_Life_Preview", fmt(total), "+" .. StoryEngine.intToString(trust))
+    if win.value > 0 then line2 = line2 .. "  " .. getText("IGUI_StoryEngine_Life_WindowSoFar", fmt(win.value)) end
+    self:drawText(line2, PAD, y + FONT_H + 2, trust > 0 and 0.5 or 0.8, trust > 0 and 0.9 or 0.8, trust > 0 and 0.5 or 0.8, 1, UIFont.Small)
     self.sendButton:setEnable(total > 0)
 end
 
@@ -144,10 +157,15 @@ function StoryEngineDonateWindow:onToggle(data)
         end
         if same >= Value.SAME_ITEM_CAP then return end
     end
-    -- 프로젝트: 한 번에 최대 점수를 채웠으면 더 고르지 못한다 (고른 것을 빼는 건 된다)
-    if self.mode == "project" and not data.selected then
-        local _, _, points = self:totals()
-        if points >= projectCap() then return end
+    -- 이 통의 한도를 채웠으면 더 고르지 못한다 (고른 것을 빼는 건 된다, 서버도 넘는 물건은 가져가지 않는다)
+    if not data.selected then
+        local win = windowOf(self.npc)
+        local byRes, _, points = self:totals()
+        if self.mode == "project" then
+            if points >= win.points then return end
+        elseif data.resource and (byRes[data.resource] or 0) * MULT >= (win.res[data.resource] or 0) then
+            return
+        end
     end
     data.selected = not data.selected
 end

@@ -91,13 +91,28 @@ function T.donate_values_trust_spill_and_cooldown()
     H.eq(trust("dewey"), 16)
     H.eq(lastRecord("casey").kind, "spill_up")
     H.eq(lastRecord("casey").src, "ray")
-    -- 대기 3일
-    local ok2, why, wait = Life.donate(p, "ray", { H.give(p, "Base.Bandage"):getID() })
-    H.eq(ok2, false)
-    H.eq(why, "cooldown")
+    -- 3일 통 (2026-10-08): 같은 기간에 남은 한도까지 더 나눠 낸다. 안전은 +30 을 받아 10 남음
+    local ok2, info2 = Life.donate(p, "ray", { H.give(p, "Base.Bullets9mmBox"):getID(), H.give(p, "Base.Bullets9mmBox"):getID() })
+    H.ok(ok2)
+    H.eq(info2.gains.safety, 10, "only the rest of the +40 safety limit")
+    H.eq(info2.trust, 1, "value 29 + 15 crosses the 30 step")
+    H.eq(#p.items, 5, "the second ammo box is not taken: safety is full for this period")
+    for _ = 1, 4 do H.give(p, "Base.Bandage") end
+    local fill = {}
+    for _ = 1, 40 do fill[#fill + 1] = H.give(p, "Base.TinnedBeans"):getID() end
+    H.ok(Life.donate(p, "ray", fill), "fill food")
+    local m = {}
+    for _ = 1, 20 do m[#m + 1] = H.give(p, "Base.Bandage"):getID() end
+    H.ok(Life.donate(p, "ray", m), "fill medicine")
+    local c = {}
+    for _ = 1, 30 do c[#c + 1] = H.give(p, "Base.CigarettePack"):getID() end
+    H.ok(Life.donate(p, "ray", c), "fill comforts")
+    local ok3, why, wait = Life.donate(p, "ray", { H.give(p, "Base.Bandage"):getID() })
+    H.eq(ok3, false)
+    H.eq(why, "cooldown", "every resource is full for this period")
     H.eq(wait, 72)
     H.advanceDays(3)
-    H.ok(Life.donate(p, "ray", { H.give(p, "Base.Bandage"):getID() }), "allowed after 3 days")
+    H.ok(Life.donate(p, "ray", { H.give(p, "Base.Bandage"):getID() }), "allowed in a new period")
 end
 
 function T.donate_small_gift_no_trust_no_spill()
@@ -278,8 +293,12 @@ function T.commands_list_and_donate_roundtrip()
     H.eq(res1[1].gains.medical, 6)
     C.lifeDonate(p, { faction = "ray", items = { H.give(p, "Base.Bandage"):getID() } })
     res1 = H.sentOf("lifeDonateResult")
-    H.eq(res1[2].error, "cooldown")
-    H.eq(res1[2].wait, 72)
+    H.ok(res1[2].ok, "a second part in the same period")
+    lists = H.sentOf("lifeList")
+    for _, n in ipairs(lists[#lists].npcs) do if n.id == "ray" then ray = n end end
+    H.eq(ray.donate.res.medical, 28, "40 - 6 - 6 left")
+    H.eq(ray.donate.hours, 72)
+    H.eq(ray.donateWait, 0)
     C.debugLife(p, { faction = "ray", set = 0 })
     H.eq(res("ray", "morale"), 0)
     C.debugLife(p, { faction = "ray", set = "base" })

@@ -85,18 +85,32 @@ function StoryEngineTradePayWindow:selectedValue()
     return total
 end
 
+-- 아직 남은 값 (나눠 내기, 2026-10-08: quest.paid 는 이미 낸 것)
+function StoryEngineTradePayWindow:left()
+    return math.max(0, (self.quest.price or 0) - (self.quest.paid or 0))
+end
+
 function StoryEngineTradePayWindow:render()
     ISCollapsableWindow.render(self)
     local total = self:selectedValue()
-    local enough = total >= (self.quest.price or 0)
-    local text = getText("IGUI_StoryEngine_Trade_Total", fmt(total), fmt(self.quest.price or 0))
+    local left = self:left()
+    local enough = total + 0.001 >= left
+    local text = getText("IGUI_StoryEngine_Trade_Total", fmt(total), fmt(left))
+    if (self.quest.paid or 0) > 0 then
+        text = text .. "  " .. getText("IGUI_StoryEngine_Trade_TotalPaid", fmt(self.quest.paid), fmt(self.quest.price or 0))
+    end
+    if total > 0 and not enough then text = text .. "  " .. getText("IGUI_StoryEngine_Trade_TotalPartial") end
     local y = self.sendButton:getY() - FONT_H - PAD
-    self:drawText(text, PAD, y, enough and 0.5 or 0.95, enough and 0.9 or 0.55, enough and 0.5 or 0.45, 1, UIFont.Small)
-    self.sendButton:setEnable(enough)
+    self:drawText(text, PAD, y, enough and 0.5 or 0.95, enough and 0.9 or 0.8, enough and 0.5 or 0.45, 1, UIFont.Small)
+    -- 모자라도 낼 수 있다 (나머지는 다음에)
+    self.sendButton:setEnable(total > 0)
 end
 
 function StoryEngineTradePayWindow:onToggle(data)
-    if data then data.selected = not data.selected end
+    if not data then return end
+    -- 이미 남은 값을 채웠으면 더 고르지 않는다 (넘는 물건은 서버도 가져가지 않는다)
+    if not data.selected and self:selectedValue() + 0.001 >= self:left() then return end
+    data.selected = not data.selected
 end
 
 -- 싼 것부터 골라 필요한 가치를 채운다
@@ -108,8 +122,9 @@ function StoryEngineTradePayWindow:onAuto()
     end
     table.sort(rows, function(a, b) return a.value < b.value end)
     local total = 0
+    local left = self:left()
     for _, data in ipairs(rows) do
-        if total >= (self.quest.price or 0) then break end
+        if total + 0.001 >= left then break end
         data.selected = true
         total = total + data.value
     end

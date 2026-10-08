@@ -562,15 +562,18 @@ local function holdsQuestItem(q)
     local p = player()
     if not p then return false end
     if q.kind == "deliver" or q.kind == "extort" then
+        -- 나눠 낸다 (2026-10-08): 남은 항목 중 하나라도 가진 게 있으면 낼 수 있다
         for _, n in ipairs(q.need or {}) do
-            local cat = UI.pointCat(n)
-            if cat then
-                if UI.pointsHeld(p, cat, n[3]) + 0.001 < (n[2] or 1) then return false end
-            elseif UI.countHeld(p, n[1]) < (n[2] or 1) then
-                return false
+            if UI.needLeft(q, n) > 0.001 then
+                local cat = UI.pointCat(n)
+                if cat then
+                    if UI.pointsHeld(p, cat, n[3]) > 0 then return true end
+                elseif UI.countHeld(p, n[1]) > 0 then
+                    return true
+                end
             end
         end
-        return true
+        return false
     end
     if q.kind == "collect" then
         for _, n in ipairs(q.need or {}) do
@@ -631,15 +634,18 @@ function StoryEngineQuestPanel:onSubmit()
     local q = findQuest(Cache.questId)
     if not q then return end
     if q.kind == "trade" then
-        StoryEngineTradePayWindow.open(q)
+        -- 이미 낸 값은 빼고 남은 값만 (나눠 내기, 2026-10-08)
+        StoryEngineTradePayWindow.open({ id = q.id, payCategory = q.payCategory, price = q.price, paid = q.paid or 0 })
         return
     end
     -- 품목 점수 부탁: 낼 물건을 고르는 창 (거래 대가 창과 같은 것, 고른 물건 id 를 questSubmit 으로)
+    -- 이미 다 채운 항목은 건너뛰고, 남은 가치만큼 (나눠 내기)
     if q.kind == "deliver" or q.kind == "extort" then
         for _, n in ipairs(q.need or {}) do
             local cat = UI.pointCat(n)
-            if cat then
-                StoryEngineTradePayWindow.open({ id = q.id, payCategory = cat, price = n[2] or 1, points = true,
+            if cat and UI.needLeft(q, n) > 0.001 then
+                StoryEngineTradePayWindow.open({ id = q.id, payCategory = cat, price = n[2] or 1,
+                                                 paid = (q.got or {})[n[1]] or 0, points = true,
                                                  minTier = n[3], command = "questSubmit",
                                                  titleKey = "IGUI_StoryEngine_Need_PickTitle" })
                 return
@@ -789,15 +795,30 @@ local function deliverDetail(q)
     local p = player()
     for _, n in ipairs(q.need or {}) do
         local cat = UI.pointCat(n)
+        local got = (q.got or {})[n[1]] or 0
+        local text
         if cat then
-            line(getText("IGUI_StoryEngine_Quest_NeedPoints", UI.pointText(cat, n[2], n[3]),
-                StoryEngine.intToString(math.floor(UI.pointsHeld(p, cat, n[3])))))
+            text = getText("IGUI_StoryEngine_Quest_NeedPoints", UI.pointText(cat, n[2], n[3]),
+                StoryEngine.intToString(math.floor(UI.pointsHeld(p, cat, n[3]))))
         else
             local name = getItemNameFromFullType(n[1]) or n[1]
-            line(getText("IGUI_StoryEngine_Quest_NeedHave", name, StoryEngine.intToString(n[2] or 1),
-                StoryEngine.intToString(UI.countHeld(p, n[1]))))
+            text = getText("IGUI_StoryEngine_Quest_NeedHave", name, StoryEngine.intToString(n[2] or 1),
+                StoryEngine.intToString(UI.countHeld(p, n[1])))
         end
+        -- 나눠 낸 만큼 (2026-10-08)
+        if got > 0 then
+            text = text .. "  " .. getText(UI.needLeft(q, n) <= 0.001 and "IGUI_StoryEngine_Quest_NeedDone"
+                or "IGUI_StoryEngine_Quest_NeedGot", StoryEngine.intToString(math.floor(got + 0.5)))
+        end
+        line(text)
     end
+    if q.givers then
+        local who = {}
+        for name, c in pairs(q.givers) do who[#who + 1] = tostring(name) .. " " .. StoryEngine.intToString(c) end
+        table.sort(who)
+        if #who > 0 then line(getText("IGUI_StoryEngine_Quest_Givers", table.concat(who, ", "))) end
+    end
+    if q.state == "accepted" and #(q.need or {}) > 0 then line(getText("IGUI_StoryEngine_Quest_PartialHint")) end
     local rewardTier = q.kind == "extort" and 1 or (q.tier or 1)
     line(getText("IGUI_StoryEngine_Quest_Reward", getText("IGUI_StoryEngine_Quest_Tier_" .. tostring(rewardTier))))
     if q.state == "proposed" then
@@ -853,6 +874,18 @@ local function tradeDetail(q)
     if q.basePrice and q.basePrice ~= q.price then
         line(getText("IGUI_StoryEngine_Trade_BasePrice", StoryEngine.intToString(q.basePrice)))
     end
+    -- 나눠 낸 대가 (2026-10-08)
+    if (q.paid or 0) > 0 then
+        local who = {}
+        for name, v in pairs(q.payers or {}) do who[#who + 1] = tostring(name) .. " " .. StoryEngine.intToString(math.floor(v + 0.5)) end
+        table.sort(who)
+        line(getText("IGUI_StoryEngine_Trade_PaidSoFar", StoryEngine.intToString(math.floor(q.paid + 0.5)),
+            StoryEngine.intToString(q.price or 0), table.concat(who, ", ")))
+        if q.state == "failed" and not q.credit and not q.parcelEnd then
+            line(getText("IGUI_StoryEngine_Trade_PartialGoods", UI.itemList(q.goodsKept or {})))
+        end
+    end
+    if q.state == "accepted" and not q.payKind then line(getText("IGUI_StoryEngine_Trade_PartialHint")) end
     if q.state == "proposed" then
         line(getText("IGUI_StoryEngine_Quest_RespondBy", StoryEngine.intToString(q.respondHours or 0)))
     elseif q.state == "accepted" then
@@ -1848,10 +1881,17 @@ function StoryEngineLifePanel:render()
         self:drawText(text, barX + barW + 8, y + 4, c[1], c[2], c[3], 1, UIFont.Small)
         y = y + BAR_ROW
     end
-    -- 물자 지원 대기
-    if not n.fate and (n.donateWait or 0) > 0 then
-        self:drawText(getText("IGUI_StoryEngine_Life_DonateWait", StoryEngine.intToString(n.donateWait)),
-            self.volunteerButton:getRight() + PAD, self.donateButton:getY() + (BUTTON_H - FONT_H) / 2, 0.7, 0.7, 0.7, 1, UIFont.Small)
+    -- 물자 지원 통 (3일 동안 한도까지 나눠 낸다, 2026-10-08)
+    local d = n.donate
+    if not n.fate and d and d.hours then
+        local text
+        if (n.donateWait or 0) > 0 then
+            text = getText("IGUI_StoryEngine_Life_DonateWait", StoryEngine.intToString(n.donateWait))
+        else
+            text = getText("IGUI_StoryEngine_Life_DonateWindow", StoryEngine.intToString(d.hours))
+        end
+        self:drawText(text, self.volunteerButton:getRight() + PAD, self.donateButton:getY() + (BUTTON_H - FONT_H) / 2,
+            0.7, 0.7, 0.7, 1, UIFont.Small)
     end
 end
 
@@ -1907,7 +1947,7 @@ function StoryEngineLifePanel:refresh()
     end
     local proj = n.project
     self.projectButton:setVisible(proj ~= nil and not proj.done and not n.fate)
-    self.projectButton:setEnable((n.donateWait or 0) == 0)
+    self.projectButton:setEnable((n.projectWait or 0) == 0)
     self.projectButton.tooltip = getText("IGUI_StoryEngine_Project_Tooltip")
     if n.fate then
         self.donateButton:setVisible(false)

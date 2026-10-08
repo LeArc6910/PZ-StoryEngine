@@ -90,6 +90,11 @@ function UI.pointCat(entry)
     return string.sub(s, 5)
 end
 
+-- 부탁 항목에서 아직 남은 양 (나눠 낸 q.got 을 뺀 것, 서버 Quests.needLeft 와 같음)
+function UI.needLeft(q, n)
+    return math.max(0, (n[2] or 1) - ((q.got or {})[n[1]] or 0))
+end
+
 -- 그 품목으로 낼 수 있는 물건의 점수 합 (Value.pointPayable, 등급 하한 minTier)
 function UI.pointsHeld(player, cat, minTier)
     if not player or not StoryEngine.Value then return 0 end
