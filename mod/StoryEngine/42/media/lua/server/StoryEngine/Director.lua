@@ -404,7 +404,8 @@ Director.events.helicopter = {
         end
         notifyAll("directorNotice", { kind = "helicopter" })
         if StoryEngine.Monologue then pcall(StoryEngine.Monologue.onHelicopter, ctx.entries) end
-        local fid = StoryEngine.Factions.byId.guard and "guard" or Director.pickFaction()
+        -- 방위대가 떠났으면 다른 사람이 알린다 (점검 D4)
+        local fid = not StoryEngine.Factions.isGone("guard") and "guard" or Director.pickFaction()
         StoryEngine.Radio.react(fid, "event", "A helicopter is flying low over the county, circling. The noise will pull "
             .. "every dead thing for miles toward wherever it goes. You have no idea who is flying it.",
             StoryEngine.Lines.fallback(fid, "heli", "A helicopter is circling low. Stay out of its way."), entry.ps)

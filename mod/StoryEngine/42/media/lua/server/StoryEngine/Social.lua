@@ -68,10 +68,20 @@ end
 
 -- 결말(node)에서 다음 장이 시작되기까지 (게임 분)
 -- 결말의 다음 장 첫 장면 (sequel 이 { default, list = {{플래그, id}} } 이면 그 NPC 의 플래그로 고른다)
+-- 이 결말의 다음 장 정의 (살아남은 죽음·떠남 결말은 Stories.SURVIVED_SEQUEL, Fate.onStoryFate 가 적어 둔다)
+function Social.sequelOf(fid, node)
+    if not node then return nil end
+    if node.sequel then return node.sequel end
+    local sv = Social.story(fid).survivedSequel
+    if sv and sv.node == node.id then return sv.to end
+    return nil
+end
+
 function Social.sequelTarget(fid, node)
-    if not node or not node.sequel then return nil end
-    if type(node.sequel) ~= "table" then return node.sequel end
-    return Social.resolveNext(node.sequel, Social.story(fid).flags or {})
+    local spec = Social.sequelOf(fid, node)
+    if not spec then return nil end
+    if type(spec) ~= "table" then return spec end
+    return Social.resolveNext(spec, Social.story(fid).flags or {})
 end
 
 function Social.sequelDelay(fid, node)
@@ -140,8 +150,19 @@ end
 local function resolveNext(nextSpec, flags)
     if type(nextSpec) ~= "table" then return nextSpec end
     for _, w in ipairs(nextSpec.when or {}) do
-        if not Factions.isGone(w.npc) then
-            local other = Social.story(w.npc).node
+        if w.state then
+            -- 그 NPC 가 지나온 장면 중 가장 최근에 state 에 있는 장면의 값 (결말로 판단, 점검 A7)
+            local path = Social.storyPath(w.npc)
+            for i = #path, 1, -1 do
+                local v = w.state[path[i].node]
+                if v ~= nil then
+                    if v then return w.go end
+                    break
+                end
+            end
+        elseif not Factions.isGone(w.npc) then
+            local ost = Social.story(w.npc)
+            local other = ost.ep and ost.ep.node or ost.node      -- 곁가지 중이면 큰 이야기 자리로
             if other and ((w.node and other == w.node) or (w.arc and Stories.arcOf(w.npc, other) == w.arc)) then
                 return w.go
             end
@@ -179,7 +200,7 @@ function Social.moveTo(fid, id, now)
     end
     log("story", fid, "->", id)
     -- 결말: 다음 이야기가 있으면 그 날을 정해 둔다 (Stories.SEQUEL_DAYS)
-    if nxt.final and nxt.sequel then
+    if nxt.final and Social.sequelOf(fid, nxt) then
         st.sequelAt = now.t + Social.sequelDelay(fid, nxt)
     end
     -- 곁가지 결말: 지난 이야기에 남긴다 (큰 이야기로는 Social.advance 가 돌려보낸다)
@@ -311,8 +332,9 @@ function Social.episodeOk(def, fid, now)
         if not ok then return false end
     end
     if w.trust and (Radio.channel(fid).trust or 0) < w.trust then return false end
+    -- 곁가지 글이 그 사람(처음 사람)을 부르므로, 후임이 이어받은 채널이면 안 맞는다 (점검 B4)
     for _, other in ipairs(w.alive or {}) do
-        if Factions.isGone(other) then return false end
+        if Factions.isGone(other) or (Factions.voice and Factions.voice[other]) then return false end
     end
     if w.nodes then
         local ok = false
@@ -362,14 +384,15 @@ function Social.pickEpisode(now)
         local fid = f.id
         local st = Social.story(fid)
         local node = Stories.node(fid, st.node)
-        local free = node and node.final and not node.episode and not Factions.isGone(fid)
+        local doomed = StoryEngine.Fate and StoryEngine.Fate.doomed and StoryEngine.Fate.doomed(fid)
+        local free = node and node.final and not node.episode and not Factions.isGone(fid) and not doomed
             and not (st.epEndT and now.t - st.epEndT < Social.EPISODE_GAP_DAYS * pace * 24 * 60)
         if free then
             local any = false
             for _, def in ipairs(Stories.EPISODES) do
                 local npc = def.npc
                 local fits = npc == fid
-                if fits and node.sequel and st.sequelAt then
+                if fits and Social.sequelOf(fid, node) and st.sequelAt then
                     fits = (st.sequelAt - now.t) >= (episodeDays(def) + 2) * pace * 24 * 60
                 end
                 if fits and Social.episodeOk(def, fid, now) then
@@ -379,7 +402,7 @@ function Social.pickEpisode(now)
                 end
             end
             -- 정해 둔 곁가지가 남지 않은 NPC: 브릿지가 있으면 AI 곁가지 (AiTales.lua)
-            local roomy = aiOk and (not (node.sequel and st.sequelAt)
+            local roomy = aiOk and (not (Social.sequelOf(fid, node) and st.sequelAt)
                 or (st.sequelAt - now.t) >= (AiTales.DAYS + 2) * pace * 24 * 60)
             if not any and roomy then
                 cands[#cands + 1] = { fid = fid, ai = true, w = 1 }
@@ -443,7 +466,7 @@ function Social.advance(fid, now)
             return
         end
         -- 결말 뒤 다음 장 (예전 세이브는 결말에 머문 지금부터 센다)
-        if node.sequel then
+        if Social.sequelOf(fid, node) then
             if not st.sequelAt then
                 local r = Stories.SEQUEL_DAYS
                 st.sequelAt = math.max(st.since or now.t, now.t - r[1] * 24 * 60) + (r[1] + ZombRand(r[2] - r[1] + 1)) * 24 * 60
@@ -520,7 +543,7 @@ function Social.storyInfo(fid, now)
                    episode = node.episode ~= nil or nil, voice = StoryEngine.Voices and StoryEngine.Voices.of(fid) or nil,
                    past = {} }
     local main = st.ep and Stories.node(fid, st.ep.node) or node
-    if main and main.final and main.sequel and st.sequelAt then
+    if main and main.final and Social.sequelOf(fid, main) and st.sequelAt then
         info.nextDays = math.max(0, math.ceil((st.sequelAt - now.t) / (24 * 60)))
         info.waiting = st.ep ~= nil or nil
     end
@@ -628,13 +651,15 @@ function Social.onQuest(q, outcome)
     local tag = q.origin and q.origin.story
     local now = Sensor.now()
     if tag and tag.node then
+        -- 떠난 NPC 의 이야기는 움직이지 않는다 (거둬지지 않은 부탁이 늦게 끝나도, 점검 A3)
+        if Factions.isGone(tag.faction) then return end
         local st = Social.story(tag.faction)
         if st.node ~= tag.node or outcome == "accepted" then return end
         local node = Stories.node(tag.faction, tag.node)
         if not node then return end
         if outcome == "completed" then
             if StoryEngine.Fate then StoryEngine.Fate.onStoryResult(tag.faction, true) end
-            if StoryEngine.Projects then StoryEngine.Projects.onStoryWin(tag.faction, q.targetName) end
+            if StoryEngine.Projects then StoryEngine.Projects.onStoryWin(tag.faction, q.targetName, node, q.tier) end
             Social.moveTo(tag.faction, resolveNext(node.win, st.flags), now)
         elseif outcome == "failed" or outcome == "declined" or outcome == "ignored" then
             if StoryEngine.Fate then StoryEngine.Fate.onStoryResult(tag.faction, false) end
@@ -675,7 +700,10 @@ function Social.startCrisis(now, forceId)
     for _, c in ipairs(Stories.CRISES) do
         local alive = true
         for _, o in ipairs(c.options) do
-            if Factions.isGone(o.faction) then alive = false end
+            local Fate = StoryEngine.Fate
+            if Factions.isGone(o.faction) or (Fate and Fate.doomed and Fate.doomed(o.faction)) then alive = false end
+            -- 위기 글은 처음 사람들을 부른다: 후임이 이어받은 채널이 끼면 열지 않는다 (점검 B3)
+            if Factions.voice and Factions.voice[o.faction] then alive = false end
         end
         local wanted = (forceId and c.id == forceId) or (not forceId and not c.trigger)
         if not s.crisesUsed[c.id] and alive and wanted then pool[#pool + 1] = c end
@@ -847,7 +875,9 @@ function Social.pickContact(now)
             end
             local rel = Stories.relationsOf(fid)
             local others = {}
-            for other, _ in pairs(rel) do others[#others + 1] = other end
+            for other, _ in pairs(rel) do
+                if not Factions.isGone(other) then others[#others + 1] = other end   -- 떠난 사람의 "요즘 사정"은 없다 (점검 D4)
+            end
             if #others > 0 then
                 local other = others[ZombRand(#others) + 1]
                 local ost = Social.story(other)

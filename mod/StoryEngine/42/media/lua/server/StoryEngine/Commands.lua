@@ -111,6 +111,11 @@ function Commands.hello(player, args)
     -- 후임 목소리 이름표 (Voices.lua)
     pcall(StoryEngine.Voices.apply)
     pcall(StoryEngine.Voices.sendTo, player)
+    -- 서버의 아이템 조정(items.txt)을 멀티 클라이언트에게 (점검 D1)
+    if isServer() then
+        local ok, lines = pcall(StoryEngine.ItemPool.overrideLinesForClients)
+        if ok then reply(player, "itemOverrides", { lines = lines }) end
+    end
 end
 
 -- 일지 목록. args.key 가 있으면 그 사람의 일지 (서버의 모든 플레이어 일지를 읽을 수 있다)

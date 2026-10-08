@@ -56,7 +56,8 @@ end
 function Letters.queue(fid, reason, extra)
     if not Letters.enabled() or not Factions.byId[fid] then return end
     local s = state()
-    s.pending[#s.pending + 1] = { fid = fid, reason = reason, extra = extra, t = Sensor.now().t }
+    s.pending[#s.pending + 1] = { fid = fid, reason = reason, extra = extra, t = Sensor.now().t,
+                                  voice = Factions.voice and Factions.voice[fid] or false }
     log("letter queued", fid, reason)
 end
 
@@ -74,10 +75,16 @@ function Letters.write(rec, ps)
     end
     local ch = Radio.channel(fid)
     local now = Sensor.now()
+    -- 쓴 사람의 목소리로 (이어받기 전에 남긴 편지는 앞 사람, 점검 B5)
+    local voices = {}
+    for k, v in pairs(Factions.voice or {}) do voices[k] = v end
+    local current = voices[fid] or false
+    voices[fid] = rec.voice or nil
+    local same = (rec.voice or false) == current
     Bridge.request("letter", {
         faction = fid, lang = rec.lang, reason = rec.reason, extra = rec.extra, to = rec.to,
-        trust = ch.trust, memory = ch.memory, story = story, life = life,
-        day = Store.dayIndex(now.dayKey),
+        trust = ch.trust, memory = same and ch.memory or nil, story = same and story or nil, life = same and life or nil,
+        day = Store.dayIndex(now.dayKey), voices = voices,
     }, function(res)
         local json = res.ok and res.json
         if type(json) == "table" and type(json.text) == "string" and json.text ~= "" then
@@ -92,12 +99,13 @@ function Letters.write(rec, ps)
     end, { timeoutMs = 60000 })
 end
 
-function Letters.create(q, ps, fid, reason, extra, now)
+function Letters.create(q, ps, fid, reason, extra, now, voice)
     local s = state()
     s.seq = s.seq + 1
     local id = "L" .. StoryEngine.intToString(s.seq)
+    if voice == nil then voice = Factions.voice and Factions.voice[fid] or false end
     local rec = {
-        id = id, from = fid, reason = reason, extra = extra, to = ps.name, toKey = ps.key,
+        id = id, from = fid, voice = voice, reason = reason, extra = extra, to = ps.name, toKey = ps.key,
         lang = ps.lang or Radio.langFor(fid, ps), status = "writing", day = Store.dayIndex(now.dayKey),
         qid = q.id, readBy = {},
     }
@@ -116,9 +124,10 @@ function Letters.attach(q, ps, now)
     local s = state()
     local fid = q.origin and q.origin.faction
     for i, p in ipairs(s.pending) do
-        if p.fid == fid or Factions.isGone(p.fid) or now.t - p.t >= Letters.PENDING_ANY_MIN then
+        local moved = p.voice ~= nil and (Factions.voice and Factions.voice[p.fid] or false) ~= p.voice
+        if p.fid == fid or Factions.isGone(p.fid) or moved or now.t - p.t >= Letters.PENDING_ANY_MIN then
             table.remove(s.pending, i)
-            return Letters.create(q, ps, p.fid, p.reason, p.extra, now)
+            return Letters.create(q, ps, p.fid, p.reason, p.extra, now, p.voice)
         end
     end
     local o = q.origin or {}
@@ -127,6 +136,11 @@ function Letters.attach(q, ps, now)
         return Letters.create(q, ps, fid, o.project and "greenhouse" or "gift", nil, now)
     end
     return nil
+end
+
+-- 후임이 이어받았다: 앞 사람이 남긴 편지는 그 사람 이름으로 아무 보급에나 실린다 (attach 의 moved)
+function Letters.onVoice(fid)
+    log("letters pending kept for the previous voice", fid)
 end
 
 -- 아이템의 편지 기록 (modData.storyLetter, 없으면 퀘스트 번호로)

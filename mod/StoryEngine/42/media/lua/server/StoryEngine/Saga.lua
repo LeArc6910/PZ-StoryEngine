@@ -100,8 +100,11 @@ end
 
 local function say(fid, topic, fallbackKey, ps)
     if not fid or not alive(fid) then return end
-    Radio.react(fid, "event", topic .. " Keep it short and in character.",
-        { text = "...", lt = { key = "IGUI_StoryEngine_RadioSay_saga_" .. fallbackKey } }, ps)
+    -- AI 없을 때 문장: 후임이 이어받았으면 그 사람 말투 (없으면 처음 사람 것, 점검 B7)
+    local base = "IGUI_StoryEngine_RadioSay_saga_" .. fallbackKey
+    local v = Factions.voice and Factions.voice[fid]
+    local lt = v and { key = base .. "_" .. v, alt = base } or { key = base }
+    Radio.react(fid, "event", topic .. " Keep it short and in character.", { text = "...", lt = lt }, ps)
 end
 
 local function spread(ids, text)
@@ -262,32 +265,32 @@ function Crash.finish(sg, now)
     if chosen == "guard" and delivered then
         outcome = "guard"
         if StoryEngine.Projects then pcall(StoryEngine.Projects.add, "guard", 50, nil, "saga") end
-        if Bonds then Bonds.change("rats", "guard", -1, "the army got the wreck's papers instead of him") end
+        if Bonds then Bonds.change("rats", "guard", -1, "the army got the wreck's papers instead of them") end
         say("guard", "Command has its papers back thanks to the players. You owe them. The wreck is closed for you.",
             "crash_end", targetPs(sg))
         spread({ "guard", "rats" }, "The army recovered the sealed papers from the helicopter wreck with the players' help.")
     elseif chosen == "rats" and delivered then
         outcome = "rats"
         lifeChange("rats", "safety", 30, "saga")
-        if Bonds then Bonds.change("guard", "rats", -1, "Vic's crew walked off with the army's ammunition", true) end
+        if Bonds then Bonds.change("guard", "rats", -1, nameOf("rats") .. "'s crew walked off with the army's ammunition", true) end
         say("rats", "Your crew is armed to the teeth now with the army's ammunition. Gloat a little and thank the players.",
             "crash_end", targetPs(sg))
-        spread({ "rats", "guard" }, "Vic's crew walked off with the ammunition from the helicopter wreck.")
+        spread({ "rats", "guard" }, nameOf("rats") .. "'s crew walked off with the ammunition from the helicopter wreck.")
     elseif chosen == "doc" and delivered then
         outcome = "doc"
         lifeChange("doc", "medical", 30, "saga")
         for _, f in ipairs(Factions.list) do lifeChange(f.id, "morale", 5, "saga") end
         say("doc", "The medical supplies from the wreck are already helping people. Thank the players warmly.",
             "crash_end", targetPs(sg))
-        spread({ "doc", "pike" }, "June got the medical supplies from the helicopter wreck to the people who needed them.")
+        spread({ "doc", "pike" }, nameOf("doc") .. " got the medical supplies from the helicopter wreck to the people who needed them.")
     else
         outcome = "none"
         if Bonds then Bonds.change("guard", "rats", -1, "both sides fought over the helicopter wreck", true) end
         lifeChange("guard", "safety", -10, "saga")
         lifeChange("rats", "safety", -10, "saga")
-        say("guard", "Nobody secured the wreck in time; Vic's crew and your squad traded shots over it. Tell the players "
+        say("guard", "Nobody secured the wreck in time; " .. nameOf("rats") .. "'s crew and your squad traded shots over it. Tell the players "
             .. "how it went, bitter.", "crash_end", targetPs(sg))
-        spread({ "guard", "rats" }, "The army and Vic's crew fought over the helicopter wreck and nobody came out ahead.")
+        spread({ "guard", "rats" }, "The army and " .. nameOf("rats") .. "'s crew fought over the helicopter wreck and nobody came out ahead.")
     end
     noteAll("the business with the crashed military helicopter ended (" .. outcome .. ")", now)
     return outcome
@@ -317,7 +320,7 @@ function Migration.pressure(sg, now)
         end
     end
     sg.data.nextDrainT = now.t
-    noteAll("the dead began moving down through the county; Ray's farm and Brother Pike's church are in the way", now)
+    noteAll("the dead began moving down through the county; the West Point farm and the March Ridge church are in the way", now)
 end
 
 function Migration.tick(sg, now)
@@ -382,8 +385,8 @@ local Epidemic = {}
 function Epidemic.omen(sg, now)
     say("pike", "More and more of the refugees at your church are coughing and running a fever. You are worried and "
         .. "tell the players.", "epidemic_omen", targetPs(sg))
-    noteAll("Brother Pike said the refugees at his church were coming down with a fever", now)
-    spread({ "pike", "doc" }, "A fever is spreading among the refugees at Brother Pike's church.")
+    noteAll(nameOf("pike") .. " said the refugees at the March Ridge church were coming down with a fever", now)
+    spread({ "pike", "doc" }, "A fever is spreading among the refugees at the March Ridge church.")
 end
 
 function Epidemic.spread(sg, now)
@@ -411,9 +414,9 @@ function Epidemic.docill(sg, now)
     if sg.data.cured or not alive("doc") then return end
     sg.data.docIll = true
     if StoryEngine.Social then pcall(StoryEngine.Social.news, "doc", "You caught the fever yourself and can barely stand.") end
-    say("pike", "June Adler, the nurse, has collapsed with the fever herself. She cannot treat anyone right now. "
+    say("pike", nameOf("doc") .. ", who runs the Riverside clinic, has collapsed with the fever. They cannot treat anyone right now. "
         .. "Tell the players, worried.", "epidemic_docill", targetPs(sg))
-    noteAll("June Adler, the nurse, caught the fever herself", now)
+    noteAll(nameOf("doc") .. " from the Riverside clinic caught the fever", now)
 end
 
 function Epidemic.onQuest(sg, q, outcome)
@@ -468,7 +471,7 @@ local Blackout = {}
 function Blackout.omen(sg, now)
     say("casey", "The relay mast that carries everyone's signal across the county is glitching. Signals keep cutting "
         .. "out. You are scared it will die completely. Tell the players.", "blackout_omen", targetPs(sg))
-    noteAll("Casey warned that the radio relay mast was failing", now)
+    noteAll(nameOf("casey") .. " warned that the radio relay mast was failing", now)
 end
 
 function Blackout.silence(sg, now)
@@ -484,7 +487,7 @@ function Blackout.silence(sg, now)
     say("casey", "The relay mast is dead. Only your own rig still reaches the players; nobody else can be heard. The dead "
         .. "are crowding the mast and you need wire, electronics, an amplifier and batteries to fix it. Ask them for help.",
         "blackout_down", targetPs(sg))
-    noteAll("the radio went silent across the county; only Casey's rig still came through", now)
+    noteAll("the radio went silent across the county; only the Valley Station rig still came through", now)
 end
 
 function Blackout.done(sg)

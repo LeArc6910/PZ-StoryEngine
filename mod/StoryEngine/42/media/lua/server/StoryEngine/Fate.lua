@@ -106,6 +106,11 @@ local function pending()
     return d.fatePending
 end
 
+-- 떠났거나, 하루 안에 죽거나 떠나기로 정해졌는가 (위기 선택지·곁가지에 넣지 않는다, 2026-10-08 점검 A5·A8)
+function Fate.doomed(fid)
+    return Fate.isGone(fid) or pending()[fid] ~= nil
+end
+
 local function livingPlayers()
     local out = {}
     for _, ps in pairs(Store.data().players) do
@@ -155,6 +160,14 @@ function Fate.onStoryFate(fid, node)
             if Life.get(fid, r) < Life.SELF_MIN then Life.change(fid, r, Life.SELF_MIN - Life.get(fid, r), "survived") end
         end
         Life.record(fid, "survived", nil, 0)
+        -- 살아남았으니 다음 장으로 이어진다 (그대로 두면 이야기가 여기서 멈춘다, 2026-10-08 점검 A6)
+        local to = Stories.SURVIVED_SEQUEL and Stories.SURVIVED_SEQUEL[node.id]
+        if to and StoryEngine.Social then
+            local Social = StoryEngine.Social
+            local st = Social.story(fid)
+            st.survivedSequel = { node = node.id, to = to }
+            if st.node == node.id then st.sequelAt = now.t + Social.sequelDelay(fid, node) end
+        end
         Radio.react(fid, "event", "You came very close to the end: " .. node.fate.text
             .. " But it did not happen; you are still here, badly shaken. Tell the players.",
             StoryEngine.Lines.fallback(fid, "survived", "It nearly finished us. We are still here, barely."), nil)
@@ -228,6 +241,7 @@ function Fate.apply(fid, kind, reason)
     local text = fateText(fid, kind, reason)
     -- 떠나는 사람은 마지막으로 직접 말한다 (죽음 처리 전에 요청해야 걸러지지 않는다)
     if kind == "gone" then
+        Radio.busy[fid], Radio.queue[fid] = false, nil      -- 기다리던 답은 버리고 마지막 말을 바로 (점검 D6)
         Radio.react(fid, "event", "This is your last call before you go off the air for good: " .. text
             .. " Say goodbye to the players in character.",
             StoryEngine.Lines.fallback(fid, "fate_goodbye", "This is my last call. Take care of yourselves."), nil)
@@ -236,6 +250,7 @@ function Fate.apply(fid, kind, reason)
     if kind == "gone" and StoryEngine.Letters then StoryEngine.Letters.queue(fid, "farewell", text) end
     local n = Life.npc(fid)
     n.fate = { kind = kind, reason = reason, day = Store.dayIndex(now.dayKey), t = now.t }
+    Radio.queue[fid], Radio.again[fid] = nil, nil      -- 남은 말이 나중에 다른 목소리로 나오지 않게 (점검 D6)
     if StoryEngine.Chronicle then StoryEngine.Chronicle.add(fid, { k = "fate", kind = kind }) end
     pending()[fid] = nil
     Radio.push(fid, { from = "system", fate = kind, clock = now.clock })
@@ -286,6 +301,7 @@ function Fate.revive(fid)
     if StoryEngine.Social then
         local st = StoryEngine.Social.story(fid)
         st.wins, st.losses = nil, nil
+        st.questId, st.crisisAsked = nil, nil      -- 죽을 때 거둔 부탁에 매이지 않게 (점검 D6)
     end
     Radio.push(fid, { from = "system", fate = "revived", clock = Sensor.now().clock })
     log("fate revived", fid)

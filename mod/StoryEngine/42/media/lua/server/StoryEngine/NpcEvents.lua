@@ -153,11 +153,12 @@ function NpcEvents.clash(now)
     s.lastClashT = now.t
     Life.change("guard", "safety", -NpcEvents.CLASH_HIT, "clash")
     Life.change("rats", "safety", -NpcEvents.CLASH_HIT, "clash")
-    StoryEngine.Bonds.change("guard", "rats", -1, "the squad and Vic's crew traded fire near Coalfield", true)
+    local guardName, ratsName = tostring(Stories.NAMES.guard), tostring(Stories.NAMES.rats)
+    StoryEngine.Bonds.change("guard", "rats", -1, "the squad and " .. ratsName .. "'s crew traded fire near Coalfield", true)
     local Social = StoryEngine.Social
     if Social then
-        Social.news("all", "Sergeant Whitaker's squad and Vic's crew traded fire near Coalfield. Both sides took losses.")
-        Social.queueTopic({ "guard", "rats" }, "Whitaker's squad and Vic's crew just had a firefight near Coalfield. "
+        Social.news("all", guardName .. "'s squad and " .. ratsName .. "'s crew traded fire near Coalfield. Both sides took losses.")
+        Social.queueTopic({ "guard", "rats" }, guardName .. "'s squad and " .. ratsName .. "'s crew just had a firefight near Coalfield. "
             .. "They blame each other on the open channel.", "clash")
     end
     log("npc clash guard rats")

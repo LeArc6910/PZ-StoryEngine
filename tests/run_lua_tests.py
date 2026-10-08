@@ -218,8 +218,20 @@ def run_case(f: Path, name: str) -> tuple[bool, str, list[str]]:
     return bool(ok), str(msg or ""), unknown
 
 
+def local_names() -> set[str]:
+    """모드 Lua 의 지역 함수·변수 이름. 테스트 중 이 이름이 전역으로 불렸다면 선언보다 먼저 쓴 것이다
+    (예: 아래에서 local function 으로 정의한 것을 위에서 부름 -> 게임에서는 nil 호출)."""
+    import re
+    names = set()
+    for f in LUA_ROOT.rglob("*.lua"):
+        src = f.read_text(encoding="utf-8")
+        names.update(re.findall(r"^\s*local\s+function\s+([A-Za-z_]\w*)", src, re.M))
+    return names
+
+
 def main(argv: list[str]) -> int:
     errors = syntax_errors() + mod_file_errors()
+    locals_ = local_names()
     for e in errors:
         print("SYNTAX", e)
     filter_text = argv[1] if len(argv) > 1 else ""
@@ -227,7 +239,10 @@ def main(argv: list[str]) -> int:
     failed = 0
     for f, name in cases:
         try:
-            ok, msg, _ = run_case(f, name)
+            ok, msg, unknown = run_case(f, name)
+            early = [u for u in unknown if u in locals_]
+            if ok and early:
+                ok, msg = False, "used before its local declaration (nil in game): " + ", ".join(early)
         except Exception:
             ok, msg = False, traceback.format_exc()
         print(("ok   " if ok else "FAIL ") + f"{f.stem}.{name}")

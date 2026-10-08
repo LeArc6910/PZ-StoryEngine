@@ -189,7 +189,7 @@
     "Sandbox_StoryEngine_AiSideStories": "AI 곁가지 이야기",
     "Sandbox_StoryEngine_AiSideStories_tooltip": "정해 둔 곁가지 이야기를 다 썼거나 맞는 것이 없는 NPC에게, AI 브릿지가 연결되어 있을 때 AI가 짧은 곁가지를 새로 쓴다. 종류(조용한 일·물건 부탁·소탕 부탁)와 부탁 물건·보상은 게임이 정하고 AI는 이야기만 쓴다. 글은 그때 접속자가 가장 많이 쓰는 언어로 남는다.",
     "Sandbox_StoryEngine_SuccessorRule": "실패로 잃은 NPC의 후임",
-    "Sandbox_StoryEngine_SuccessorRule_tooltip": "NPC가 방치·실패로 죽거나 떠났을 때(자원 고갈, 이야기 부탁을 거듭 실패, 두 번째 이야기의 나쁜 결말, 열병 사건 실패) 그 주파수를 이어받는 후임을 어떻게 할지.\n늘 같은 후임: 5~10일 뒤, 신뢰도 절반, 바닥난 자원은 30까지 채움.\n냉랭한 후임: 20~30일 뒤, 신뢰도 0, 자원은 바닥 그대로, 장기 프로젝트 진행도 절반 — 거래·특기를 다시 쓰려면 신뢰를 처음부터 쌓아야 한다.\n후임 없음: 그 주파수는 잡음만 남는다.\n플레이어의 선택으로 떠난 경우(휘태커의 녹스행, 방위대 편을 들어 빅이 떠남)는 늘 같은 후임.",
+    "Sandbox_StoryEngine_SuccessorRule_tooltip": "NPC가 방치·실패로 죽거나 떠났을 때(자원 고갈, 이야기 부탁을 거듭 실패, 두 번째 이야기의 나쁜 결말, 열병 사건 실패) 그 주파수를 이어받는 후임을 어떻게 할지.\n늘 같은 후임: 5~10일 뒤, 신뢰도 절반, 바닥난 자원은 30까지 채움.\n냉랭한 후임: 20~30일 뒤, 신뢰도 0, 자원은 겨우 버틸 만큼(20)만, 장기 프로젝트 진행도 절반 — 거래·특기를 다시 쓰려면 신뢰를 처음부터 쌓아야 한다.\n후임 없음: 그 주파수는 잡음만 남는다.\n플레이어의 선택으로 떠난 경우(휘태커의 녹스행, 방위대 편을 들어 빅이 떠남)는 늘 같은 후임.",
     "Sandbox_StoryEngine_SuccessorRule_option1": "늘 같은 후임",
     "Sandbox_StoryEngine_SuccessorRule_option2": "냉랭한 후임",
     "Sandbox_StoryEngine_SuccessorRule_option3": "후임 없음"

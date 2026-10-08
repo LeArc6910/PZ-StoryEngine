@@ -250,7 +250,8 @@ function AiTales.receive(fid, arc, spec, lang, res)
     local st = Social.story(fid)
     local main = Stories.node(fid, st.node)
     -- 기다리는 동안 이야기가 움직였거나 NPC 가 떠났으면 버린다
-    if Factions.isGone(fid) or st.ep or not (main and main.final) then
+    local doomed = StoryEngine.Fate and StoryEngine.Fate.doomed and StoryEngine.Fate.doomed(fid)
+    if Factions.isGone(fid) or doomed or st.ep or not (main and main.final) then
         log("ai tale dropped, story moved", fid, arc)
         return false
     end

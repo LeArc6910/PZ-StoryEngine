@@ -250,6 +250,8 @@ function Work.startLabor(trade, how, player, ps, t)
     return q
 end
 
+local where     -- 아래에서 정의한다 (startDropoff 가 먼저 부르므로 미리 선언, 2026-10-08 점검 A1)
+
 -- 배달 대행 2단계: 꾸러미를 챙겼으면 배달할 건물을 정하고, 꾸러미를 가진 사람에게 추적 무리를 붙인다
 local function startDropoff(trade, pickup, t, carrier)
     local ps = Store.data().players[trade.target] or {}
@@ -316,7 +318,7 @@ local function deliver(trade, player, ps, goods, t)
         { source = "reward", faction = trade.origin and trade.origin.faction, rewardFor = trade.id, rewardKind = "trade" }, goods)
 end
 
-local function where(q, player)
+function where(q, player)
     local town, code, distance = Quests.whereFrom(q, player)
     return { { t = "town", v = q.place and q.place.town or town }, { t = "dir", v = code }, { t = "num", v = distance } }
 end
@@ -467,10 +469,16 @@ function Work.onState(q, state, outcome, trustDelta)
 end
 
 -- 외상·빚을 안 갚음: 등급별로 크게 깎고, 2주 동안 외상·빚 금지
+Work.DEFAULT_TRUST_TO = 30      -- 떼먹으면 신뢰도가 적어도 여기까지 떨어진다 (점검 C2: 일거리 몇 번으로 금방 되돌리지 못하게)
 function Work.default(q, reason, t)
     local fid = q.origin.faction
     local tier = math.max(1, math.min(#Work.DEFAULT_PENALTY, q.tier or 1))
-    StoryEngine.Trust.apply(fid, -Work.DEFAULT_PENALTY[tier], reason, q.id, q.target)
+    local trust = Radio.channel(fid).trust or 0
+    local penalty = math.max(Work.DEFAULT_PENALTY[tier], trust - Work.DEFAULT_TRUST_TO)
+    StoryEngine.Trust.apply(fid, -penalty, reason, q.id, q.target)
+    if StoryEngine.Life and q.category then
+        StoryEngine.Life.change(fid, StoryEngine.Value.RESOURCE_OF[q.category] or "safety", -5 * tier, "work_default")
+    end
     Radio.channel(fid).workBurnT = t.t + Work.BURN_MIN
     log("work default", fid, q.id, reason, -Work.DEFAULT_PENALTY[tier])
 end
@@ -653,7 +661,10 @@ function Work.volunteerEnd(parent, q, state, t)
         log("volunteer done", parent.id, fid, "trust", gain)
     else
         local loss = StoryEngine.Trust.apply(fid, -tier, "volunteer_failed", parent.id, parent.target)
-        if Life then Life.record(fid, "volunteer_failed", ps and ps.name or parent.targetName, loss) end
+        if Life then
+            Life.change(fid, Life.KEY[fid], -5 * tier, "volunteer_failed")      -- 맡겨 둔 일이 틀어졌다 (점검 C8)
+            Life.record(fid, "volunteer_failed", ps and ps.name or parent.targetName, loss)
+        end
         log("volunteer failed", parent.id, fid, "trust", loss)
     end
 end

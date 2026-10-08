@@ -393,14 +393,47 @@ end
 
 -- ---------------------------------------------------------------- overrides file
 
+-- 조정 줄: 멀티 클라이언트는 서버가 보낸 줄(ItemPool.serverLines), 그 밖에는 이 컴퓨터의 items.txt
+-- (서버의 조정과 클라이언트 툴팁·대가 창이 어긋나지 않게, 2026-10-08 점검 D1)
+local function overrideLines()
+    if ItemPool.serverLines then return ItemPool.serverLines, true end
+    local ok, reader = pcall(getFileReader, ItemPool.FILE, false)
+    if not ok or not reader then return {}, false end
+    local out = {}
+    local line = reader:readLine()
+    while line do
+        out[#out + 1] = line
+        line = reader:readLine()
+    end
+    reader:close()
+    return out, true
+end
+
+-- 서버가 클라이언트에게 보낼 조정 줄 (주석·빈 줄 빼고 최대 500)
+function ItemPool.overrideLinesForClients()
+    local lines = overrideLines()
+    local out = {}
+    for _, l in ipairs(lines) do
+        if string.match(l, "%S") and not string.match(l, "^%s*#") and #out < 500 then out[#out + 1] = l end
+    end
+    return out
+end
+
 local function readOverrides()
     ItemPool.excludes, ItemPool.prefixes = {}, {}
     ItemPool.categoryOverrides = {}
+    -- 조정 전 탄약 등급 (다시 만들 때 앞선 조정이 남지 않게)
+    if not ItemPool.AMMO_BASE then
+        ItemPool.AMMO_BASE = {}
+        for k, v in pairs(ItemPool.AMMO_TIERS) do ItemPool.AMMO_BASE[k] = v end
+    else
+        ItemPool.AMMO_TIERS = {}
+        for k, v in pairs(ItemPool.AMMO_BASE) do ItemPool.AMMO_TIERS[k] = v end
+    end
     local includes = {}
-    local ok, reader = pcall(getFileReader, ItemPool.FILE, false)
-    if not ok or not reader then return includes, false end
-    local line = reader:readLine()
-    while line do
+    local all, hasFile = overrideLines()
+    if not hasFile then return includes, false end
+    for _, line in ipairs(all) do
         local words = {}
         for w in string.gmatch(line, "%S+") do words[#words + 1] = w end
         if words[1] == "exclude" and words[2] then
@@ -426,9 +459,7 @@ local function readOverrides()
         elseif words[1] == "include" and words[4] then
             includes[#includes + 1] = { cat = words[2], tier = tonumber(words[3]) or 3, fullType = words[4] }
         end
-        line = reader:readLine()
     end
-    reader:close()
     return includes, true
 end
 
@@ -1127,6 +1158,24 @@ function ItemPool.pickMixed(list)
 end
 
 local tradePools = {}
+
+-- 서버가 보낸 조정 줄로 다시 만든다 (멀티 클라이언트, Client.handlers.itemOverrides). 같은 줄이면 아무것도 안 한다
+function ItemPool.useServerLines(lines)
+    if type(lines) ~= "table" then return false end
+    local key = table.concat(lines, "\n")
+    if ItemPool.serverKey == key then return false end
+    ItemPool.serverKey, ItemPool.serverLines = key, lines
+    if not ItemPool.built then return true end
+    ItemPool.built = false
+    ItemPool.info, ItemPool.pools, ItemPool.guns, ItemPool.gunsByTier = {}, {}, {}, {}
+    ItemPool.ammoRole, ItemPool.ammoTier, ItemPool.ammoInfo, ItemPool.magBonus = {}, {}, {}, {}
+    ItemPool.unmapped, ItemPool.stats, ItemPool.meleeBounds = {}, {}, nil
+    ItemPool.resetRuntime()
+    vanillaCache, tradePools = {}, {}
+    ItemPool.build()
+    return true
+end
+
 -- 거래에서 파는 물건 풀: tier -> { fullType, ... }
 --   food·melee(도구 겸 무기 제외)·firearm 은 build 결과, ammo 는 총이 쓰는 상자(없으면 낱발)의 구경 등급,
 --   medical·tools·electronics·vehicle 은 ItemTiers 표 (vehicle 에는 듀이의 정비 도구도)
