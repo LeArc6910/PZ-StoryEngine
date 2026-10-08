@@ -85,6 +85,9 @@ Specialty.CLUSTER_CELL = 10
 Specialty.CLUSTER_MIN = 15
 Specialty.RAY_SUPPLY = { 20, 30, 45 }
 Specialty.RAY_COST = 15
+-- 멀티에서 대기 범위가 개인별·둘 다면 여럿이 번갈아 써서 다른 NPC 자원을 끌어올릴 수 있으므로 보급량을 줄인다 (2026-10-09 사용자 요청)
+Specialty.RAY_SPLIT_SHARE = 0.5
+Specialty.RAY_THANKS_DAYS = 7          -- 받은 NPC 의 신뢰도·레이와의 관계 +1 은 받는 NPC 마다 이만큼에 한 번
 Specialty.COMFORT = { 0.3, 0.5, 0.8 }                  -- 스트레스·불행·지루함 감소 비율
 Specialty.NO_FEAR_HOURS = { 0, 6, 12 }
 Specialty.COMFORT_RADIUS = 10
@@ -595,12 +598,21 @@ end
 
 -- ---------------------------------------------------------------- 레이: 다른 NPC 에 보급
 
+-- 구간별 보급량. 멀티(서버)에서 대기 범위가 서버 전체가 아니면 RAY_SPLIT_SHARE 배 (싱글은 범위와 상관없이 그대로)
+function Specialty.raySupply(tier)
+    local amount = Specialty.RAY_SUPPLY[tier] or Specialty.RAY_SUPPLY[1]
+    if isServer() and Specialty.scope("ray") ~= 1 then
+        amount = math.max(5, math.floor(amount * Specialty.RAY_SPLIT_SHARE / 5 + 0.5) * 5)
+    end
+    return amount
+end
+
 local function supply(player, ps, fid, tier, args)
     local target = tostring(args.target or "")
     if target == fid or not Factions.byId[target] or Factions.isGone(target) then return false, "no_target" end
     -- 레이는 빅을 싫어하면(관계 음수) 구간 3 에서만 보낸다. 관계가 풀렸으면 (Bonds) 구간과 상관없이
     if target == "rats" and tier < 3 and StoryEngine.Bonds.get("ray", "rats") < 0 then return false, "ray_refuses" end
-    local amount = Specialty.RAY_SUPPLY[tier]
+    local amount = Specialty.raySupply(tier)
     -- 가장 부족한 자원부터 5씩 채운다
     local gained = {}
     local left = amount
@@ -612,10 +624,22 @@ local function supply(player, ps, fid, tier, args)
         gained[r] = (gained[r] or 0) + got
         left = left - got
     end
-    StoryEngine.Trust.apply(target, 1, "ray_supply", nil, nil)
+    -- 받은 NPC 의 신뢰도 +1 과 레이와의 관계 +1 은 받는 NPC 마다 RAY_THANKS_DAYS 에 한 번 (서버 전체).
+    -- 여럿이 번갈아 쓰면 사람 수만큼 쌓이던 것 (2026-10-09 사용자 요청)
+    local s = state()
+    s.rayThanks = s.rayThanks or {}
+    local now = Sensor.now()
+    local thanked = s.rayThanks[target] and now.t - s.rayThanks[target] < Specialty.RAY_THANKS_DAYS * 24 * 60
     local rayName = tostring(StoryEngine.Stories.NAMES.ray or "the farm")
-    StoryEngine.Bonds.change("ray", target, 1, rayName .. " drove a load of supplies over to them at the players' request", true)
-    Life.record(target, "ray_supply", ps.name, 1)
+    local applied = 0
+    if not thanked then
+        s.rayThanks[target] = now.t
+        applied = StoryEngine.Trust.apply(target, 1, "ray_supply", nil, nil)
+        StoryEngine.Bonds.change("ray", target, 1, rayName .. " drove a load of supplies over to them at the players' request", true)
+    else
+        log("ray supply: no trust or bond again this week", target)
+    end
+    Life.record(target, "ray_supply", ps.name, applied)
     local name = StoryEngine.Stories.NAMES[target] or target
     Radio.react(target, "event", rayName .. " from the West Point farm just drove a load of supplies over to your people because "
         .. tostring(ps.name) .. " asked him to. Thank them both, in character.",
