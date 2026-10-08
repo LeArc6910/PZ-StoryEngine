@@ -229,6 +229,35 @@ function Council.avgTrust()
     return n > 0 and sum / n or 0
 end
 
+-- 개인 모드 (DESIGN_PER_PLAYER_TRUST 5-1절, 2026-10-09 사용자 결정): 회의가 서면 회의 퀘스트(준비 모금·교회 소탕)에
+-- 손을 보탠 사람마다 회의를 연 케이시·파이크(남아 있는 쪽, 후임 포함)에게 개인 신뢰 +2. 싱글·공유 모드는 없음
+Council.HELPER_TRUST = 2
+
+function Council.rewardHelpers()
+    local Trust = StoryEngine.Trust
+    if not Trust or not Trust.personalMode() then return 0 end
+    local s = state()
+    local keys = {}
+    for _, id in pairs({ collect = s.collectId or false, horde = s.hordeId or false }) do
+        local q = id and Store.data().quests[id]
+        for key in pairs(q and q.helpers or {}) do keys[key] = true end
+    end
+    local count = 0
+    for _, fid in ipairs({ "casey", "pike" }) do
+        if not Factions.isGone(fid) then
+            for key in pairs(keys) do
+                local ps = Store.data().players[key]
+                if ps and not ps.dead then
+                    Trust.addPersonal(fid, key, Council.HELPER_TRUST, "council_help")
+                    count = count + 1
+                end
+            end
+        end
+    end
+    if count > 0 then log("council helpers", count) end
+    return count
+end
+
 function Council.finish(now)
     local s = state()
     local hq = Store.data().quests[s.hordeId or ""]
@@ -259,6 +288,7 @@ function Council.finish(now)
             pcall(Bonds.change, "guard", "rats", -1, "the county council broke up in a shouting match", true)
         end
     end
+    if s.result == "formed" then Council.rewardHelpers() end
     local suffix = s.result == "formed" and "9a" or "9b"
     for fid, prefix in pairs(Council.HOSTS) do
         if not Factions.isGone(fid) and original(fid) then

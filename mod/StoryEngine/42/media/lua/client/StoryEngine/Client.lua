@@ -262,6 +262,7 @@ function Client.handlers.radioMessage(args)
     Cache.messages[fid] = list
     local ch = Cache.channels[fid] or { id = fid }
     ch.trust = args.trust or ch.trust
+    ch.personal = args.personal         -- 개인 모드에서만 (보는 사람의 개인 신뢰), 공유·싱글은 nil
     ch.busy = msg.from == "player"
     ch.followUpIn = args.followUpIn
     Cache.channels[fid] = ch
@@ -719,6 +720,17 @@ local function fillDebugMenu(context, worldobjects, playerNum)
     tsub:addOption("-10", worldobjects, toServer("debugTrust", { faction = fid, delta = -10 }))
     for _, v in ipairs({ 0, 20, 40, 50, 60, 70, 80, 90, 100 }) do
         tsub:addOption("= " .. tostring(v), worldobjects, toServer("debugTrust", { faction = fid, set = v }))
+    end
+    -- 개인 신뢰 (서버가 개인 모드가 아니면 이유를 알려 준다)
+    local psub = subMenu(context, npc, label("ContextMenu_StoryEngine_PersonalTrust", npcName))
+    psub:addOption("+10", worldobjects, toServer("debugPersonalTrust", { faction = fid, delta = 10 }))
+    psub:addOption("-10", worldobjects, toServer("debugPersonalTrust", { faction = fid, delta = -10 }))
+    for _, v in ipairs({ 0, 20, 40, 60, 80, 100 }) do
+        psub:addOption("= " .. tostring(v), worldobjects, toServer("debugPersonalTrust", { faction = fid, set = v }))
+    end
+    local asub = subMenu(context, npc, getText("ContextMenu_StoryEngine_PersonalAsk"))
+    for _, kind in ipairs({ "deliver", "horde", "fetch", "named" }) do
+        asub:addOption(kind, worldobjects, toServer("debugPersonalAsk", { kind = kind }))
     end
     local lfid = Cache.lifeFaction or fid
     if not StoryEngine.Factions.byId[lfid] then lfid = "ray" end

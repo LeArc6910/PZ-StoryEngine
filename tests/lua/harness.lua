@@ -544,6 +544,31 @@ function H.lastBridge(module, mode)
     return nil
 end
 
+-- 개인 신뢰 모드 (멀티 서버 + 샌드박스 TrustBenefits = 2, docs/DESIGN_PER_PLAYER_TRUST.md).
+-- 서버처럼 sendServerCommand 로 보내므로 H.sent 에 player 와 함께 남긴다 (H.sentTo 로 한 사람 것만)
+function H.personalMode()
+    isServer = function() return true end
+    SandboxVars.StoryEngine = SandboxVars.StoryEngine or {}
+    SandboxVars.StoryEngine.TrustBenefits = 2
+    -- 서버가 개인 모드로 시작한 것처럼 (OnServerStarted 의 Trust.checkMode: 옮길 예전 기록 없음)
+    if StoryEngine and StoryEngine.Store and StoryEngine.Store.data then StoryEngine.Store.data().trustMode = 2 end
+    sendServerCommand = function(a, b, c, d)
+        if d == nil and type(a) == "string" then
+            H.sent[#H.sent + 1] = { command = b, args = c, all = true }
+        else
+            H.sent[#H.sent + 1] = { command = c, args = d, player = a }
+        end
+    end
+end
+
+function H.sentTo(player, command)
+    local out = {}
+    for _, s in ipairs(H.sent) do
+        if s.command == command and (s.player == player or s.all) then out[#out + 1] = s.args end
+    end
+    return out
+end
+
 function H.sentOf(command)
     local out = {}
     for _, s in ipairs(H.sent) do

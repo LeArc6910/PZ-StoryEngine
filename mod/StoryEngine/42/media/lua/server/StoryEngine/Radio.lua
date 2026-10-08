@@ -76,6 +76,22 @@ local function broadcast(command, args)
     end
 end
 
+-- 개인 모드에서 그 사람의 개인 신뢰로 정해진 줄(거래 막힘 "신뢰 부족 (내 신뢰 N)")은 그 사람에게만
+function Radio.mineOnly(ps)
+    if ps and StoryEngine.Trust and StoryEngine.Trust.personalMode() then return ps.key end
+    return nil
+end
+
+-- 받은 사람에게만 보이는 줄(개인 모드의 개인별 부탁·개인 신뢰 줄, DESIGN_PER_PLAYER_TRUST 8절)을 다른 사람에게 보일 모양으로.
+-- private 줄은 "따로 연락했다" 한 줄로, 그 밖(개인 신뢰 줄 등)은 nil (보이지 않음)
+function Radio.viewFor(msg, key)
+    if not msg.to or msg.to == key then return msg end
+    if not msg.private then return nil end
+    local ps = Store.data().players[msg.to]
+    return { from = "system", privateNote = true, toName = ps and ps.name or "?", npc = msg.npc, n = msg.n,
+             clock = msg.clock, day = msg.day, voice = msg.voice }
+end
+
 -- 예약된 연락까지 남은 게임 시간(시간 단위). 없으면 nil
 function Radio.followUpIn(ch)
     if not ch.followUp then return nil end
@@ -110,17 +126,30 @@ local function push(fid, msg, audience)
         msg.voice = Factions.voice and Factions.voice[msg.npc or fid] or false
     end
     Store.push(ch.messages, msg, Radio.KEEP)
+    -- 받은 사람에게만 보이는 줄이면 일지 교신 기록도 그 사람에게만 (8절)
+    if msg.to then audience = Store.data().players[msg.to] end
     if msg.from == "npc" and type(msg.text) == "string" and not msg.quiet then
         local who = msg.npc or fid       -- 공용 주파수에서는 말한 NPC
         if audience then
             Radio.logLine(audience, who, "npc", msg.text, msg.clock, msg.day)
-        else
+        elseif not msg.to then
             for _, p in ipairs(Sensor.players()) do
                 Radio.logLine(Store.player(p), who, "npc", msg.text, msg.clock, msg.day)
             end
         end
     end
-    broadcast("radioMessage", { faction = fid, msg = msg, trust = ch.trust, followUpIn = Radio.followUpIn(ch) })
+    local Trust = StoryEngine.Trust
+    local personal = Trust ~= nil and Trust.personalMode() and Factions.byId[fid] ~= nil
+    for _, p in ipairs(Sensor.players()) do
+        local key = Store.playerKey(p)
+        local view = Radio.viewFor(msg, key)
+        if view then
+            local args = { faction = fid, msg = view, trust = ch.trust, followUpIn = Radio.followUpIn(ch) }
+            if personal then args.personal = Trust.personal(fid, key) end
+            local ok, err = pcall(Net.toClient, p, "radioMessage", args)
+            if not ok then log("radio broadcast failed:", err) end
+        end
+    end
 end
 Radio.push = push   -- 퀘스트 소식 등 모드가 직접 보내는 세력 메시지
 
@@ -250,14 +279,21 @@ function Radio.request(fid, lang, opts)
     local speakerState = speaker and Radio.playerState(speaker) or nil
     local specialty = nil
     if not mode and StoryEngine.Specialty then
-        local okSp, st = pcall(StoryEngine.Specialty.status, fid)
+        local okSp, st = pcall(StoryEngine.Specialty.status, fid, speaker and speaker.key or nil)
         if okSp then specialty = st end
+    end
+    -- 개인 모드: 집단 신뢰(무리에 대한 태도)와 따로 "이 사람"에 대한 개인 신뢰·아는 정도 (DESIGN_PER_PLAYER_TRUST 7절)
+    local person = nil
+    if StoryEngine.Trust then
+        local about = speaker or (opts and opts.about and Store.data().players[opts.about]) or nil
+        local okP, info = pcall(StoryEngine.Trust.personContext, fid, about)
+        if okP then person = info end
     end
 
     Bridge.request("radio", {
         speakerState = speakerState, specialty = specialty,
         story = story, life = life, newcomer = newcomer,
-        faction = fid, lang = lang, trust = ch.trust, memory = ch.memory,
+        faction = fid, lang = lang, trust = ch.trust, memory = ch.memory, personal = person,
         day = Store.dayIndex(now.dayKey), date = now.date, clock = now.clock,
         players = players, history = history,
         mode = mode, topic = mode and opts.topic or nil, trade = trade,
@@ -268,20 +304,14 @@ function Radio.request(fid, lang, opts)
         if type(json) == "table" and type(json.reply) == "string" and json.reply ~= "" then
             -- 대화만으로는 신뢰도가 조금만 움직인다 (-1~+1). 큰 변화는 퀘스트 결과로 (Trust.lua).
             local change = math.max(-1, math.min(1, math.floor(tonumber(json.trust_change) or 0)))
-            -- NPC 가 먼저 하는 말(연락·반응)로는 움직이지 않고, 대화로 오르는 것은 NPC 마다 게임 하루 +1 (2026-10-03 점검)
+            -- NPC 가 먼저 하는 말(연락·반응)로는 움직이지 않고, 대화로 오르는 것은 NPC 마다 게임 하루 +1 (2026-10-03 점검).
+            -- 개인 모드는 말한 사람의 개인 신뢰로, 사람마다 하루 +1. + 는 ChatTrustMax(40) 미만일 때만 (Trust.chat)
             if mode then change = 0 end
-            if change > 0 then
-                local day = Store.dayIndex(t.dayKey)
-                if ch.chatTrustDay ~= day then ch.chatTrustDay, ch.chatTrustGain = day, 0 end
-                if (ch.chatTrustGain or 0) >= Radio.CHAT_TRUST_PER_DAY then
-                    change = 0
-                else
-                    ch.chatTrustGain = (ch.chatTrustGain or 0) + change
-                end
+            local said = change
+            if change ~= 0 and StoryEngine.Trust then
+                change = StoryEngine.Trust.chat(fid, speaker, change, Store.dayIndex(t.dayKey))
             end
-            ch.trust = math.max(0, math.min(100, ch.trust + change))
-            if change < 0 and speaker then
-                ch.lastOffender = speaker.key
+            if said < 0 and speaker then
                 if StoryEngine.Life then pcall(StoryEngine.Life.record, fid, "insult", speaker.name, change) end
             end
 
@@ -293,13 +323,16 @@ function Radio.request(fid, lang, opts)
             if followUp then ch.followUp = nil end
             if (not mode or followUp) and hours > 0 and topic ~= "" and chain < Radio.MAX_CHAIN then
                 hours = math.min(hours, Radio.MAX_FOLLOW_UP_HOURS)
-                ch.followUp = { dueT = t.t + hours * 60, topic = topic, chain = chain + 1, lang = lang }
+                ch.followUp = { dueT = t.t + hours * 60, topic = topic, chain = chain + 1, lang = lang,
+                                to = opts and opts.to or nil }
                 log("radio follow-up scheduled", fid, hours .. "h", topic)
             end
 
             -- 플레이어 발언에 대한 답장은 말한 사람의 기록에, NPC 가 먼저 한 말은 접속한 모두의 기록에
             push(fid, { from = "npc", text = string.sub(json.reply, 1, Radio.MAX_REPLY), clock = t.clock,
-                        day = Store.dayIndex(t.dayKey), followUp = followUp or nil }, (not mode) and speaker or nil)
+                        day = Store.dayIndex(t.dayKey), followUp = followUp or nil,
+                        to = opts and opts.to or nil, private = (opts and opts.to) and true or nil },
+                 (not mode) and speaker or nil)
             if opts and opts.overhead then Radio.overhead(opts.overhead, fid, string.sub(json.reply, 1, Radio.MAX_REPLY)) end
             -- 곁의 동료와 방금 들은 말을 두고 대화
             if not mode and speaker and StoryEngine.Banter then
@@ -326,9 +359,9 @@ function Radio.request(fid, lang, opts)
                     elseif q and how == "withdraw" then
                         push(fid, { from = "system", clock = t.clock, quest = q.id, withdrawn = true })
                     elseif how == "blocked" and info then
-                        push(fid, { from = "system", clock = t.clock, blocked = info })
+                        push(fid, { from = "system", clock = t.clock, blocked = info, to = Radio.mineOnly(speaker) })
                     elseif how == "same" or how == "no_rounds" then
-                        local open = StoryEngine.Quests.openTrade(fid)
+                        local open = StoryEngine.Quests.openTrade(fid, speaker.key)
                         if open then
                             push(fid, { from = "system", clock = t.clock, quest = open.id, unchanged = {
                                 goods = open.goods, payCategory = open.payCategory, price = open.price,
@@ -343,7 +376,7 @@ function Radio.request(fid, lang, opts)
                 local ok, deal, how, info
                 if action == "refuse" then
                     -- 신뢰도 한도 때문에 거절했으면 무엇이 얼마나 모자란지 알린다
-                    ok, info = pcall(Trade.blocked, fid, json.trade.category, json.trade.tier)
+                    ok, info = pcall(Trade.blocked, fid, json.trade.category, json.trade.tier, speaker.key)
                     how = ok and info and "blocked" or nil
                 else
                     ok, deal, how, info = pcall(Trade.fromReply, fid, speaker, json.trade)
@@ -356,14 +389,15 @@ function Radio.request(fid, lang, opts)
                     push(fid, { from = "system", clock = t.clock, quest = deal.id,
                                 offer = { goods = deal.goods, payCategory = deal.payCategory, price = deal.price } })
                 elseif how == "blocked" and info then
-                    push(fid, { from = "system", clock = t.clock, blocked = info })
+                    push(fid, { from = "system", clock = t.clock, blocked = info, to = Radio.mineOnly(speaker) })
                 end
             end
         elseif followUp then
             -- 약속한 연락이 실패하면 한 시간 뒤 한 번만 다시 시도한다
             log("radio follow-up failed:", fid, tostring(res.error))
             if not opts.retried then
-                ch.followUp = { dueT = t.t + 60, topic = opts.topic, chain = opts.chain, lang = lang, retried = true }
+                ch.followUp = { dueT = t.t + 60, topic = opts.topic, chain = opts.chain, lang = lang, retried = true,
+                                to = opts.to }
             end
         elseif mode then
             -- 부탁처럼 꼭 전해야 하는 말은 준비된 문장으로 대신 보낸다
@@ -371,13 +405,16 @@ function Radio.request(fid, lang, opts)
             local fb = opts.fallback
             if type(fb) == "table" and fb.pre then
                 -- 앞에 붙는 말 (이야기 부탁: 지금 사정을 먼저 말한다)
-                push(fid, { from = "npc", text = fb.pre.text, lt = fb.pre.lt, clock = t.clock, day = Store.dayIndex(t.dayKey) })
+                push(fid, { from = "npc", text = fb.pre.text, lt = fb.pre.lt, clock = t.clock, day = Store.dayIndex(t.dayKey),
+                            to = opts.to, private = opts.to and true or nil })
             end
             if type(fb) == "table" then
-                push(fid, { from = "npc", text = fb.text, lt = fb.lt, clock = t.clock, day = Store.dayIndex(t.dayKey) })
+                push(fid, { from = "npc", text = fb.text, lt = fb.lt, clock = t.clock, day = Store.dayIndex(t.dayKey),
+                            to = opts.to, private = opts.to and true or nil })
                 if opts.overhead then Radio.overhead(opts.overhead, fid, fb.text, fb.lt) end
             elseif fb then
-                push(fid, { from = "npc", text = fb, clock = t.clock, day = Store.dayIndex(t.dayKey) })
+                push(fid, { from = "npc", text = fb, clock = t.clock, day = Store.dayIndex(t.dayKey),
+                            to = opts.to, private = opts.to and true or nil })
                 if opts.overhead then Radio.overhead(opts.overhead, fid, fb) end
             end
         elseif Radio.OFFLINE_ERRORS[tostring(res.error)] then
@@ -424,10 +461,13 @@ end
 -- topic 은 AI 에게 넘기는 상황 설명(영어), fallback 은 AI 가 실패했을 때 대신 보낼 문장
 -- ({ text = AI 기록용 영어, lt = 클라이언트가 번역할 문장 }), ps 는 대상 플레이어.
 -- extra.overhead: 그 말을 대상 플레이어 머리 위에도 띄운다 (특기 지원 답장, 2026-09-30)
+-- extra.private: 개인 모드에서 그 말을 ps 에게만 보인다 (개인별 부탁과 그 결과, DESIGN_PER_PLAYER_TRUST 8절)
 function Radio.react(fid, mode, topic, fallback, ps, extra)
     if not Factions.byId[fid] then return end
+    local private = extra and extra.private and ps and StoryEngine.Trust and StoryEngine.Trust.personalMode()
     Radio.request(fid, Radio.langFor(fid, ps), { mode = mode, topic = topic, fallback = fallback,
-        overhead = (extra and extra.overhead and ps) and ps.key or nil })
+        overhead = (extra and extra.overhead and ps) and ps.key or nil,
+        to = private and ps.key or nil, about = ps and ps.key or nil })
 end
 
 -- NPC 가 한 말을 그 플레이어 머리 위에도 (접속해 있을 때만)
@@ -461,7 +501,7 @@ function Radio.checkFollowUps()
                 ch.followUpCount = (ch.followUpCount or 0) + 1
                 log("radio follow-up firing", f.id, fu.topic)
                 Radio.request(f.id, fu.lang or Radio.langFor(f.id),
-                    { mode = "follow_up", topic = fu.topic, chain = fu.chain, retried = fu.retried })
+                    { mode = "follow_up", topic = fu.topic, chain = fu.chain, retried = fu.retried, to = fu.to, about = fu.to })
             end
         end
     end
@@ -490,6 +530,10 @@ function Radio.say(player, fid, text, intent)
     -- 일지에는 실제 발언과 답장을 넘긴다 (Radio.logLine)
     Radio.logLine(ps, fid, "player", text, now.clock, day)
     Radio.channel(fid).lastPlayerT = now.t
+    if StoryEngine.Trust and Factions.byId[fid] then
+        StoryEngine.Trust.touch(fid, ps.key)
+        if StoryEngine.Trust.personalMode() then StoryEngine.Trust.ensure(fid, ps.key) end
+    end
     if Factions.isGone(fid) then
         push(fid, { from = "static", error = "gone", clock = now.clock, day = day })
         return true
@@ -513,7 +557,10 @@ function Radio.say(player, fid, text, intent)
     return true
 end
 
-function Radio.channelList()
+-- key: 보는 사람 (개인 모드면 그 사람의 개인 신뢰를 personal 로 함께)
+function Radio.channelList(key)
+    local Trust = StoryEngine.Trust
+    local personal = Trust ~= nil and Trust.personalMode() and key ~= nil
     local open = Radio.channel(Radio.OPEN)
     local out = { { id = Radio.OPEN, freq = "121.5", open = true, seq = open.seq, busy = StoryEngine.Social
         and StoryEngine.Social.sceneBusy == true or false } }
@@ -521,17 +568,20 @@ function Radio.channelList()
         local ch = Radio.channel(f.id)
         out[#out + 1] = { id = f.id, freq = f.freq, trust = ch.trust, seq = ch.seq, busy = Radio.busy[f.id] == true,
                           followUpIn = Radio.followUpIn(ch), gone = Factions.fateOf(f.id),
-                          anyWants = StoryEngine.Value and StoryEngine.Value.anyWantsFn(f.id) or nil }
+                          anyWants = StoryEngine.Value and StoryEngine.Value.anyWantsFn(f.id) or nil,
+                          personal = personal and Trust.personal(f.id, key) or nil }
     end
     return out
 end
 
-function Radio.history(fid)
+-- key: 보는 사람. 받은 사람에게만 보이는 줄은 거른다 (Radio.viewFor)
+function Radio.history(fid, key)
     if not Factions.byId[fid] and fid ~= Radio.OPEN then return {} end
     local ch = Radio.channel(fid)
     local out = {}
     for i = math.max(1, #ch.messages - Radio.CLIENT_HISTORY + 1), #ch.messages do
-        out[#out + 1] = ch.messages[i]
+        local view = Radio.viewFor(ch.messages[i], key)
+        if view then out[#out + 1] = view end
     end
     return out
 end

@@ -131,7 +131,14 @@ function Letters.attach(q, ps, now)
         end
     end
     local o = q.origin or {}
-    if fid and o.friend and not Factions.isGone(fid) and Radio.channel(fid).trust >= Letters.GIFT_TRUST
+    -- 선물 편지는 받는 사람(q.target)이 그 NPC 를 충분히 믿을 때 (개인 모드면 그 사람의 개인 신뢰, DESIGN_PER_PLAYER_TRUST 4절)
+    local trust = 0
+    if fid and o.friend and not Factions.isGone(fid) then
+        local key = q.target or (ps and ps.key) or nil
+        local Trade = StoryEngine.Trade
+        trust = (Trade and Trade.trustPeek) and Trade.trustPeek(fid, key) or Radio.channel(fid).trust
+    end
+    if fid and o.friend and not Factions.isGone(fid) and trust >= Letters.GIFT_TRUST
         and ZombRand(100) < Letters.GIFT_CHANCE then
         return Letters.create(q, ps, fid, o.project and "greenhouse" or "gift", nil, now)
     end

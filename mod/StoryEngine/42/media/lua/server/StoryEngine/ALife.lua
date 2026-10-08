@@ -613,8 +613,18 @@ local function activeFor(psKey)
     return nil
 end
 
-local function trustOf(fid)
+-- 지원을 정하는 신뢰: 위험한(청한) 그 사람의 신뢰 (개인 모드면 개인 신뢰, DESIGN_PER_PLAYER_TRUST 4절).
+-- peek: 고르기만 할 때 (자동 지원 후보) 처음 연락을 정하지 않는다
+local function trustOf(fid, key, peek)
+    if key and peek and StoryEngine.Trade and StoryEngine.Trade.trustPeek then
+        return StoryEngine.Trade.trustPeek(fid, key)
+    end
+    if key and StoryEngine.Trust then return StoryEngine.Trust.of(fid, key) end
     return Radio.channel(fid).trust
+end
+
+local function personalMode()
+    return StoryEngine.Trust ~= nil and StoryEngine.Trust.personalMode()
 end
 
 -- 지원을 보낸다. how: "request" | "auto" | "debug". reason: 자동 지원의 이유 (AI 반응용)
@@ -626,7 +636,7 @@ function ALife.sendSupport(player, fid, how, reason, levelOverride, retry, count
     if Factions.isGone(fid) then return false, "gone" end
     local ps = Store.player(player)
     if activeFor(ps.key) then return false, "active" end
-    local level = levelOverride or ALife.level(trustOf(fid))
+    local level = levelOverride or ALife.level(trustOf(fid, ps.key))
     if level <= 0 then return false, "low_trust" end
     local count = countOverride or ALife.SIZE[level]
     -- 방위대 검문소 프로젝트 완성: +2명 (A-Life 그룹 최대 8)
@@ -714,7 +724,7 @@ function ALife.request(player, fid)
     if not ALife.enabled() then return false, "disabled" end
     if not ALife.available() then return false, "alife_unavailable" end
     if not Factions.byId[fid] then return false, "no_faction" end
-    if trustOf(fid) < ALife.REQUEST_TRUST then return false, "low_trust" end
+    if trustOf(fid, Store.playerKey(player)) < ALife.REQUEST_TRUST then return false, "low_trust" end
     local last = state().cooldown[fid]
     local now = Sensor.now()
     if last and now.t - last < ALife.REQUEST_COOLDOWN_MIN then
@@ -793,15 +803,16 @@ local function canSend(fid)
     return not Life or Life.get(fid, "safety") >= Life.SELF_MIN
 end
 
--- 가장 신뢰하는 세력 (AUTO_TRUST 이상). 같으면 무작위
-local function bestFriend()
+-- 가장 신뢰하는 세력 (AUTO_TRUST 이상). 같으면 무작위. key: 위험한 사람 (개인 모드면 그 사람의 개인 신뢰)
+local function bestFriend(key)
     local top = ALife.AUTO_TRUST
     for _, f in ipairs(Factions.list) do
-        if canSend(f.id) and trustOf(f.id) > top then top = trustOf(f.id) end
+        if canSend(f.id) and trustOf(f.id, key, true) > top then top = trustOf(f.id, key, true) end
     end
     local best = {}
     for _, f in ipairs(Factions.list) do
-        if canSend(f.id) and trustOf(f.id) >= ALife.AUTO_TRUST and trustOf(f.id) == top then best[#best + 1] = f.id end
+        local t = canSend(f.id) and trustOf(f.id, key, true) or -1
+        if t >= ALife.AUTO_TRUST and t == top then best[#best + 1] = f.id end
     end
     if #best == 0 then return nil end
     return best[ZombRand(#best) + 1]
@@ -864,14 +875,21 @@ end
 
 function ALife.checkAuto()
     if not ALife.enabled() or not ALife.available() then return end
-    local fid = bestFriend()
-    if not fid then return end
+    -- 개인 모드는 사람마다 그 사람이 가장 믿는 세력 (아래), 아니면 서버에 하나
+    local personal = personalMode()
+    local shared = nil
+    if not personal then
+        shared = bestFriend()
+        if not shared then return end
+    end
     local st = state()
     local now = Sensor.now()
     for _, p in ipairs(Sensor.players()) do
         local ps = Store.player(p)
         local last = st.autoAt[ps.key]
-        if not ps.dead and not activeFor(ps.key) and not (last and now.t - last < ALife.AUTO_COOLDOWN_MIN) then
+        local fid = shared
+        if personal and not ps.dead then fid = bestFriend(ps.key) end
+        if fid and not ps.dead and not activeFor(ps.key) and not (last and now.t - last < ALife.AUTO_COOLDOWN_MIN) then
             local reason = ALife.danger(p)
             if reason then
                 local ok, why = ALife.sendSupport(p, fid, "auto", reason)

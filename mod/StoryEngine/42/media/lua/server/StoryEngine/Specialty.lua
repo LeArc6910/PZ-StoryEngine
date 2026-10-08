@@ -133,10 +133,25 @@ function Specialty.cooldownDays(fid)
     return days
 end
 
+-- 개인 신뢰 모드(DESIGN_PER_PLAYER_TRUST 3절)에서는 서버 전체(1)를 둘 다(3)로 본다: 혜택을 사람마다 나눴는데
+-- 남이 쓰면 나도 일주일 못 쓰는 일이 없게
+local function personalMode()
+    return StoryEngine.Trust ~= nil and StoryEngine.Trust.personalMode()
+end
+
 function Specialty.scope(fid)
     local v = StoryEngine.Tuning and StoryEngine.Tuning.num("SpecialtyScope_" .. tostring(fid)) or 0
     if v < 1 or v > 3 then v = Specialty.SCOPE[fid] or 1 end
-    return math.floor(v)
+    v = math.floor(v)
+    if v == 1 and personalMode() then v = 3 end
+    return v
+end
+
+-- 특기 구간을 정하는 신뢰: 요청한 사람의 신뢰 (Trust.of). 보여 주기만 할 때(peek)는 처음 연락을 정하지 않는다
+local function trustFor(fid, psKey, peek)
+    if peek and StoryEngine.Trade and StoryEngine.Trade.trustPeek then return StoryEngine.Trade.trustPeek(fid, psKey) end
+    if StoryEngine.Trust then return StoryEngine.Trust.of(fid, psKey) end
+    return Radio.channel(fid).trust or 0
 end
 
 -- 이 사람(psKey)이 기다려야 하는 분 (0 이면 지금 가능). 키가 없으면 서버 전체 기준
@@ -177,10 +192,11 @@ function Specialty.tier(trust)
 end
 
 -- 거점 탭 표시: { tier, wait(시간), scope, reason = nil | off | low_trust | cooldown | no_resource }
--- psKey = 보는 사람 (개인별 대기). 없으면 서버 전체 기준
+-- psKey = 보는 사람 (개인별 대기, 개인 모드면 구간도 그 사람의 개인 신뢰). 없으면 서버 전체 기준
+-- 거점 탭 표시로 부르므로 처음 연락을 정하지 않는다 (요청은 Specialty.request 가 정함)
 function Specialty.status(fid, psKey)
     if not Factions.byId[fid] then return nil end
-    local tier = Specialty.tier(Radio.channel(fid).trust)
+    local tier = Specialty.tier(trustFor(fid, psKey, true))
     local now = Sensor.now()
     local wait = math.ceil(Specialty.waitMinutes(fid, psKey, now.t) / 60)
     local reason = nil
@@ -634,7 +650,8 @@ local function supply(player, ps, fid, tier, args)
     local applied = 0
     if not thanked then
         s.rayThanks[target] = now.t
-        applied = StoryEngine.Trust.apply(target, 1, "ray_supply", nil, nil)
+        -- 개인 모드: 받은 NPC 의 +1 은 특기를 청한 사람의 개인 신뢰로 (DESIGN_PER_PLAYER_TRUST 5-2절)
+        applied = StoryEngine.Trust.apply(target, 1, "ray_supply", nil, personalMode() and ps.key or nil)
         StoryEngine.Bonds.change("ray", target, 1, rayName .. " drove a load of supplies over to them at the players' request", true)
     else
         log("ray supply: no trust or bond again this week", target)
@@ -781,6 +798,7 @@ function Specialty.request(player, fid, args)
     if not Factions.byId[fid] then return false, "no_faction" end
     if not Factions.canTalk(player) then return false, "no_radio" end
     local ps = Store.player(player)
+    if StoryEngine.Trust then StoryEngine.Trust.contact(fid, ps.key) end   -- 특기를 청하는 것도 연락 (처음 연락·상대한 날)
     local st = Specialty.status(fid, ps.key)
     if st.reason then return false, st.reason, st.wait end
     local handler = Specialty.HANDLERS[fid]
@@ -796,6 +814,7 @@ end
 
 -- 복구 작전 중 NPC 가 스스로 돕는다 (Ops.lua, 2026-10-01). 대기 시간에 걸리지 않고 남기지도 않으며 자원도 쓰지 않는다.
 -- 구간은 신뢰도대로, 낮아도 1 (물·전기는 모두에게 필요하다). 무전은 머리 위에도. 반환: true, info | false, 이유
+-- 작전은 무리의 일이라 개인 모드에서도 집단 신뢰(ch.trust)로 구간을 정한다 (DESIGN_PER_PLAYER_TRUST 4절)
 function Specialty.assist(fid, player, args)
     if not Factions.byId[fid] or Factions.isGone(fid) or not Specialty.enabled() then return false, "unavailable" end
     if StoryEngine.Saga and StoryEngine.Saga.specialtyBlocked(fid) then return false, "ill" end

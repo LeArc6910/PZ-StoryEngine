@@ -171,24 +171,53 @@ Trade.FREE_TRUST = 60
 Trade.FREE_MAX_TIER = 2
 Trade.FREE_CHANCE = 35     -- 요청마다 게임이 굴린다. 맡기면 AI 가 거의 주지 않아서 (모델 테스트 0/4)
 
-local function requestTimes(fid, now)
+-- ---------------------------------------------------------------- 개인 신뢰 (DESIGN_PER_PLAYER_TRUST 4절)
+-- 혜택(거래 한도·값·공짜·흥정 하한)은 청한 사람의 신뢰로 판정한다 (Trust.of: 개인 모드면 개인 신뢰, 아니면 신뢰 하나).
+local function personalMode()
+    return StoryEngine.Trust ~= nil and StoryEngine.Trust.personalMode()
+end
+
+-- 혜택을 판정하는 신뢰. 개인 모드에서 처음 연락이면 그 순간 개인 신뢰가 정해진다 (Trust.ensure)
+local function trustOf(fid, key)
+    if StoryEngine.Trust then return StoryEngine.Trust.of(fid, key) end
+    return Radio.channel(fid).trust or 0
+end
+Trade.trustOf = trustOf
+
+-- 보여 주기만 할 때(거점 탭·공용 주파수 판매자 목록·자동 지원 고르기 등): 아직 연락 전이면 처음 연락 때 정해질 값을
+-- 저장하지 않고 돌려준다. 보기만 했는데 개인 신뢰가 정해지면 소개 몫이 그때의 집단 신뢰로 굳고 "아는 NPC" 판정도 흐려진다
+function Trade.trustPeek(fid, key)
+    -- Trust.of / Trust.personal 은 읽기만 한다 (아직 모르는 사이면 처음 연락할 때 받을 값, 기록은 만들지 않음)
+    return StoryEngine.Trust.of(fid, key)
+end
+
+-- 요청 기록: 개인 모드는 사람마다 (ch.requestLogBy[키]), 아니면 서버 전체 (ch.requestLog)
+local function requestTimes(fid, now, key)
     local ch = Radio.channel(fid)
+    local perPerson = key ~= nil and personalMode()
+    local src = ch.requestLog
+    if perPerson then
+        ch.requestLogBy = ch.requestLogBy or {}
+        src = ch.requestLogBy[key]
+    end
     local kept = {}
-    for _, t in ipairs(ch.requestLog or {}) do
+    for _, t in ipairs(src or {}) do
         if now.t - t < Trade.REQUEST_WINDOW_MIN then kept[#kept + 1] = t end
     end
-    ch.requestLog = kept
+    if perPerson then ch.requestLogBy[key] = kept else ch.requestLog = kept end
     return kept
 end
 
-function Trade.recentRequests(fid)
-    return #requestTimes(fid, Sensor.now())
+-- key: 청한 사람 (개인 모드에서만 사람마다 센다)
+function Trade.recentRequests(fid, key)
+    return #requestTimes(fid, Sensor.now(), key)
 end
 
 -- 플레이어가 물건을 청했다 (AI 가 제안·거절·선물 중 하나로 답함). 일주일에 SUSPICIOUS_COUNT 번째부터 신뢰도 -1
+-- (개인 모드: 횟수도 감점도 그 사람에게)
 function Trade.recordRequest(fid, ps)
     local now = Sensor.now()
-    local list = requestTimes(fid, now)
+    local list = requestTimes(fid, now, ps and ps.key)
     list[#list + 1] = now.t
     if #list >= Trade.SUSPICIOUS_COUNT and StoryEngine.Trust then
         StoryEngine.Trust.apply(fid, -1, "suspicious", nil, ps and ps.key)
@@ -238,17 +267,19 @@ end
 
 -- 신뢰도 때문에 거래할 수 없는 요청이면 안내 정보를 돌려준다.
 -- { category, tier, need = 필요한 신뢰도 } | { category, tier?, never = true } (취급 안 함) | { need } (아예 거래 전) | nil
-function Trade.blocked(fid, category, tier)
+-- key: 청한 사람. 개인 모드면 그 사람의 개인 신뢰로 판정하고 have 에 그 값을 넣는다 ("당신 35")
+function Trade.blocked(fid, category, tier, key)
     local rules = Trade.FACTIONS[fid]
     if not rules then return nil end
-    local trust = Radio.channel(fid).trust
+    local trust = trustOf(fid, key)
+    local have = (key ~= nil and personalMode()) and trust or nil
     local known = false
     for _, cat in ipairs(Value.CATEGORIES) do
         if cat == category then known = true end
     end
     if not known then
         local low = minTradeTrust()
-        if trust < low then return { need = low } end
+        if trust < low then return { need = low, have = have } end
         return nil
     end
     if (rules.goods[category] or 0) <= 0 then return { category = category, never = true } end
@@ -256,7 +287,7 @@ function Trade.blocked(fid, category, tier)
     local need = Trade.needTrust(fid, category, tier)
     if not need then return { category = category, tier = tier, never = true } end
     if trust >= need then return nil end
-    return { category = category, tier = tier, need = need }
+    return { category = category, tier = tier, need = need, have = have }
 end
 
 -- 흥정해도 내려가지 않는 가격
@@ -291,21 +322,26 @@ local function haggleContext(fid, q, trust, offer)
 end
 
 -- 이 세력이 지금 이 플레이어와 할 수 있는 거래. AI 에 넘기고, 제안 검증에도 쓴다.
+-- 개인 모드: 신뢰는 청한 사람(ps)의 개인 신뢰, 열린 거래는 (NPC, 그 사람)마다 하나 (Quests.openTrade(fid, key))
 function Trade.context(fid, ps)
     local rules = Trade.FACTIONS[fid]
     if not rules or Factions.isGone(fid) then return { allowed = false, reason = "no_trader" } end
-    local trust = Radio.channel(fid).trust
+    local key = ps and ps.key or nil
+    local trust = trustOf(fid, key)
     -- 거래는 모두가 함께 보는 퀘스트라 세력당 하나씩. 답을 기다리는 제안이면 누구든 흥정할 수 있다.
-    local open = Quests.openTrade(fid)
-    if open and open.state == "proposed" then return haggleContext(fid, open, trust, Trade.offerContext(fid, trust)) end
+    local open = Quests.openTrade(fid, key)
+    if open and open.state == "proposed" then
+        return haggleContext(fid, open, trust, Trade.offerContext(fid, trust, key))
+    end
     if open or (ps and Quests.openFor(ps.key, "trade")) then
         return { allowed = false, reason = "open_deal", trust = trust }
     end
-    return Trade.offerContext(fid, trust)
+    return Trade.offerContext(fid, trust, key)
 end
 
 -- 신뢰도·생활 자원으로 정해지는 지금 줄 수 있는 물건과 값 (열린 거래와 상관없이). 새 제안과 흥정 중 물건 교체가 함께 쓴다.
-function Trade.offerContext(fid, trust)
+-- trust 는 부르는 쪽이 청한 사람의 것으로 넘긴다. key: 청한 사람 (개인 모드의 요청 횟수·의심은 사람마다)
+function Trade.offerContext(fid, trust, key)
     local rules = Trade.FACTIONS[fid]
     if not rules then return { allowed = false, reason = "no_trader" } end
     local limit = limitFor(trust)
@@ -332,7 +368,7 @@ function Trade.offerContext(fid, trust)
         end
     end
     if #goods == 0 then return { allowed = false, reason = "nothing", trust = trust } end
-    local recent = Trade.recentRequests(fid)
+    local recent = Trade.recentRequests(fid, key)
     local suspicious = recent + 1 >= Trade.SUSPICIOUS_COUNT
     -- 빅 교역소(장기 프로젝트)가 완성되면 한도보다 높은 등급도 웃돈 없이 판다
     local tradingPost = fid == "rats" and StoryEngine.Projects and StoryEngine.Projects.done("rats")
@@ -602,7 +638,8 @@ end
 -- NPC 마다 품목·등급별로 묶음 Trade.STOCK_BUNDLES 개를 실시간으로 만들어 두고 Trade.STOCK_DAYS 일마다 새로 만든다.
 -- 거래가 끝난 묶음은 다음 입고까지 품절. (JITTER: 고정 표를 쓸 때 소모품 개수를 -1~+1, 지금은 끔)
 -- 거래 목록 창, 무작위 요청, AI 무전 거래, 흥정 중 교체, 공용 주파수 거래가 모두 이 재고에서 꺼낸다.
--- 세력당 열린 거래는 하나라서(Quests.openTrade) 같은 묶음이 두 번 나가지 않는다. 상태 Radio.channel(fid).stock
+-- 세력당 열린 거래는 하나라서(Quests.openTrade) 같은 묶음이 두 번 나가지 않는다 (개인 모드는 Trade.reserved).
+-- 상태 Radio.channel(fid).stock
 Trade.STOCK_DAYS = 3
 Trade.STOCK_BUNDLES = 3
 Trade.JITTER = {}
@@ -706,6 +743,21 @@ function Trade.restockIn(fid)
     return st and math.max(1, math.ceil((st.t + STOCK_MIN(fid) - Sensor.now().t) / (24 * 60))) or 0
 end
 
+-- 개인 모드는 거래가 (NPC, 사람)마다 하나라 여러 사람이 같은 NPC 와 동시에 거래한다. 재고는 NPC 공유라
+-- 다른 사람의 열린 거래(제안·진행 중)가 잡아 둔 묶음은 그 거래가 끝날 때까지 남에게 내주지 않는다 (먼저 잡은 사람 것)
+function Trade.reserved(fid, category, tier, index, seq)
+    if not personalMode() then return false end
+    for _, q in pairs(Store.data().quests or {}) do
+        local r = q.stockRef
+        if q.kind == "trade" and r and r.index == index and r.category == category and r.tier == tier
+            and (seq == nil or r.seq == seq)
+            and q.origin and q.origin.faction == fid and (q.state == "proposed" or Quests.isActive(q)) then
+            return true
+        end
+    end
+    return false
+end
+
 -- 재고에서 묶음을 꺼낸다 (아직 팔린 것으로 치지 않음, 거래가 끝나면 Trade.markSold).
 -- index 가 있으면 그 묶음, 없으면 남은 것 중 무작위. 반환: 물건 목록, 표시 { seq, category, tier, index } | nil, "sold_out"
 function Trade.roll(category, tier, fid, index)
@@ -718,11 +770,11 @@ function Trade.roll(category, tier, fid, index)
     local pick = nil
     if index then
         local b = list[index]
-        if b and not b.sold then pick = index end
+        if b and not b.sold and not Trade.reserved(fid, category, tier, index, st.seq) then pick = index end
     else
         local open = {}
         for i, b in ipairs(list) do
-            if not b.sold then open[#open + 1] = i end
+            if not b.sold and not Trade.reserved(fid, category, tier, i, st.seq) then open[#open + 1] = i end
         end
         if #open > 0 then pick = open[ZombRand(#open) + 1] end
     end
@@ -800,7 +852,7 @@ function Trade.fromReply(fid, ps, trade, ctx)
     ctx = ctx or Trade.context(fid, ps)
     if not ctx.allowed then
         log("trade offer ignored:", fid, ctx.reason)
-        if ctx.reason == "low_trust" then return nil, "blocked", Trade.blocked(fid, trade.category, trade.tier) end
+        if ctx.reason == "low_trust" then return nil, "blocked", Trade.blocked(fid, trade.category, trade.tier, ps.key) end
         return nil
     end
     -- 청한 물건이 있으면 그것을 첫 물건으로 (그 물건의 품목·등급으로 맞춘다)
@@ -815,7 +867,7 @@ function Trade.fromReply(fid, ps, trade, ctx)
                   tier = math.max(wanted.tier, math.min(math.floor(tonumber(trade.tier) or 1), wanted.maxTier)) }
         if wanted.tier > wanted.maxTier then
             log("trade item blocked:", fid, wanted.ft, "tier", wanted.tier, "max", wanted.maxTier)
-            return nil, "blocked", Trade.blocked(fid, wanted.category, wanted.tier)
+            return nil, "blocked", Trade.blocked(fid, wanted.category, wanted.tier, ps.key)
         end
     end
     local maxForCat = nil
@@ -827,7 +879,7 @@ function Trade.fromReply(fid, ps, trade, ctx)
     -- 한도를 넘는 제안은 낮춰서 만들지 않는다. 무엇이 막혔는지 플레이어에게 알린다.
     if not maxForCat or tier > maxForCat then
         log("trade offer blocked:", fid, tostring(trade.category), tier, "max", tostring(maxForCat))
-        return nil, "blocked", Trade.blocked(fid, trade.category, tier)
+        return nil, "blocked", Trade.blocked(fid, trade.category, tier, ps.key)
     end
     local payCategory = ctx.wants[1]
     for _, w in ipairs(ctx.wants) do
@@ -888,12 +940,13 @@ end
 
 -- 메뉴에 보여 줄 것: 취급 품목과 등급별 필요 신뢰도, 지금 막힌 이유
 function Trade.options(fid, ps)
+    local key = ps and ps.key or nil
     local ctx = Trade.context(fid, ps)
     local out = { faction = fid, reason = ctx.reason, trust = ctx.trust, need = ctx.need, items = {} }
     if ctx.negotiating then out.reason = "negotiating" end
     local catalog = ctx.catalog
     if not catalog then
-        local offer = Trade.offerContext(fid, ctx.trust or Radio.channel(fid).trust)
+        local offer = Trade.offerContext(fid, ctx.trust or trustOf(fid, key), key)
         catalog = offer.catalog
     end
     if not catalog then
@@ -915,7 +968,7 @@ function Trade.options(fid, ps)
     end
     out.allowed = ctx.allowed == true
     -- 등급마다 고를 수 있는 묶음과 지금 값 (거래 목록 창, 2026-10-04)
-    local offer = ctx.allowed and ctx or Trade.offerContext(fid, ctx.trust or Radio.channel(fid).trust)
+    local offer = ctx.allowed and ctx or Trade.offerContext(fid, ctx.trust or trustOf(fid, key), key)
     local st = Trade.stock(fid)
     out.restockIn = Trade.restockIn(fid)
     for _, it in ipairs(out.items) do
@@ -928,13 +981,15 @@ function Trade.options(fid, ps)
                 if offer.allowed then
                     price = math.ceil(Value.sum(b.goods) * priceMult(offer, t) * ((offer.catMult or {})[it.category] or 1))
                 end
-                bundles[i] = { items = group(b.goods), price = price, sold = b.sold or nil }
+                bundles[i] = { items = group(b.goods), price = price,
+                               sold = (b.sold or Trade.reserved(fid, it.category, t, i, st.seq)) or nil }
             end
             it.tiers[t] = bundles
         end
     end
     out.wants = Value.wantsOf(fid)
     out.black = Trade.blackInfo(fid, offer)
+    out.personal = (personalMode() and key ~= nil) or nil      -- 개인 모드: trust 는 이 사람의 개인 신뢰
     return out
 end
 
@@ -958,6 +1013,7 @@ function Trade.ask(player, fid, category, tier, bundle)
     tier = math.max(1, math.min(5, math.floor(tonumber(tier) or 1)))
     category = tostring(category or "")
     local ps = Store.player(player)
+    if StoryEngine.Trust then StoryEngine.Trust.contact(fid, ps.key) end   -- 버튼으로 청한 것도 연락
     local ctx = Trade.context(fid, ps)
     if ctx.negotiating or ctx.reason == "open_deal" then return false, "open_deal" end
     local now = Sensor.now()
@@ -973,6 +1029,16 @@ function Trade.ask(player, fid, category, tier, bundle)
     local catText = category .. " (tier " .. StoryEngine.intToString(tier) .. ")"
     local deal, how, info = nil, nil, nil
     local black = bundle == "black" and Trade.black(fid) or nil
+    if black and personalMode() then
+        -- 개인 모드: 다른 사람의 열린 거래가 이번 주 암시장 물건을 잡아 두었으면 품절로 본다
+        for _, oq in pairs(Store.data().quests or {}) do
+            if oq.kind == "trade" and oq.stockRef and oq.stockRef.black == black.seq and oq.origin
+                and oq.origin.faction == fid and (oq.state == "proposed" or Quests.isActive(oq)) then
+                black = nil
+                break
+            end
+        end
+    end
     if black and not black.sold then
         -- 암시장: 신뢰도와 상관없이, 정해진 값으로
         local goods = {}
@@ -991,7 +1057,7 @@ function Trade.ask(player, fid, category, tier, bundle)
                                                      pay_category = bestPay(ctx.wants or {}, player),
                                                      bundle = tonumber(bundle) }, ctx)
     else
-        info = Trade.blocked(fid, category, tier)
+        info = Trade.blocked(fid, category, tier, ps.key)
         how = info and "blocked" or nil
     end
     if deal and how == "gift" then
@@ -1008,7 +1074,8 @@ function Trade.ask(player, fid, category, tier, bundle)
             .. "and that they can accept or haggle.", Lines.fallback(fid, "offer", "Here is what I can do."), ps)
     else
         if how == "blocked" and info then
-            Radio.push(fid, { from = "system", clock = now.clock, blocked = info })
+            -- 개인 모드는 그 사람의 신뢰로 막힌 것이라 그 사람에게만
+            Radio.push(fid, { from = "system", clock = now.clock, blocked = info, to = Radio.mineOnly(ps) })
         end
         Radio.react(fid, "event", ps.name .. " asked you over the radio for " .. catText .. ", but you will not trade "
             .. "that with them right now (" .. tostring(ctx.reason or "not enough trust or you are short yourself")
@@ -1022,8 +1089,9 @@ end
 -- 흥정 결과를 반영한다. trade = AI 의 { action = "counter" | "withdraw" | "none", category, tier, price, pay_category }
 -- counter 에 지금 거래와 다른 category·tier 가 있으면 물건을 바꾼다(교체): 새 물건을 굴리고 값을 다시 매긴다.
 -- 돌려주는 값: q, "counter" | "swap" | "withdraw" / 바뀐 것이 없으면 nil, 이유("same" | "no_rounds" | "blocked" | "no_deal"), 막힘 정보
+-- 개인 모드: 흥정하는 사람 자신의 거래, 하한선·교체 한도는 그 사람의 개인 신뢰
 function Trade.negotiate(fid, ps, trade)
-    local q = Quests.openTrade(fid)
+    local q = Quests.openTrade(fid, ps and ps.key)
     if not q or q.state ~= "proposed" or not ps then return nil, "no_deal" end
     if type(trade) ~= "table" then return nil, "same" end
     local now = Sensor.now()
@@ -1036,7 +1104,7 @@ function Trade.negotiate(fid, ps, trade)
         log("trade haggle ignored: no rounds left", q.id)
         return nil, "no_rounds"
     end
-    local trust = Radio.channel(fid).trust
+    local trust = trustOf(fid, ps.key)
     local rules = Trade.FACTIONS[fid] or {}
     local pay = q.payCategory
     for _, w in ipairs(Value.wantsOf(fid)) do
@@ -1048,7 +1116,7 @@ function Trade.negotiate(fid, ps, trade)
     -- 흥정 중에 특정 물건을 청하면 그 물건이 든 묶음으로 바꾼다
     local wanted = nil
     if wantsItem(trade) then
-        local octx = Trade.offerContext(fid, trust)
+        local octx = Trade.offerContext(fid, trust, ps.key)
         wanted = Trade.findItem(fid, octx.allowed and octx.goods or {}, category, trade.item, trade.item_said)
         if not wanted then
             log("trade swap item not carried:", q.id, tostring(trade.item), tostring(trade.item_said))
@@ -1062,14 +1130,14 @@ function Trade.negotiate(fid, ps, trade)
     if swap then
         if tier <= 0 then tier = q.tier end
         tier = math.max(1, math.min(5, tier))
-        local ctx = Trade.offerContext(fid, trust)
+        local ctx = Trade.offerContext(fid, trust, ps.key)
         local maxForCat = nil
         for _, g in ipairs(ctx.allowed and ctx.goods or {}) do
             if g.category == category then maxForCat = g.maxTier end
         end
         if not maxForCat or tier > maxForCat then
             log("trade swap blocked:", q.id, tostring(category), tier, "max", tostring(maxForCat))
-            return nil, "blocked", Trade.blocked(fid, category, tier)
+            return nil, "blocked", Trade.blocked(fid, category, tier, ps.key)
         end
         local goods, ref
         if wanted then
@@ -1139,11 +1207,13 @@ function Trade.marketContext(ps, player)
     if ps and ps.lastMarketT and Sensor.now().t - ps.lastMarketT < Trade.MARKET_GAP_MIN then
         return { closed = "too_soon" }
     end
+    -- 개인 모드: 말한 사람의 신뢰와 그 사람의 열린 거래로 (아직 연락 전인 NPC 는 처음 연락 때 정해질 값으로 본다)
+    local key = ps and ps.key or nil
     local sellers = {}
     for _, f in ipairs(Factions.list) do
-        if Trade.FACTIONS[f.id] and not Factions.isGone(f.id) and not Quests.openTrade(f.id) then
-            local trust = Radio.channel(f.id).trust
-            local ctx = Trade.offerContext(f.id, trust)
+        if Trade.FACTIONS[f.id] and not Factions.isGone(f.id) and not Quests.openTrade(f.id, key) then
+            local trust = Trade.trustPeek(f.id, key)
+            local ctx = Trade.offerContext(f.id, trust, key)
             if ctx.allowed then
                 local short = {}
                 for _, w in ipairs(ctx.wants or {}) do
@@ -1177,8 +1247,8 @@ function Trade.marketOffers(ps, offers, selling, player)
     for _, o in ipairs(offers) do
         local fid = type(o) == "table" and o.faction or nil
         if #out < Trade.MARKET_MAX and type(fid) == "string" and Trade.FACTIONS[fid] and not seen[fid]
-            and not Factions.isGone(fid) and not Quests.openTrade(fid) then
-            local ctx = Trade.offerContext(fid, Radio.channel(fid).trust)
+            and not Factions.isGone(fid) and not Quests.openTrade(fid, ps.key) then
+            local ctx = Trade.offerContext(fid, Trade.trustPeek(fid, ps.key), ps.key)
             local maxForCat = nil
             for _, g in ipairs(ctx.allowed and ctx.goods or {}) do
                 if g.category == o.category then maxForCat = g.maxTier end

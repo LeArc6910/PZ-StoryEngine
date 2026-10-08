@@ -29,6 +29,11 @@ Tuning.DEFAULTS = {
     SpecialtyCooldownMult = 1, SpecialtyTrustOffset = 0, AutoSupportTrust = 70, AutoSupportDays = 7,
     AISaver = false, ContactHours = 5, SceneHours = 6, BanterHours = 3, LetterChance = 30,
     BroadcastHour = 19, BroadcastRerun = true,
+    -- 개인 신뢰 (2026-10-09, docs/DESIGN_PER_PLAYER_TRUST.md): 1 서버 공유 / 2 개인 (멀티에서만)
+    TrustBenefits = 1, TrustIntro = 25, HelperTrustShare = 0.5, GroupHelperTrust = 0.5,
+    PersonalAskMinDays = 2, PersonalAskMaxDays = 5,
+    -- 속도 조정 (2026-10-08): 상대하지 않으면 식음, 대화로는 40 까지
+    TrustFadeDays = 14, TrustFadeEvery = 3, ChatTrustMax = 40,
 }
 
 -- 난이도 프리셋 { 편안함, 보통, 가혹 }

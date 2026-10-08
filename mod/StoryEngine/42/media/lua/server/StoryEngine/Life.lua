@@ -257,13 +257,16 @@ end
 
 -- ---------------------------------------------------------------- 관계 파급
 
-local function weekSpill(n, now)
+-- key: 개인 모드에서 그 사람의 파급만 센다 (개인의 일에서 번진 파급은 사람마다 주간 한도). nil = 집단·공유 파급
+local function weekSpill(n, now, key)
     local kept, total, up = {}, 0, 0
     for _, e in ipairs(n.spill) do
         if now.t - e.t < Life.SPILL_WEEK_MIN then
             kept[#kept + 1] = e
-            total = total + e.d
-            if e.d > 0 then up = up + e.d end
+            if e.key == key then
+                total = total + e.d
+                if e.d > 0 then up = up + e.d end
+            end
         end
     end
     n.spill = kept
@@ -272,11 +275,15 @@ end
 
 -- 플레이어들이 fid 를 크게 도왔다. always = 소문 확률 없이 항상 알려짐 (위기 선택)
 -- skip: 이미 따로 반응한 NPC (위기 선택지의 당사자들) 는 파급에서 뺀다
-function Life.spill(fid, who, always, skip)
+-- byKey (개인 모드, DESIGN_PER_PLAYER_TRUST 5-1·5-2절): 개인의 일(물자 지원·거래·개인 부탁)을 한 사람. 그 사람의 개인 신뢰가
+--   다른 NPC 에게서 움직이고, 그 사람이 이미 아는 NPC(Trust.known)에게만 번진다. nil 이면 무리의 일 -> 집단 신뢰.
+--   싱글·공유 모드에서는 byKey 를 보지 않는다 (신뢰 하나)
+function Life.spill(fid, who, always, skip, byKey)
     if StoryEngine.Tuning and StoryEngine.Tuning.get("Spillover") ~= true then return end
     local now = Sensor.now()
     local Trust = StoryEngine.Trust
     local Social = StoryEngine.Social
+    local personal = Trust ~= nil and byKey ~= nil and Trust.personalMode()
     if fid == "rats" and not always then
         if ZombRand(100) >= Life.RATS_KNOWN then
             log("life spill hidden", fid)
@@ -290,8 +297,11 @@ function Life.spill(fid, who, always, skip)
         if bond ~= 0 then
             local n = Life.npc(other)
             local delta = bond > 0 and 1 or -1
+            -- 개인의 일: 그 사람이 아는 NPC 에게만, 하한은 바뀌는 신뢰(그 사람의 개인 신뢰)로 본다
+            local known = not personal or Trust.known(other, byKey)
             local trust = Radio.channel(other).trust
-            local week, weekUp = weekSpill(n, now)
+            if personal and known then trust = Trust.personal(other, byKey) end
+            local week, weekUp = weekSpill(n, now, personal and byKey or nil)
             if delta < 0 and (week <= -Life.SPILL_WEEK_CAP or trust <= Life.SPILL_FLOOR) then
                 delta = 0
             end
@@ -300,10 +310,16 @@ function Life.spill(fid, who, always, skip)
                 delta = 0
             end
             if fid == "rats" then Life.count(other, "rats_known") end
-            if delta ~= 0 and Trust then
-                local applied = Trust.apply(other, delta, delta > 0 and "spill_up" or "spill_down", nil, nil, fid)
+            if delta ~= 0 and Trust and known then
+                local reason = delta > 0 and "spill_up" or "spill_down"
+                local applied
+                if personal then
+                    applied = Trust.apply(other, delta, reason, nil, byKey, fid, "personal")
+                else
+                    applied = Trust.apply(other, delta, reason, nil, nil, fid, "group")
+                end
                 if applied ~= 0 then
-                    Store.push(n.spill, { t = now.t, d = applied }, 20)
+                    Store.push(n.spill, { t = now.t, d = applied, key = personal and byKey or nil }, 20)
                     Life.record(other, applied > 0 and "spill_up" or "spill_down", who, applied, { src = fid })
                 end
             end
@@ -337,7 +353,7 @@ function Life.onQuest(q, outcome, trustDelta)
             -- 내준 물건만큼 그 품목 자원이 준다 (등급 x SOLD_PER_TIER, 2026-10-03 점검)
             Life.change(fid, Value.RESOURCE_OF[q.category] or "safety", -Life.SOLD_PER_TIER * tier, "trade_sold")
             Life.record(fid, "trade_done", who, trustDelta)
-            if tier >= Life.SPILL_BIG_TIER and not q.favor then Life.spill(fid, who) end
+            if tier >= Life.SPILL_BIG_TIER and not q.favor then Life.spill(fid, who, nil, nil, q.target) end
         elseif outcome == "failed" then
             -- 대가를 일부 냈으면 그만큼은 받았다 (나눠 내기, 2026-10-08)
             local share = StoryEngine.Quests.paidShare(q)
@@ -363,7 +379,10 @@ function Life.onQuest(q, outcome, trustDelta)
                 involved = {}
                 for _, o in ipairs(c.options) do involved[o.faction] = true end
             end
-            Life.spill(fid, who, false, involved)
+            -- 무리의 일(이야기·곁가지·위기 후속)은 집단, 그 밖은 받은 사람(개인 모드)의 파급
+            local Trust = StoryEngine.Trust
+            local key = not (Trust and Trust.isGroupWork(q)) and (q.addressed or q.target) or nil
+            Life.spill(fid, who, false, involved, key)
         end
         if q.kind ~= "extort" and not q.favorCall and StoryEngine.Projects then StoryEngine.Projects.onBigQuest(q, who) end
     elseif outcome == "failed" or outcome == "declined" or outcome == "ignored" then
@@ -433,8 +452,25 @@ end
 -- 지원 통 (2026-10-08 사용자 결정 "3일 한도 통"): 처음 낸 때부터 DONATE_GAP_MIN 동안 한도까지 여러 번 나눠 낸다.
 -- 한도: 자원마다 +DONATE_CAP, 프로젝트 Projects.DONATE_CAP 점. 신뢰도는 그동안 낸 가치 합으로 DONATE_TRUST 단계마다 한 번씩.
 -- 물자 지원과 프로젝트 지원은 한 통을 같이 쓴다 (신뢰도 단계를 두 번 받지 않게). n.donateWin = { t, value, trust, res, points }
-local function donateWindow(fid, now)
+-- 개인 모드(DESIGN_PER_PLAYER_TRUST 결정 (나))에서는 통이 사람마다: n.donateWinBy[캐릭터 키] (자원 한도·프로젝트 점수·신뢰 단계 모두).
+-- 싱글·공유 모드는 NPC 마다 하나 (n.donateWin). key 는 개인 모드일 때만 쓴다 (personalKey)
+local function personalKey(key)
+    local Trust = StoryEngine.Trust
+    if key and Trust and Trust.personalMode() then return key end
+    return nil
+end
+
+local function donateWindow(fid, now, key)
     local n = Life.npc(fid)
+    if key then
+        n.donateWinBy = n.donateWinBy or {}
+        local pw = n.donateWinBy[key]
+        if pw and now.t - (pw.t or 0) >= Life.DONATE_GAP_MIN then
+            n.donateWinBy[key] = nil
+            pw = nil
+        end
+        return pw
+    end
     local w = n.donateWin
     if w and now.t - (w.t or 0) >= Life.DONATE_GAP_MIN then
         n.donateWin = nil
@@ -454,8 +490,9 @@ local function pointsCap()
 end
 
 -- 이 통에 남은 것: { res = { food = 남은 증가 }, points = 남은 프로젝트 점수, hours = 새 통까지(통이 열려 있으면), value, trust }
-function Life.donateStatus(fid, now)
-    local w = donateWindow(fid, now)
+-- key: 보내는 사람 (개인 모드에서만 사람마다의 통, 그 밖에는 무시)
+function Life.donateStatus(fid, now, key)
+    local w = donateWindow(fid, now, personalKey(key))
     local out = { res = {}, points = pointsCap(), value = 0, trust = 0 }
     for _, r in ipairs(Life.RESOURCES) do out.res[r] = Life.DONATE_CAP end
     if not w then return out end
@@ -467,8 +504,8 @@ function Life.donateStatus(fid, now)
 end
 
 -- 물자 지원(mode nil)·프로젝트 지원("project") 을 지금 더 낼 수 없으면 새 통까지 남은 시간, 낼 수 있으면 0
-function Life.donateWait(fid, now, mode)
-    local st = Life.donateStatus(fid, now)
+function Life.donateWait(fid, now, mode, key)
+    local st = Life.donateStatus(fid, now, key)
     if not st.hours then return 0 end
     if mode == "project" then
         return st.points <= 0 and st.hours or 0
@@ -498,9 +535,11 @@ function Life.donate(player, fid, itemIds, mode)
     if project and Projects.done(fid) then return false, "project_done" end
     if not Factions.canTalk(player) then return false, "no_radio" end
     local now = Sensor.now()
-    local wait = Life.donateWait(fid, now, mode)
+    local ps = Store.player(player)
+    local pkey = personalKey(ps.key)
+    local wait = Life.donateWait(fid, now, mode, pkey)
     if wait > 0 then return false, "cooldown", wait end
-    local st = Life.donateStatus(fid, now)
+    local st = Life.donateStatus(fid, now, pkey)
     local inv = player:getInventory()
     local chosen, seen, byRes, total, names = {}, {}, {}, 0, {}
     local rule = project and Projects.rule(fid) or nil
@@ -546,13 +585,17 @@ function Life.donate(player, fid, itemIds, mode)
     if #chosen == 0 or total <= 0 then return false, "nothing" end
     for _, item in ipairs(chosen) do StoryEngine.Items.remove(item, player) end
 
-    local ps = Store.player(player)
     local n = Life.npc(fid)
-    local w = n.donateWin
+    local w = donateWindow(fid, now, pkey)
     local fresh = w == nil
     if not w then
         w = { t = now.t, value = 0, trust = 0, res = {}, points = 0 }
-        n.donateWin = w
+        if pkey then
+            n.donateWinBy = n.donateWinBy or {}
+            n.donateWinBy[pkey] = w
+        else
+            n.donateWin = w
+        end
     end
     w.res = w.res or {}
     local wasLow = {}
@@ -578,12 +621,14 @@ function Life.donate(player, fid, itemIds, mode)
     local step = trustStep(w.value)
     local trust = math.max(0, step - before)
     w.trust = math.max(before, step)
-    local applied = trust > 0 and StoryEngine.Trust.apply(fid, trust, "donation", nil, nil) or 0
-    n.donatedT = nil          -- 예전 대기 기록 (이제는 통 n.donateWin)
+    -- 개인 모드: 보낸 사람의 개인 신뢰 (DESIGN_PER_PLAYER_TRUST 5-2절). 싱글·공유 모드는 신뢰 하나 (byKey 는 상대한 날 기록)
+    local applied = trust > 0 and StoryEngine.Trust.apply(fid, trust, "donation", nil, ps.key) or 0
+    if trust <= 0 and StoryEngine.Trust.touch then StoryEngine.Trust.touch(fid, ps.key) end
+    if not pkey then n.donatedT = nil end          -- 예전 대기 기록 (이제는 통 n.donateWin)
     Life.record(fid, project and "project_gift" or "donation", ps.name, applied)
     if w.trust >= 2 and not w.spilled then
         w.spilled = true
-        Life.spill(fid, ps.name)
+        Life.spill(fid, ps.name, nil, nil, ps.key)
     end
 
     -- 목록 문장 (AI·일지용, 영어 이름이 아니어도 된다)
@@ -627,10 +672,17 @@ function Life.context(fid)
              project = StoryEngine.Projects and StoryEngine.Projects.info(fid) or nil }
 end
 
+-- 보는 사람의 개인 신뢰. 아직 연락한 적 없는 NPC 는 기록을 만들지 않고(목록만 봐서는 "처음 연락"이 아니다,
+-- 관계 파급이 아는 NPC 에게만 가므로) 처음 연락하면 받을 값을 보여 준다 (Trust.personal 은 읽기만 한다)
+local function personalPreview(fid, key)
+    return StoryEngine.Trust.personal(fid, key)
+end
+
 -- 거점 탭 목록 (psKey = 보는 사람, 특기의 개인별 대기)
 function Life.list(psKey)
     local now = Sensor.now()
     local out = {}
+    local personal = psKey ~= nil and StoryEngine.Trust ~= nil and StoryEngine.Trust.personalMode()
     for _, f in ipairs(Factions.list) do
         local n = Life.npc(f.id)
         local recs = {}
@@ -646,14 +698,20 @@ function Life.list(psKey)
         for _, e in ipairs(dk) do dislikes[#dislikes + 1] = e.id; bondVals[e.id] = e.v end
         out[#out + 1] = {
             id = f.id, trust = Radio.channel(f.id).trust, res = copy(n.res), prev = copy(n.prev),
-            donateWait = Life.donateWait(f.id, now), projectWait = Life.donateWait(f.id, now, "project"),
-            donate = Life.donateStatus(f.id, now), records = recs, tags = Life.tags(f.id),
+            donateWait = Life.donateWait(f.id, now, nil, psKey), projectWait = Life.donateWait(f.id, now, "project", psKey),
+            donate = Life.donateStatus(f.id, now, psKey), records = recs, tags = Life.tags(f.id),
             likes = likes, dislikes = dislikes, bondVals = bondVals, key = Life.KEY[f.id], fate = n.fate and n.fate.kind or nil,
             fateDay = n.fate and n.fate.day or nil, starve = n.starve,
             spec = StoryEngine.Specialty and StoryEngine.Specialty.status(f.id, psKey) or nil,
             project = StoryEngine.Projects and StoryEngine.Projects.info(f.id) or nil,
-            volunteer = StoryEngine.Work and StoryEngine.Work.volunteerStatus(f.id) or nil,
+            volunteer = StoryEngine.Work and StoryEngine.Work.volunteerStatus(f.id, psKey) or nil,
         }
+        -- 개인 모드: 보는 사람의 개인 신뢰 (trust 는 집단 신뢰 그대로). 혜택은 personal 로 판정한다
+        if personal then
+            out[#out].personal = personalPreview(f.id, psKey)
+            out[#out].personalKnown = StoryEngine.Trust.known(f.id, psKey)
+            out[#out].personalMode = true
+        end
     end
     return out
 end

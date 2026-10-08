@@ -21,6 +21,7 @@ require "StoryEngine/UIUtil"
 require "StoryEngine/QuestMap"
 require "StoryEngine/Factions"
 require "StoryEngine/Value"
+require "StoryEngine/Tuning"
 require "StoryEngine/TradePayWindow"
 require "StoryEngine/DonateWindow"
 require "StoryEngine/TradeCatalogWindow"
@@ -75,11 +76,23 @@ if StoryEngine.Value then
     end
 end
 
--- 이 세력이 답을 기다리는 부탁·거래 제안
+-- 개인 모드에서 다른 사람 앞으로 온 개인별 부탁, 다른 사람의 거래 (받은·거래한 사람만 수락·거절한다)
+local function othersRequest(q)
+    if q == nil then return false end
+    if q.addressed == true and not q.forMe then return true end
+    return q.personalMode == true and q.kind == "trade" and not q.mine
+end
+
+-- 이 퀘스트에 내가 수락·거절할 수 있나
+local function canRespond(q)
+    return q ~= nil and not othersRequest(q)
+end
+
+-- 이 세력이 답을 기다리는 부탁·거래 제안 (남 앞으로 온 개인별 부탁은 빼고)
 local function pendingProposal(fid)
     for _, q in ipairs(Cache.quests) do
         if (q.kind == "deliver" or q.kind == "trade" or q.kind == "horde") and q.state == "proposed"
-            and q.origin and q.origin.faction == fid then
+            and q.origin and q.origin.faction == fid and not othersRequest(q) then
             return q
         end
     end
@@ -258,6 +271,7 @@ function StoryEngineRadioPanel:render()
     local fid = Cache.faction
     local ch = Cache.channels[fid]
     local text, r, g, b
+    local segments = nil
     local proposal = pendingProposal(fid)
     if proposal and proposal.kind == "trade" then
         text, r, g, b = getText("IGUI_StoryEngine_Trade_Bar", UI.itemList(proposal.goods), catName(proposal.payCategory),
@@ -280,8 +294,19 @@ function StoryEngineRadioPanel:render()
         text, r, g, b = getText("IGUI_StoryEngine_Radio_Waiting", Factions.name(fid)), 0.7, 0.7, 0.7
     else
         local f = Factions.byId[fid]
-        text = getText("IGUI_StoryEngine_Radio_Status", f and f.freq or "?",
-            StoryEngine.intToString(ch and ch.trust or (f and f.trust) or 0))
+        local my, group = UI.trustPair(fid, ch)
+        if my then
+            -- 개인 모드: 크게 "내 신뢰 35", 작게 "무리 60" (혜택은 내 신뢰로)
+            segments = {
+                { getText("IGUI_StoryEngine_Radio_StatusFreq", f and f.freq or "?") .. "  |  ", UIFont.Small },
+                { getText("IGUI_StoryEngine_Trust_Mine", StoryEngine.intToString(my)), UIFont.Medium, 0.6, 0.95, 0.6 },
+                { "  " .. getText("IGUI_StoryEngine_Trust_Group", StoryEngine.intToString(group)), UIFont.Small, 0.6, 0.6, 0.6 },
+            }
+            text = ""
+        else
+            text = getText("IGUI_StoryEngine_Radio_Status", f and f.freq or "?",
+                StoryEngine.intToString(ch and ch.trust or (f and f.trust) or 0))
+        end
         if ch and ch.followUpIn then
             text = text .. "  |  " .. getText("IGUI_StoryEngine_Radio_FollowUp",
                 StoryEngine.intToString(math.max(1, ch.followUpIn)))
@@ -293,7 +318,20 @@ function StoryEngineRadioPanel:render()
         r, g, b = 0.6, 0.75, 0.6
     end
     local rowY = self.entry:getY() - PAD - BUTTON_H
-    self:drawText(text, self.history:getX(), rowY + (BUTTON_H - FONT_H) / 2, r, g, b, 1, UIFont.Small)
+    if not segments then
+        self:drawText(text, self.history:getX(), rowY + (BUTTON_H - FONT_H) / 2, r, g, b, 1, UIFont.Small)
+        return
+    end
+    -- 글꼴이 다른 조각을 이어 그린다 (세로 가운데 맞춤)
+    segments[#segments + 1] = { text, UIFont.Small }
+    local tm = getTextManager()
+    local x = self.history:getX()
+    for _, seg in ipairs(segments) do
+        local font = seg[2]
+        local fh = tm:getFontHeight(font)
+        self:drawText(seg[1], x, rowY + (BUTTON_H - fh) / 2, seg[3] or r, seg[4] or g, seg[5] or b, 1, font)
+        x = x + tm:MeasureStringX(font, seg[1])
+    end
 end
 
 function StoryEngineRadioPanel:onSelect(fid)
@@ -327,10 +365,16 @@ local function blockedText(b)
         return getText("IGUI_StoryEngine_Trade_BlockedNeverTier", tier, catName(b.category))
     elseif b.never then
         return getText("IGUI_StoryEngine_Trade_BlockedNever", catName(b.category))
-    elseif b.category and tier then
-        return getText("IGUI_StoryEngine_Trade_Blocked", tier, catName(b.category), StoryEngine.intToString(b.need or 0))
     end
-    return getText("IGUI_StoryEngine_Trade_BlockedAll", StoryEngine.intToString(b.need or 0))
+    local text
+    if b.category and tier then
+        text = getText("IGUI_StoryEngine_Trade_Blocked", tier, catName(b.category), StoryEngine.intToString(b.need or 0))
+    else
+        text = getText("IGUI_StoryEngine_Trade_BlockedAll", StoryEngine.intToString(b.need or 0))
+    end
+    -- 개인 모드: 판정한 내 신뢰 (Trade.blocked 의 have)
+    if b.have then text = text .. " " .. getText("IGUI_StoryEngine_Trade_BlockedHave", StoryEngine.intToString(b.have)) end
+    return text
 end
 
 local function messageLine(fid, m)
@@ -387,6 +431,23 @@ local function messageLine(fid, m)
         return " <RGB:0.6,0.6,0.6> " .. UI.escape(clock .. getText("IGUI_StoryEngine_Radio_OfflineHint")) .. " <LINE> "
     elseif m.from == "system" and m.blocked then
         return " <RGB:0.95,0.6,0.4> " .. UI.escape(clock .. blockedText(m.blocked)) .. " <LINE> "
+    elseif m.from == "system" and m.privateNote then
+        -- 개인 모드: 다른 사람 앞으로 온 개인별 부탁 (내용은 받은 사람에게만)
+        return " <RGB:0.6,0.6,0.65> " .. UI.escape(clock .. getText("IGUI_StoryEngine_Radio_PrivateNote",
+            UI.npcName(m.npc or fid), tostring(m.toName or "?"))) .. " <LINE> "
+    elseif m.from == "system" and m.groupAsk then
+        -- 개인 모드: 무리의 부탁을 공용 주파수에도 알린다
+        return " <RGB:1,0.85,0.45> " .. UI.escape(clock .. getText("IGUI_StoryEngine_Open_GroupAsk",
+            UI.npcName(m.groupAsk))) .. " <LINE> "
+    elseif m.from == "system" and m.groupCrisis then
+        local names = {}
+        local list = type(m.groupCrisis) == "table" and m.groupCrisis or { m.groupCrisis }
+        for _, f in ipairs(list) do
+            local id = type(f) == "table" and (f.faction or f.id) or f
+            if id then names[#names + 1] = UI.npcName(id) end
+        end
+        return " <RGB:1,0.85,0.45> " .. UI.escape(clock .. getText("IGUI_StoryEngine_Open_GroupCrisis",
+            table.concat(names, getText("IGUI_StoryEngine_NameJoin")))) .. " <LINE> "
     elseif m.from == "system" then
         local delta = tonumber(m.trust) or 0
         local sign = delta > 0 and ("+" .. StoryEngine.intToString(delta)) or StoryEngine.intToString(delta)
@@ -394,7 +455,11 @@ local function messageLine(fid, m)
         local reason = m.src and getText(key, Factions.name(m.src)) or getText(key)
         if reason == key then reason = tostring(m.reason) end
         local color = delta >= 0 and "0.5,0.85,0.5" or "0.95,0.45,0.4"
-        return " <RGB:" .. color .. "> " .. UI.escape(clock .. getText("IGUI_StoryEngine_Trust_Line", sign, reason)) .. " <LINE> "
+        -- 개인 모드: 내 신뢰(나에게만 온 줄) / 무리 신뢰. 공유·싱글은 지금처럼 "신뢰도"
+        local lineKey = (m.personal and "IGUI_StoryEngine_Trust_LinePersonal")
+            or (m.group and "IGUI_StoryEngine_Trust_LineGroup") or "IGUI_StoryEngine_Trust_Line"
+        if m.personal then color = delta >= 0 and "0.55,0.95,0.75" or "0.95,0.5,0.55" end
+        return " <RGB:" .. color .. "> " .. UI.escape(clock .. getText(lineKey, sign, reason)) .. " <LINE> "
     elseif m.from == "static" then
         local key = (m.error == "gone" and "IGUI_StoryEngine_Radio_StaticGone")
             or (m.error == "blackout" and "IGUI_StoryEngine_Radio_StaticBlackout") or "IGUI_StoryEngine_Radio_Static"
@@ -403,6 +468,8 @@ local function messageLine(fid, m)
     return " <RGB:0.55,0.75,1> " .. UI.escape(clock .. tostring(m.name or "?") .. ": ")
         .. " <RGB:0.85,0.85,0.85> " .. UI.escape(m.text) .. " <LINE> "
 end
+
+StoryEngineRadioPanel.messageLine = messageLine     -- 테스트용
 
 function StoryEngineRadioPanel:refresh()
     local selectedIndex = 1
@@ -413,6 +480,13 @@ function StoryEngineRadioPanel:refresh()
     for i, f in ipairs(rows) do
         local unread = Cache.unread[f.id] or 0
         local sub = f.open and getText("IGUI_StoryEngine_Radio_OpenSub") or getText("IGUI_StoryEngine_Radio_ListSub", f.freq)
+        -- 개인 모드: 주파수 옆에 내 신뢰·무리 신뢰, 툴팁으로 혜택은 내 신뢰라는 안내
+        local tip = nil
+        local pair = not f.open and UI.trustPairText(f.id, Cache.channels[f.id]) or nil
+        if pair then
+            sub = sub .. "  |  " .. pair
+            tip = getText("IGUI_StoryEngine_Trust_BenefitTip")
+        end
         if unread > 0 then sub = sub .. "   " .. getText("IGUI_StoryEngine_Radio_Unread", StoryEngine.intToString(unread)) end
         local gone = Cache.channels[f.id] and Cache.channels[f.id].gone
         local color = unread > 0 and { r = 1, g = 0.85, b = 0.45 } or nil
@@ -422,7 +496,7 @@ function StoryEngineRadioPanel:refresh()
         end
         self.list:addItem(Factions.name(f.id), {
             title = Factions.name(f.id), sub = sub, value = f.id, color = color,
-        })
+        }, tip)
         if f.id == Cache.faction then selectedIndex = i end
     end
     self.list.selected = selectedIndex
@@ -442,6 +516,10 @@ function StoryEngineRadioPanel:refresh()
     local chSel = Cache.channels[Cache.faction]
     local trades = #(StoryEngine.Value.WANTS[Cache.faction] or {}) > 0 or StoryEngine.Value.anyWantsFn(Cache.faction)
     self.tradeButton:setVisible(trades and not proposal and not (chSel and chSel.gone))
+    self.tradeButton.tooltip = getText("IGUI_StoryEngine_TradeAsk_Tooltip")
+    if UI.trustPair(Cache.faction, chSel) then
+        self.tradeButton.tooltip = self.tradeButton.tooltip .. " <LINE> " .. getText("IGUI_StoryEngine_Trust_BenefitTip")
+    end
 
     -- 지원 요청 버튼은 2026-09-29부터 숨긴다: 방위대 특기(거점 탭)로 옮겼고, A-Life 자동 지원만 남았다
     local support = nil
@@ -467,7 +545,8 @@ local namedDetail
 StoryEngineQuestPanel = derivePanel("StoryEngineQuestPanel")
 
 -- 퀘스트 묶음 (2026-10-04 사용자 요청): 목록 위 버튼으로 수락 대기 / 진행 중 / 실패·거절 / 완료를 나눠 본다
-local QUEST_GROUPS = { "proposed", "active", "reward", "completed", "failed" }
+-- others: 개인 모드에서 다른 사람 앞으로 온 개인별 부탁 (2026-10-09, 개인 모드에서만 버튼이 보이고 처음엔 고르지 않음)
+local QUEST_GROUPS = { "proposed", "active", "reward", "completed", "failed", "others" }
 
 -- 가서 물건만 챙기면 되는 보급 (보상·선물·디렉터 보급·거래 배송). 작전·큰 사건 현장과 구조 신호(안에 좀비)는 진행 중에 둔다
 local TASK_SOURCES = { op = true, saga = true, rescue = true }
@@ -476,6 +555,7 @@ local function isRewardPickup(q)
 end
 
 local function questGroup(q)
+    if othersRequest(q) then return "others" end
     if q.state == "proposed" then return "proposed" end
     if ACTIVE[q.state] and isRewardPickup(q) then return "reward" end
     if ACTIVE[q.state] then return "active" end
@@ -1005,9 +1085,43 @@ local function ownerLine(q)
     return " <LINE> <RGB:0.6,0.8,1> " .. UI.escape(getText("IGUI_StoryEngine_Quest_Owner", tostring(q.owner)))
 end
 
-local function questDetail(q)
-    return questDetailBase(q) .. ownerLine(q) .. fightLine(q) .. helpersLine(q)
+-- 개인 모드 (2026-10-09): 결과가 어느 신뢰에 들어가는지, 누구 앞으로 온 부탁인지
+local PERSONAL_WORK = { deliver = true, horde = true, fetch = true, named = true, trade = true, extort = true }
+local function personalLines(q)
+    if not q.personalMode then return "" end
+    local parts = {}
+    local open = q.state == "proposed" or ACTIVE[q.state] == true
+    local line = function(color, text) parts[#parts + 1] = " <LINE> <RGB:" .. color .. "> " .. UI.escape(text) end
+    if q.group then
+        line("0.95,0.8,0.45", getText("IGUI_StoryEngine_Quest_GroupWork"))
+    elseif q.addressed then
+        line("0.6,0.8,1", getText("IGUI_StoryEngine_Quest_AddressedTo", tostring(q.addressedName or q.owner or "?")))
+        if q.forMe then
+            line("0.55,0.95,0.75", getText("IGUI_StoryEngine_Quest_PersonalWork"))
+        elseif open then
+            local share = StoryEngine.Tuning and StoryEngine.Tuning.num("HelperTrustShare") or 0.5
+            line("0.7,0.7,0.7", getText("IGUI_StoryEngine_Quest_NotAddressed", UI.shareText(share)))
+        end
+    elseif PERSONAL_WORK[q.kind] and not q.work then
+        if q.owner and not q.mine then
+            line("0.7,0.7,0.7", getText("IGUI_StoryEngine_Quest_PersonalWorkOf", tostring(q.owner)))
+        else
+            line("0.55,0.95,0.75", getText("IGUI_StoryEngine_Quest_PersonalWork"))
+        end
+    end
+    if q.lapsed then line("0.6,0.6,0.6", getText("IGUI_StoryEngine_Quest_Lapsed")) end
+    return table.concat(parts)
 end
+
+local function questDetail(q)
+    return questDetailBase(q) .. personalLines(q) .. ownerLine(q) .. fightLine(q) .. helpersLine(q)
+end
+
+-- 테스트용
+StoryEngineQuestPanel.questDetail = function(q) return questDetail(q) end
+StoryEngineQuestPanel.questGroup = function(q) return questGroup(q) end
+StoryEngineQuestPanel.canRespond = function(q) return canRespond(q) end
+StoryEngineRadioPanel.pendingProposal = function(fid) return pendingProposal(fid) end
 
 -- 위기: 여러 세력이 동시에 부탁, 하나만 고른다
 local function choiceDetail(q)
@@ -1263,10 +1377,14 @@ function StoryEngineQuestPanel:refresh()
     self.list:clear()
     -- 묶음별 개수. 처음 열면 진행 중 > 보상 > 수락 대기 > 완료 > 실패 순으로 퀘스트가 있는 묶음
     local counts = {}
+    local personalMode = false
     for _, q in ipairs(Cache.quests) do
         local g = questGroup(q)
         counts[g] = (counts[g] or 0) + 1
+        if q.personalMode then personalMode = true end
     end
+    -- "다른 사람 부탁" 묶음은 개인 모드에서만 (싱글·공유는 지금 그대로)
+    if Cache.questGroup == "others" and not personalMode then Cache.questGroup = nil end
     if not Cache.questGroup then
         for _, g in ipairs({ "active", "reward", "proposed", "completed", "failed" }) do
             if not Cache.questGroup and (counts[g] or 0) > 0 then Cache.questGroup = g end
@@ -1274,6 +1392,10 @@ function StoryEngineQuestPanel:refresh()
         Cache.questGroup = Cache.questGroup or "active"
     end
     for g, b in pairs(self.groupButtons or {}) do
+        if g == "others" then
+            b:setVisible(personalMode)
+            b.tooltip = getText("IGUI_StoryEngine_QGroup_others_tip")
+        end
         b:setTitle(getText("IGUI_StoryEngine_QGroup_" .. g, StoryEngine.intToString(counts[g] or 0)))
         if g == Cache.questGroup then
             b.backgroundColor = { r = 0.25, g = 0.4, b = 0.25, a = 1 }
@@ -1313,8 +1435,10 @@ function StoryEngineQuestPanel:refresh()
     local market = selected ~= nil and selected.kind == "market"
     local options = selected and (market and selected.offers or selected.options) or nil
     local choosing = proposed and (selected.kind == "choice" or market)
-    self.acceptButton:setVisible(proposed and not choosing)
-    self.declineButton:setVisible(proposed and not choosing)
+    -- 개인 모드: 남 앞으로 온 개인별 부탁은 받은 사람만 답한다 (상세에 안내 줄)
+    local respondable = proposed and not choosing and canRespond(selected)
+    self.acceptButton:setVisible(respondable)
+    self.declineButton:setVisible(respondable)
     local canWork = selected ~= nil and selected.kind == "trade" and selected.workOptions ~= nil
         and (proposed or (selected.state == "accepted" and not selected.payKind))
     -- 선택지 버튼: 오른쪽 칸 너비를 나눠 쓰고, 이름은 괄호(거점) 없이 짧게, 전체 이름은 툴팁으로
@@ -1363,7 +1487,7 @@ function StoryEngineQuestPanel:refresh()
     end
     self.workButton:setVisible(canWork)
     if canWork then
-        local after = (proposed and self.declineButton) or (canSubmit and self.submitButton) or nil
+        local after = (respondable and self.declineButton) or (canSubmit and self.submitButton) or nil
         self.workButton:setX(after and (after:getRight() + PAD) or self.detail:getX())
     end
 end
@@ -1689,7 +1813,13 @@ function StoryEnginePeoplePanel:refresh()
     row("IGUI_StoryEngine_People_Job", profileText(who, "job", prof.job))
     local f = Factions.byId[fid]
     row("IGUI_StoryEngine_People_Radio", f and getText("IGUI_StoryEngine_Radio_ListSub", f.freq) or nil)
-    if n.trust then row("IGUI_StoryEngine_People_Trust", StoryEngine.intToString(n.trust)) end
+    -- 개인 모드: "내 신뢰 35  무리 60" (지나온 일의 신뢰 20/40/60/80 은 무리 신뢰 기준)
+    local pair = UI.trustPairText(fid, n.trust and n or nil)
+    if pair then
+        row("IGUI_StoryEngine_People_Trust", pair)
+    elseif n.trust then
+        row("IGUI_StoryEngine_People_Trust", StoryEngine.intToString(n.trust))
+    end
     if n.project then
         local p = n.project
         row("IGUI_StoryEngine_People_Project", getText("IGUI_StoryEngine_Project_Name_" .. fid) .. "  "
@@ -1767,7 +1897,7 @@ local function lifeSub(n)
         local v = (n.res or {})[r] or 0
         if v < value then low, value = r, v end
     end
-    local trust = getText("IGUI_StoryEngine_Life_Trust", StoryEngine.intToString(n.trust or 0))
+    local trust = UI.trustPairText(n.id, n) or getText("IGUI_StoryEngine_Life_Trust", StoryEngine.intToString(n.trust or 0))
     if low and value < 40 then
         return trust .. "  |  " .. getText("IGUI_StoryEngine_Life_Res_" .. low) .. " "
             .. getText("IGUI_StoryEngine_Life_Level_" .. levelOf(value))
@@ -1858,9 +1988,22 @@ function StoryEngineLifePanel:render()
     local w = self.detail:getWidth()
     local y = PAD
     self:drawText(Factions.name(n.id), x, y, 1, 0.9, 0.6, 1, UIFont.Small)
-    local trust = getText("IGUI_StoryEngine_Life_Trust", StoryEngine.intToString(n.trust or 0))
-    local tw = getTextManager():MeasureStringX(UIFont.Small, trust)
-    self:drawText(trust, x + w - tw, y, 0.75, 0.85, 0.75, 1, UIFont.Small)
+    local my, group = UI.trustPair(n.id, n)
+    if my then
+        -- 개인 모드: 크게 내 신뢰, 그 오른쪽에 작게 무리 신뢰
+        local tm = getTextManager()
+        local gt = getText("IGUI_StoryEngine_Trust_Group", StoryEngine.intToString(group))
+        local mt = getText("IGUI_StoryEngine_Trust_Mine", StoryEngine.intToString(my))
+        local gw = tm:MeasureStringX(UIFont.Small, gt)
+        local mw = tm:MeasureStringX(UIFont.Medium, mt)
+        local mh = tm:getFontHeight(UIFont.Medium)
+        self:drawText(gt, x + w - gw, y, 0.6, 0.6, 0.6, 1, UIFont.Small)
+        self:drawText(mt, x + w - gw - PAD - mw, math.max(0, y + FONT_H - mh), 0.6, 0.95, 0.6, 1, UIFont.Medium)
+    else
+        local trust = getText("IGUI_StoryEngine_Life_Trust", StoryEngine.intToString(n.trust or 0))
+        local tw = getTextManager():MeasureStringX(UIFont.Small, trust)
+        self:drawText(trust, x + w - tw, y, 0.75, 0.85, 0.75, 1, UIFont.Small)
+    end
     y = y + LINE_H + PAD
     local barX = x + RES_LABEL_W
     local barW = math.max(40, w - RES_LABEL_W - 110)
@@ -1922,7 +2065,8 @@ function StoryEngineLifePanel:refresh()
         local sub = n.fate and getText("IGUI_StoryEngine_Fate_" .. tostring(n.fate)) or lifeSub(n)
         local color = low and COLOR_FAILED or nil
         if n.fate then color = COLOR_DECLINED end
-        self.list:addItem(Factions.name(n.id), { title = Factions.name(n.id), sub = sub, value = n.id, color = color })
+        local tip = (not n.fate and UI.trustPair(n.id, n)) and getText("IGUI_StoryEngine_Trust_BenefitTip") or nil
+        self.list:addItem(Factions.name(n.id), { title = Factions.name(n.id), sub = sub, value = n.id, color = color }, tip)
         if n.id == Cache.lifeFaction then selectedIndex = i end
     end
     self.list.selected = selectedIndex
@@ -1968,6 +2112,7 @@ function StoryEngineLifePanel:refresh()
             .. " <LINE> " .. tip
     end
     if spec.scope then tip = tip .. " <LINE> " .. getText("IGUI_StoryEngine_Spec_Scope_" .. tostring(spec.scope)) end
+    if UI.trustPair(n.id, n) then tip = tip .. " <LINE> " .. getText("IGUI_StoryEngine_Trust_BenefitTip") end
     self.specButton.tooltip = tip
 
     local parts = {}
