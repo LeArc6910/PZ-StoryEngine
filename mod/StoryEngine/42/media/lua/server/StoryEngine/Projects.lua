@@ -130,6 +130,19 @@ local function complete(fid, who)
     if StoryEngine.Letters then StoryEngine.Letters.queue(fid, "project", def.name) end
 end
 
+-- 진행도를 반으로 (방치·실패로 잃은 NPC 의 후임이 이어받을 때, Voices.lua). 끝난 프로젝트는 그대로
+function Projects.halve(fid)
+    local p = Projects.DEF[fid] and Projects.of(fid)
+    if not p or p.done then return end
+    p.points = math.floor((p.points or 0) / 2)
+    local stage = 0
+    for i, s in ipairs(Projects.STAGES) do
+        if pct(p.points) >= s then stage = i end
+    end
+    p.stage = stage
+    log("project halved", fid, p.points)
+end
+
 -- 진행도를 더한다. 반환: 실제로 더한 점수
 function Projects.add(fid, points, who, why)
     local def = Projects.DEF[fid]

@@ -64,6 +64,25 @@ Lines.ONLY = {
 Lines.VOICE_COUNT = {
     q_accepted = 1, q_declined = 1, q_ignored = 1, q_thanks = 1, q_failed = 1, request = 1,
     offer = 1, refuse = 1, offline_reply = 1, chat_checkin = 2, chat_morning = 1, chat_evening = 1,
+    -- 2026-10-08: 나머지 종류도 후임 말투로 (아는 얼굴의 좀비·예전 찾아오기는 후임 채널에서 나오지 않음)
+    supply_drop = 1, fetch = 1, rescue = 1, reward = 1, reward_trade = 1, reward_horde = 1, horde = 1,
+    horde_warning = 1, horde_thanks = 1, trade_failed = 1, rescue_done = 1, rescue_failed = 1, donation = 1,
+    heli = 1, npc_died = 1, player_died = 1, survived = 1, fate_warn = 1, fate_goodbye = 1, project_done = 1,
+    project_progress = 1, crisis_appeal = 1, crisis_thanks = 1, crisis_snub = 1, crisis_ignored = 1,
+    world_power = 1, world_water = 1, world_winter = 1, chat_storm = 1, chat_miss = 1, gift = 1,
+    open_chat = 1, open_reply = 1, duo_warm_open = 1, duo_warm_reply = 1, duo_warm_close = 1,
+    duo_plain_open = 1, duo_plain_reply = 1, duo_plain_close = 1, duo_cold_open = 1, duo_cold_reply = 1,
+    duo_cold_close = 1, topic_storm = 1, topic_heli = 1, topic_death = 1, topic_power = 1, topic_water = 1,
+    topic_winter = 1, topic_share = 1, topic_clash = 1, topic_holiday = 1, topic_reply = 1, player_greet = 1,
+    player_help = 1, player_trade = 1, player_info = 1, player_thanks = 1, extort = 1, extort_paid = 1,
+    work_horde = 1, work_scout = 1, work_guard = 1, work_courier = 1, work_credit = 1, work_favor = 1,
+    work_done = 1, work_paid = 1, favor_call = 1, volunteer_ask = 1, volunteer_done = 1, reward_waived = 1,
+    holiday_soon = 1, holiday_feast = 1,
+}
+-- 이 종류는 이 후임들만 (협박은 방위대·빅 채널뿐)
+Lines.VOICE_ONLY = {
+    extort = { kowalski = true, red = true, dutch = true },
+    extort_paid = { kowalski = true, red = true, dutch = true },
 }
 Lines.VOICES = { "martha", "nora", "sam", "esther", "lenny", "kowalski", "red", "dutch", "caleb" }
 
@@ -133,7 +152,8 @@ end
 function Lines.lt(fid, kind, args)
     local alt = Lines.ALT[kind]
     local voice = StoryEngine.Factions and StoryEngine.Factions.voice and StoryEngine.Factions.voice[fid]
-    if voice and Lines.VOICE_COUNT[kind] then
+    local vonly = Lines.VOICE_ONLY[kind]
+    if voice and Lines.VOICE_COUNT[kind] and (not vonly or vonly[voice]) then
         local key = "IGUI_StoryEngine_Line_" .. tostring(voice) .. "_" .. kind .. "_"
             .. StoryEngine.intToString(roll(Lines.VOICE_COUNT[kind]))
         return { key = key, alt = alt, args = args }

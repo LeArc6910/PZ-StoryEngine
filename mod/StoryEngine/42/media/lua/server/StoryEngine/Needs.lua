@@ -107,11 +107,109 @@ Needs.TABLE = {
     },
 }
 
+-- 후임 목소리(Voices.lua)의 부탁 (2026-10-08). 앞 사람의 개인 사정(레이의 딸, 케이시 아버지의 약 등)이 섞이지 않게
+-- 후임마다 따로 둔다. 거점이 같으니 물건은 그 거점이 늘 쓰던 것들
+Needs.VOICE_TABLE = {
+    martha = {
+        { tier = 1, why = "the hens stopped laying and she is down to her last cans", items = { { "Base.TinnedBeans", 3 } } },
+        { tier = 1, why = "her old radio eats batteries and it is her only company at night", items = { { "Base.Battery", 3 } } },
+        { tier = 2, why = "she tore her palm open on barbed wire mending the fence", items = { { "Base.Disinfectant", 1 }, { "Base.Bandage", 3 } } },
+        { tier = 2, why = "she wants to plant Ray's garden beds again before the season turns", items = { { "Base.TomatoBagSeed2", 1 }, { "Base.CarrotBagSeed2", 1 }, { "Base.GardenHoe", 1 } } },
+        { tier = 2, when = "water", why = "the taps ran dry and the animals on both farms have nothing to drink", items = { { "Base.WaterRationCan", 5 } } },
+        { tier = 3, why = "the cut on her hand went bad and she is running a fever", items = { { "Base.Antibiotics", 1 }, { "Base.SutureNeedle", 1 } } },
+        { tier = 4, why = "the dead broke into the barn and all she has is a pitchfork", items = { { "Base.Shotgun", 1 }, { "Base.ShotgunShells", 6 } } },
+        { tier = 5, why = "she wants Ray's old pickup running again to haul the harvest to the neighbours", items = { { "Base.CarBattery1", 1 }, { "Base.EngineParts", 8 } } },
+    },
+    nora = {
+        { tier = 1, why = "the station's spare batteries are almost gone", items = { { "Base.Battery", 3 } } },
+        { tier = 1, why = "she has been living on coffee and crackers since she took over the station", items = { { "Base.TinnedSoup", 2 } } },
+        { tier = 2, why = "she wants to link the Brandenburg group with the county and needs parts for a relay", items = { { "Base.ElectronicsScrap", 4 }, { "Base.ElectricWire", 2 } } },
+        { tier = 2, when = "power", why = "the grid is down and the station now runs only on batteries", items = { { "Base.Battery", 6 } } },
+        { tier = 2, why = "she slipped on the tower ladder and cut her leg", items = { { "Base.Bandage", 2 }, { "Base.Disinfectant", 1 } } },
+        { tier = 3, why = "a storm bent the antenna mast and she needs to brace it", items = { { "Base.SheetMetal", 2 }, { "Base.ScrewsBox", 1 }, { "Base.DuctTape", 2 } } },
+        { tier = 4, why = "she wants a second ham radio so the station never goes silent again", items = { { "Base.HamRadio1", 2 }, { "Base.ElectronicsScrap", 7 } } },
+        { tier = 5, why = "she wants a generator so the station can broadcast through the winter", items = { { "Base.Generator", 1 }, { "Base.ElectricWire", 5 } } },
+    },
+    sam = {
+        { tier = 1, why = "he used the last of June's dressings on a farmer's cut", items = { { "Base.Bandage", 2 } } },
+        { tier = 1, why = "the patients have not eaten since yesterday", items = { { "Base.TinnedBeans", 3 } } },
+        { tier = 2, why = "he is not sure he can clean wounds properly without proper supplies", items = { { "Base.AlcoholWipes", 2 }, { "Base.Disinfectant", 1 } } },
+        { tier = 2, when = "water", why = "the tap ran dry and he cannot keep the patients or the instruments clean", items = { { "Base.WaterRationCan", 4 } } },
+        { tier = 3, why = "a woman came in with an infected wound and June's antibiotics are gone", items = { { "Base.Antibiotics", 2 } } },
+        { tier = 3, why = "he has to close a deep cut for the first time on his own", items = { { "Base.SutureNeedle", 2 }, { "Base.SutureNeedleHolder", 1 } } },
+        { tier = 4, why = "a man with a broken leg was carried in and he needs to set it the way June showed him", items = { { "Base.Splint", 2 }, { "Base.Pills", 2 }, { "Base.Antibiotics", 1 } } },
+        { tier = 5, why = "he wants the clinic stocked so it never runs dry the way it did when June was gone", items = { { "Base.Antibiotics", 3 }, { "Base.SutureNeedle", 3 }, { "Base.Bandage", 6 } } },
+    },
+    esther = {
+        { tier = 1, why = "the children need something warm in their bellies", items = { { "Base.TinnedSoup", 3 } } },
+        { tier = 1, when = "winter", why = "winter came and the people sleeping in the church are cold at night", items = { { "Base.Sheet", 4 } } },
+        { tier = 2, when = "winter", why = "winter came and the church stove needs wood to keep everyone warm", items = { { "Base.Firewood", 8 } } },
+        { tier = 2, why = "she is running the kitchen for thirty people with an empty pantry", items = { { "Base.TinnedBeans", 4 }, { "Base.CannedChili", 2 } } },
+        { tier = 2, when = "water", why = "the church well went bad and she needs clean water for the families", items = { { "Base.WaterRationCan", 5 } } },
+        { tier = 3, why = "a fever is going round the children's room", items = { { "Base.Pills", 2 }, { "Base.PillsVitamins", 2 } } },
+        { tier = 4, why = "the church doors will not hold another night of the dead pressing on them", items = { { "Base.NailsBox", 2 }, { "Base.Hammer", 1 }, { "Base.SheetMetal", 3 } } },
+        { tier = 5, why = "she wants to plant a field behind the church so nobody there goes hungry again", items = { { "Base.PotatoBagSeed2", 2 }, { "Base.TomatoBagSeed2", 2 }, { "Base.GardenHoe", 2 } } },
+    },
+    lenny = {
+        { tier = 1, why = "he ran out of tape halfway through patching a radiator hose", items = { { "Base.DuctTape", 2 } } },
+        { tier = 1, why = "his work light died while he was under a car", items = { { "Base.HandTorch", 1 }, { "Base.Battery", 2 } } },
+        { tier = 2, why = "he burned his arm on an exhaust and is too stubborn to stop working", items = { { "Base.Bandage", 2 }, { "Base.Disinfectant", 1 } } },
+        { tier = 2, why = "Dewey's toolbox is missing the pieces he keeps needing", items = { { "Base.ScrewsBox", 1 }, { "Base.Saw", 1 } } },
+        { tier = 3, why = "he wants to learn welding the way Dewey did and the kit is empty", items = { { "Base.WeldingRods", 6 } } },
+        { tier = 4, why = "a family's car died on the road and he wants to get it running for them", items = { { "Base.CarBattery1", 1 }, { "Base.EngineParts", 4 } } },
+        { tier = 5, why = "he wants to finish the truck Dewey started, to prove he can", items = { { "Base.EngineParts", 8 }, { "Base.BlowTorch", 1 }, { "Base.WeldingRods", 4 } } },
+    },
+    kowalski = {
+        { tier = 1, why = "a patrol came back scratched up and the aid bag is empty", items = { { "Base.Bandage", 2 } } },
+        { tier = 1, why = "the squad is down to half rations", items = { { "Base.TinnedBeans", 3 } } },
+        { tier = 2, why = "he wants the squad able to signal each other on patrol", items = { { "Base.WalkieTalkie4", 1 }, { "Base.Battery", 3 } } },
+        { tier = 3, when = "power", why = "the camp's radios and perimeter lights went dark when the grid died", items = { { "Base.Battery", 12 } } },
+        { tier = 3, why = "the squad is low on pistol rounds and he will not send them out empty", items = { { "Base.Bullets9mmBox", 2 } } },
+        { tier = 3, why = "a soldier broke his arm on watch", items = { { "Base.Splint", 1 }, { "Base.Pills", 2 } } },
+        { tier = 4, why = "the fence line is failing and he cannot hold the camp with it down", items = { { "Base.SheetMetal", 4 }, { "Base.NailsBox", 2 }, { "Base.Hammer", 1 } } },
+        { tier = 5, why = "he wants rifle rounds stocked before the next big horde comes through", items = { { "Base.556Box", 3 } } },
+    },
+    red = {
+        { tier = 1, why = "the crew is short on smokes and getting mean about it", items = { { "Base.CigarettePack", 2 } } },
+        { tier = 1, why = "she is feeding the crew's kids out of her own share", items = { { "Base.TinnedBeans", 3 } } },
+        { tier = 2, why = "she wants the trading tables patched up before market day", items = { { "Base.NailsBox", 1 }, { "Base.Hammer", 1 } } },
+        { tier = 2, why = "one of the kids cut his foot on broken glass", items = { { "Base.Bandage", 2 }, { "Base.Disinfectant", 1 } } },
+        { tier = 3, why = "she wants the crew able to defend the market without starting a war", items = { { "Base.Bullets9mmBox", 2 } } },
+        { tier = 4, why = "she wants the crew's truck running for honest trade runs", items = { { "Base.CarBattery1", 1 }, { "Base.EngineParts", 4 } } },
+        { tier = 5, why = "she wants a proper storeroom so the crew stops living hand to mouth", items = { { "Base.SheetMetal", 4 }, { "Base.BlowTorch", 1 }, { "Base.Crowbar", 1 } } },
+    },
+    dutch = {
+        { tier = 1, why = "his men want their smokes and he wants them quiet", items = { { "Base.CigarettePack", 2 } } },
+        { tier = 2, why = "he is putting up a toll gate on the county road", items = { { "Base.Saw", 1 }, { "Base.DuctTape", 3 } } },
+        { tier = 3, why = "he wants rounds to make sure everyone pays the toll", items = { { "Base.Bullets9mmBox", 2 } } },
+        { tier = 3, why = "one of his men took a knife in the side", items = { { "Base.Antibiotics", 1 }, { "Base.Pills", 2 } } },
+        { tier = 4, why = "he wants rifle rounds to scare off the soldiers", items = { { "Base.556Box", 2 } } },
+        { tier = 5, why = "he wants a rifle with reach to watch the road from the water tower", items = { { "Base.HuntingRifle", 1 }, { "Base.308Box", 1 } } },
+    },
+    caleb = {
+        { tier = 1, why = "his snares keep breaking and he needs fresh line", items = { { "Base.Twine", 4 } } },
+        { tier = 1, why = "the smokehouse is empty and the trap lines have been poor", items = { { "Base.TinnedBeans", 3 } } },
+        { tier = 2, when = "winter", why = "the cold came early and the cabin is short of firewood", items = { { "Base.Firewood", 8 } } },
+        { tier = 2, why = "he is rebuilding the cabin porch and ran out of nails", items = { { "Base.NailsBox", 1 }, { "Base.Hammer", 1 } } },
+        { tier = 3, why = "he gashed his leg on a trap he was resetting", items = { { "Base.SutureNeedle", 1 }, { "Base.Disinfectant", 1 }, { "Base.Bandage", 2 } } },
+        { tier = 4, why = "his father's old hunting knife broke and the woods are full of the dead", items = { { "Base.HuntingKnife", 1 }, { "Base.Shotgun", 1 }, { "Base.ShotgunShells", 6 } } },
+        { tier = 5, why = "he wants Hank's rifle working again to keep the trap lines safe", items = { { "Base.HuntingRifle", 1 }, { "Base.308Box", 1 } } },
+    },
+}
+
+-- 이 채널의 부탁 표 (후임이 있으면 그 후임 것)
+function Needs.listOf(fid)
+    local Factions = StoryEngine.Factions
+    local voice = Factions and Factions.voice and Factions.voice[fid]
+    if voice and Needs.VOICE_TABLE[voice] then return Needs.VOICE_TABLE[voice] end
+    return Needs.TABLE[fid]
+end
+
 -- 지금 형편에 맞는 부탁만 (when 이 있으면 그 형편일 때만, 3배 가중치). only 면 그 조건의 부탁만
 local function available(fid, only)
     local World = StoryEngine.World
     local out = {}
-    for _, n in ipairs(Needs.TABLE[fid] or {}) do
+    for _, n in ipairs(Needs.listOf(fid) or {}) do
         if n.when then
             if World and World.active(n.when) and (not only or n.when == only) then
                 for _ = 1, 3 do out[#out + 1] = n end
@@ -129,7 +227,7 @@ Needs.available = available
 -- strict: 그 자원을 채우는 부탁만 (급한 부탁). 그 등급 이하에 없으면 위 등급에서 찾고, 그래도 없으면 nil
 -- only: 그 형편(when)의 부탁만 (World 의 파이크 난방 부탁). 그 등급 이하에 없으면 nil
 function Needs.pick(fid, tier, prefer, strict, only)
-    if not Needs.TABLE[fid] then return nil end
+    if not Needs.listOf(fid) then return nil end
     local list = available(fid, only)
     if only then
         for t = tier, 1, -1 do

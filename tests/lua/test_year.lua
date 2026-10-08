@@ -280,7 +280,9 @@ function T.whitaker_leaves_for_knox_and_kowalski_takes_over()
     local lt = StoryEngine.Lines.lt("guard", "q_thanks")
     H.ok(string.find(lt.key, "IGUI_StoryEngine_Line_kowalski_q_thanks_", 1, true), "his own line")
     local other = StoryEngine.Lines.lt("guard", "horde")
-    H.ok(string.find(other.key, "IGUI_StoryEngine_Line_guard_horde_", 1, true), "the camp's lines for the rest")
+    H.ok(string.find(other.key, "IGUI_StoryEngine_Line_kowalski_horde_", 1, true), "his own lines for the rest too")
+    local named = StoryEngine.Lines.lt("guard", "named_ask")
+    H.ok(string.find(named.key, "IGUI_StoryEngine_Line_guard_named_ask_", 1, true), "known faces never come up for him")
 end
 
 -- 3회차: 5장 연결, 레이 농장 위기(선택지 넷), 카운티 회의
@@ -449,6 +451,81 @@ function T.side_story_conditions()
     H.eq(Social.episodeOk(def("marthaep1"), "ray", now()), true)
     H.eq(Social.episodeOk(def("rayep1"), "ray", now()), false)
     Social.season, StoryEngine.Voices.of = season, voiceOf
+end
+
+-- 방치·실패로 잃은 NPC 의 후임은 냉랭하게 (2026-10-08, 샌드박스 SuccessorRule 기본 2)
+function T.a_contact_lost_by_neglect_gets_a_cold_successor()
+    setup()
+    local Life, Voices, Projects = StoryEngine.Life, StoryEngine.Voices, StoryEngine.Projects
+    StoryEngine.Radio.channel("ray").trust = 80
+    Projects.of("ray").points = 400
+    Life.change("ray", "food", 5 - Life.get("ray", "food"), "debug")
+    StoryEngine.Fate.apply("ray", "gone", "starve")
+    local p = StoryEngine.Store.data().voices.pending.ray
+    H.ok(p and p.cold, "a cold successor is booked")
+    H.ok(p.dueT - now().t >= 20 * 24 * 60, "and takes 20 days or more")
+    H.ok(Voices.take("ray", now()))
+    H.eq(StoryEngine.Radio.channel("ray").trust, 0, "trust starts from nothing")
+    H.eq(Life.get("ray", "food"), 5, "the empty pantry is not topped up")
+    H.eq(Projects.of("ray").points, 200, "half the project fell apart")
+    local ch = StoryEngine.Radio.channel("ray")
+    H.ok(ch.messages[#ch.messages].cold or ch.messages[#ch.messages - 1].cold, "the takeover line says so")
+end
+
+function T.choices_are_not_failures()
+    local Fate = StoryEngine.Fate
+    H.eq(Fate.failed("story2:guard4_4l"), false, "Whitaker chose Fort Knox")
+    H.eq(Fate.failed("story2:rats2b_5g"), false, "the players sided with the soldiers")
+    H.eq(Fate.failed("story2:rats2b_5x"), true)
+    H.eq(Fate.failed("story2:hunter2b_5x"), true)
+    H.eq(Fate.failed("starve"), true)
+    H.eq(Fate.failed("story"), true)
+    H.eq(Fate.failed("debug"), false)
+end
+
+function T.successor_rule_options()
+    setup()
+    SandboxVars.StoryEngine.SuccessorRule = 3
+    StoryEngine.Fate.apply("doc", "dead", "starve")
+    H.eq(((StoryEngine.Store.data().voices or {}).pending or {}).doc, nil, "no successor after a failure")
+    SandboxVars.StoryEngine.SuccessorRule = 1
+    StoryEngine.Fate.apply("pike", "dead", "starve")
+    local p = StoryEngine.Store.data().voices.pending.pike
+    H.ok(p and not p.cold, "the usual successor")
+    SandboxVars.StoryEngine.SuccessorRule = nil
+end
+
+-- 후임은 앞 사람의 개인 사정·관계 메모·아는 사람·말투를 쓰지 않는다 (2026-10-08)
+function T.successors_have_their_own_needs_notes_people_and_lines()
+    setup()
+    local Stories, Needs, Lines = StoryEngine.Stories, StoryEngine.Needs, StoryEngine.Lines
+    StoryEngine.Fate.apply("ray", "gone", "debug")
+    H.ok(StoryEngine.Voices.take("ray", now()))
+    H.eq(Needs.listOf("ray"), Needs.VOICE_TABLE.martha, "Martha's own requests")
+    for _ = 1, 40 do
+        local n = Needs.pick("ray", 5)
+        H.ok(n and not string.find(n.why, "daughter", 1, true), "no talk of Ray's daughter")
+    end
+    H.eq(Needs.listOf("doc"), Needs.TABLE.doc, "June keeps hers")
+    local mine = Stories.relationsOf("ray")
+    H.eq(mine.pike, Stories.VOICE_RELATIONS.martha.pike)
+    H.eq(mine.dewey, nil, "Ray's hopes about Dewey's truck are not Martha's")
+    local casey = Stories.relationsOf("casey")
+    H.ok(string.find(casey.ray, "took over", 1, true), "Casey's note about Ray now speaks of a newcomer")
+    local ctx = StoryEngine.Social.context("casey")
+    for _, o in ipairs(ctx.others) do
+        if o.id == "ray" then H.ok(not string.find(o.note or "", "uncle", 1, true)) end
+    end
+    for _, f in ipairs(StoryEngine.Factions.list) do StoryEngine.Radio.channel(f.id).trust = 100 end
+    for _, person in ipairs(StoryEngine.Named.candidates()) do
+        H.ok(person.npc ~= "ray", "nobody from Ray's past is asked for")
+    end
+    H.ok(string.find(Lines.lt("ray", "supply_drop").key, "Line_martha_supply_drop_", 1, true))
+    H.ok(string.find(Lines.lt("ray", "duo_warm_open").key, "Line_martha_duo_warm_open_", 1, true))
+    StoryEngine.Fate.apply("rats", "gone", "debug")
+    StoryEngine.Voices.take("rats", now())
+    local v = StoryEngine.Voices.of("rats")
+    H.ok(string.find(Lines.lt("rats", "extort").key, "Line_" .. v .. "_extort_", 1, true), "the Coalfield successor threatens in their own words")
 end
 
 return T

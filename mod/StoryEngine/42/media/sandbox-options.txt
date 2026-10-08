@@ -305,6 +305,13 @@ option StoryEngine.StoryPace
 	valueTranslation = StoryEngine_StoryPace,
 }
 
+option StoryEngine.SuccessorRule
+{
+	type = enum, numValues = 3, default = 2,
+	page = StoryEngineNPC, translation = StoryEngine_SuccessorRule,
+	valueTranslation = StoryEngine_SuccessorRule,
+}
+
 option StoryEngine.NpcFateCause
 {
 	type = enum, numValues = 3, default = 1,
