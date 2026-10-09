@@ -326,9 +326,57 @@ function T.second_specialty_dock_rows()
     H.eq(Q.readyCount(rows), 2)
     H.ok(not Q.anyUnlocked({ { id = "pike", spec2 = { unlocked = false } } }))
     H.ok(StoryEngineQuickDock2.rows ~= StoryEngineQuickDock.rows, "own rows")
+    -- 특기 아이콘이 떠 있어도 2차 아이콘은 따로 (예전: 상속으로 특기 아이콘을 2차 아이콘으로 보고 숨기면 지웠다)
+    local removed = false
+    -- 게임의 derive 처럼 자식 클래스에 없는 필드는 부모에서 읽는다 (테스트 틀의 derive 는 그렇지 않아서 직접)
+    local mt = getmetatable(StoryEngineQuickDock2)
+    setmetatable(StoryEngineQuickDock2, { __index = StoryEngineQuickDock })
+    StoryEngineQuickDock.instance = { removeFromUIManager = function() removed = true end }
+    H.ok(not Q.dock2Shown(), "the first dock is not the second")
+    Q.hideDock2()
+    H.ok(not removed, "hiding the second dock leaves the first alone")
+    StoryEngineQuickDock.instance = nil
+    setmetatable(StoryEngineQuickDock2, mt)
 end
 
 -- 2차 특기 2단계 클라이언트 효과 (2026-10-09): 포격 처치, 위장, 소음기
+function T.evac_lands_on_free_floor_inside_the_safehouse()
+    local p = H.addPlayer("tester", "Gerald", "Kar")
+    local h = StoryEngine.Client.handlers
+    local SC = StoryEngine.SpecClient
+    local squares = {}
+    local function sq(x, y, free, room)
+        squares[x .. "," .. y] = { getX = function() return x end, getY = function() return y end, getZ = function() return 0 end,
+            isFree = function() return free end, isSolidTrans = function() return false end,
+            getRoom = function() return room and {} or nil end }
+    end
+    local realCell = H.cell.getGridSquare
+    H.cell.getGridSquare = function(_, x, y, z) return squares[x .. "," .. y] end
+    -- 아직 칸이 안 불러짐
+    local got, why = SC.findLanding(H.cell, 100, 100, 0, { 98, 98, 102, 102 })
+    H.eq(why, "unloaded")
+    sq(100, 100, false, true)       -- 가운데는 벽
+    sq(101, 100, true, false)       -- 바깥 칸(방 아님)
+    sq(99, 102, true, true)         -- 방 안 빈 칸
+    sq(105, 100, true, true)        -- 세이프하우스 밖
+    got = SC.findLanding(H.cell, 100, 100, 0, { 98, 98, 102, 102 })
+    H.eq(got:getX(), 99, "room square first")
+    -- 사각형이 없으면 둘레에서 가장 가까운 방 안 칸
+    squares["99,102"] = nil
+    got = SC.findLanding(H.cell, 100, 100, 0, nil)
+    H.eq(got:getX(), 105)
+    -- 받은 뒤 틱에서 그 칸으로 옮긴다
+    local moves = {}
+    function p:teleportTo(x, y, z) moves[#moves + 1] = { x, y, z } end
+    function p:getCurrentSquare() return nil end
+    h.spec2Teleport({ x = 100, y = 100, z = 0, rect = { 98, 98, 102, 102 } })
+    H.eq(moves[1][1], 100.5)
+    for _ = 1, 10 do H.fire("OnTick") end
+    H.eq(moves[2] and moves[2][1], 101.5, "moved onto the free floor")
+    H.eq(SC.landing, nil)
+    H.cell.getGridSquare = realCell
+end
+
 function T.second_specialty_client_effects()
     local p = H.addPlayer("tester", "Gerald", "Kar")
     local h = StoryEngine.Client.handlers
@@ -340,12 +388,20 @@ function T.second_specialty_client_effects()
     z.target = p
     function z:getTarget() return self.target end
     function z:setTarget(t) self.target = t end
+    function z:isUseless() return self.useless == true end
+    function z:setUseless(v) self.useless = v end
     function p:isSprinting() return false end
     function p:getStats() return { set = function() end } end
     h.spec2Fx({ kind = "camo", minutes = 240 })
     StoryEngine.SpecClient.fx[#StoryEngine.SpecClient.fx].untilH = 1e9
     local camo = StoryEngine.SpecClient.fx[#StoryEngine.SpecClient.fx]
     H.eq(camo.kind, "camo")
+    for _ = 1, 10 do H.fire("OnTick") end
+    H.ok(z.useless, "nearby zombie stops noticing me")
+    H.eq(z.target, nil)
+    camo.untilH = 0
+    for _ = 1, 10 do H.fire("OnTick") end
+    H.eq(z.useless, false, "back to normal when camo ends")
     -- 소음기: 내 총 소음이 줄고, 끝나면 되돌아온다
     local gun = H.newItem("Base.Pistol")
     gun.__classes = { HandWeapon = true }
@@ -448,6 +504,89 @@ function T.people_tab_side_story_labels()
     H.ok(not string.find(text, "IGUI_StoryEngine_People_BigStory", 1, true) == false)
     H.ok(not string.find(P.storyText("ray", { arc = "ray1", node = "ray_1", path = {} }, true), "BigStory", 1, true),
         "no header for an earlier voice")
+end
+
+
+function T.aim_panel_scans_then_fires_at_the_picked_spot()
+    H.addPlayer("tester", "Gerald", "Kar")
+    local Aim = StoryEngine.Aim
+    -- 바닐라 ISPanel 메서드는 틀에 없어 비워 둔다 (창 그리기는 인게임에서)
+    for _, m in ipairs({ "initialise", "addToUIManager", "setAlwaysOnTop", "setVisible", "removeFromUIManager", "refresh" }) do
+        StoryEngineAimPanel[m] = function() end
+    end
+    H.toServer = {}
+    Aim.start("guard", "artillery")
+    H.ok(Aim.active())
+    H.ok(string.find(Aim.body(Aim.state), "IGUI_StoryEngine_Aim_Hint", 1, true), "hint before a spot is picked")
+    Aim.pick(10060.4, 10000.7)
+    local scan = H.toServer[#H.toServer]
+    H.eq(scan.command, "spec2Scan")
+    H.eq(scan.args.x, 10060)
+    StoryEngine.Client.handlers.spec2ScanResult({ faction = "guard", opt = "artillery", x = 10060, y = 10000, dist = 60,
+        loaded = true, zombies = 7, density = "high", nearest = 60, ok = true })
+    local body = Aim.body(Aim.state)
+    H.ok(string.find(body, "IGUI_StoryEngine_Aim_Zombies", 1, true), "zombie count shown")
+    H.ok(string.find(body, "IGUI_StoryEngine_Aim_Ok", 1, true))
+    StoryEngineAimPanel.instance:onFire()
+    local use = H.toServer[#H.toServer]
+    H.eq(use.command, "spec2Use")
+    H.eq(use.args.faction, "guard")
+    H.eq(use.args.y, 10000)
+    H.ok(not Aim.active(), "closed after firing")
+end
+
+
+function T.debug_camera_view_moves_only_the_camera()
+    local p = H.addPlayer("tester", "Gerald", "Kar")
+    function p:getHealth() return 100 end
+    function p:getBodyDamage() return { getNumPartsBleeding = function() return 0 end } end
+    local Cam = StoryEngine.CameraView
+    for _, m in ipairs({ "initialise", "addToUIManager", "setAlwaysOnTop", "setVisible", "removeFromUIManager" }) do
+        StoryEngineCameraPanel[m] = function() end
+    end
+    local target
+    IsoCamera = { setCameraCharacter = function(c) target = c end }
+    IsoDummyCameraCharacter = { new = function(x, y, z)
+        local d = { x = x, y = y, z = z }
+        function d:getX() return self.x end
+        function d:getY() return self.y end
+        function d:getZ() return self.z end
+        function d:setX(v) self.x = v end
+        function d:setY(v) self.y = v end
+        function d:setLx() end
+        function d:setLy() end
+        function d:removeFromWorld() self.removed = true end
+        return d
+    end }
+    Cam.start(10040, 10000, 0)
+    local d = Cam.dummy
+    H.ok(d and target == d, "camera follows the dummy")
+    H.eq(p.x, 10000, "the character stays put")
+    Cam.move(10, 0)
+    H.near(d:getX(), 10050.5, 0.01)
+    H.ok(H.logHas("camera view start"))
+    -- 다치면 바로 돌아온다
+    function p:getHealth() return 80 end
+    H.fire("OnTick")
+    H.eq(Cam.dummy, nil)
+    H.eq(target, p, "camera back on the character")
+    H.ok(d.removed)
+end
+
+
+function T.mod_item_names_are_restored_after_eating()
+    local IN = StoryEngine.ItemNames
+    IN.items = { ["StoryEngine.Food_RayStew"] = { name = "Ray Stew KO", fallback = "Ray's Stew" } }
+    local it = { ft = "StoryEngine.Food_RayStew", name = "StoryEngine.Food_RayStew" }
+    function it:getFullType() return self.ft end
+    function it:getName() return self.name end
+    function it:setName(v) self.name = v end
+    H.ok(IN.fixItem(it))
+    H.eq(it.name, "Ray Stew KO", "full type name replaced by the translation")
+    it.name = "Ray's Stew"
+    H.ok(IN.fixItem(it), "English fallback replaced too")
+    it.name = "My Stew"
+    H.ok(not IN.fixItem(it), "a name the player chose is kept")
 end
 
 return T

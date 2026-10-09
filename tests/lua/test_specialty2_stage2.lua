@@ -171,13 +171,23 @@ function T.reinforce_holds_part_condition()
     local p, ps = setup()
     ready(p, "dewey", "reinforce")
     local car = H.newVehicle(10002, 10002, { { id = "Door", cond = 80 } })
+    car.power, car.quality, car.loud = 200, 70, 50
+    function car:getEnginePower() return self.power end
+    function car:getEngineQuality() return self.quality end
+    function car:getEngineLoudness() return self.loud end
+    function car:setEngineFeature(q, l, pw) self.quality, self.loud, self.power = q, l, pw end
+    function car:transmitEngine() end
     H.ok(S().use(p, "dewey", {}))
+    H.eq(car.power, 300, "engine power x1.5 while reinforced")
     local fx = H.sentOf("spec2Fx")
     H.eq(fx[#fx].kind, "reinforce")
     H.eq(fx[#fx].vid, car:getId())
     car.parts[1].cond = 20
     tick(1)
     H.eq(car.parts[1].cond, 80, "repaired back")
+    tick(6 * 60 + 1)
+    H.eq(car.power, 200, "power back to normal when it ends")
+    H.eq(car.quality, 70)
 end
 
 function T.artillery_checks_the_spot_and_fires_later()
@@ -202,6 +212,8 @@ end
 function T.evac_needs_a_far_home_and_server_anticheat()
     local p, ps = setup()
     ready(p, "guard", "evac")
+    local realSH = SafeHouse
+    SafeHouse = { hasSafehouse = function() return nil end }
     ps.home = { x = 10050, y = 10000, z = 0 }
     local ok, why = S().use(p, "guard", {})
     H.eq(why, "home_near")
@@ -210,6 +222,17 @@ function T.evac_needs_a_far_home_and_server_anticheat()
     tick(21)
     local tp = H.sentOf("spec2Teleport")[1]
     H.ok(tp and tp.x == 10500, "flown home")
+    H.eq(tp.rect, nil, "no safehouse, no rectangle")
+    -- 세이프하우스가 있으면 그 사각형을 넘긴다 (클라이언트가 그 안의 빈 바닥을 고름)
+    SafeHouse = { hasSafehouse = function() return { getX = function() return 10490 end, getY = function() return 9990 end,
+                                                     getX2 = function() return 10510 end, getY2 = function() return 10010 end } end }
+    S().clearWait("guard", ps.key)
+    H.ok(S().use(p, "guard", {}))
+    tick(21)
+    local sent = H.sentOf("spec2Teleport")
+    local tp2 = sent[#sent]
+    H.ok(tp2.rect and tp2.rect[1] == 10490 and tp2.rect[4] == 10010, "safehouse rectangle")
+    SafeHouse = realSH
     -- 멀티: 속도 안티치트가 강퇴(2)면 막힌다
     local realServer = isServer
     isServer = function() return true end
@@ -269,15 +292,12 @@ function T.heist_rolls_loot_takes_a_cut_and_empties_the_building()
     H.ok(S().use(p, "rats", { x = 10105, y = 10105 }))
     local ok, why = S().use(p, "rats", { x = 10105, y = 10105 })
     H.eq(why, "cooldown")
-    tick(10 * 60 + 1)
-    local found
-    for _, q in pairs(StoryEngine.Store.data().quests) do
-        if q.origin and q.origin.spec2 == "heist" then found = q end
-    end
-    H.ok(found, "loot delivered")
-    local loot = 0
-    for _, it in ipairs(found.items) do if it ~= "StoryEngine.Letter" then loot = loot + 1 end end
-    H.ok(loot >= 1 and loot <= 5, "six rolled, Vic kept about 30%: " .. tostring(loot))
+    -- 디버그: 예약을 지금 바로 (기다리지 않고 받는다)
+    local before = #p.items
+    H.eq(S().debugRushJobs(ps.key), 1)
+    local loot = #p.items - before
+    H.ok(loot >= 1 and loot <= 6, "straight into the inventory, minus Vic's cut: " .. tostring(loot))
+    H.ok(H.logHas("specialty2 heist done"), "logged with value and cut")
     H.eq(select(2, S().heistTarget(10105, 10105)), "already_heisted")
     -- 나중에 로드되는 칸의 보관함은 비운다
     local cont = { items = { H.newItem("Base.Pot") }, explored = false }
@@ -307,6 +327,19 @@ function T.rolling_a_room_uses_vanilla_tables()
     local kept = S().takeCut({ "Base.Pot", "Base.Pot", "Base.Pot", "Base.Pot", "Base.Pot",
                                "Base.Pot", "Base.Pot", "Base.Pot", "Base.Pot", "Base.Pot" })
     H.eq(#kept, 7, "30% by value")
+    -- 큰 수확일수록 몫이 커진다 (누진): 가치 100 이면 빅이 56, 남는 것 44
+    local many = {}
+    for i = 1, 50 do many[i] = "Base.Pot" end
+    local kept2, total, taken = S().takeCut(many)
+    H.eq(total, 100)
+    H.eq(taken, 56)
+    H.eq(#kept2, 22)
+    H.eq(S().cutOf(200), 6 + 15 + 35 + 85)
+    -- 비싼 것이 있으면 빅이 먼저 챙긴다
+    H.defineItem("Base.Shotgun", "firearm", 60)
+    local kept3 = S().takeCut({ "Base.Shotgun", "Base.Pot", "Base.Pot", "Base.Pot", "Base.Pot", "Base.Pot",
+                                "Base.Pot", "Base.Pot", "Base.Pot", "Base.Pot", "Base.Pot" })
+    for _, ft in ipairs(kept3) do H.ok(ft ~= "Base.Shotgun", "Vic took the shotgun") end
 end
 
 function T.camo_suppressor_and_flare_are_client_effects()
@@ -327,6 +360,171 @@ function T.camo_suppressor_and_flare_are_client_effects()
     local n = #H.sentOf("spec2Fx")
     tick(11)
     H.ok(#H.sentOf("spec2Fx") > n, "resent")
+end
+
+
+function T.livestock_is_mostly_hens_and_says_which_animal()
+    local p, ps = setup()
+    ready(p, "ray", "livestock")
+    -- 묶음 확률: 0~79 닭, 80~89 돼지, 90~99 소
+    H.rolls = { 10 }
+    H.eq(S().pickKit().say, "hens")
+    H.rolls = { 85 }
+    H.eq(S().pickKit().say, "pig")
+    H.rolls = { 95 }
+    H.eq(S().pickKit().say, "cow")
+    local made = {}
+    addAnimal = function(_, x, y, z, kind) made[#made + 1] = kind return { addToWorld = function() end } end
+    H.rolls = { 85 }
+    local ok, info = S().HANDLERS.livestock(p, ps, "ray", {})
+    H.ok(ok)
+    H.eq(info.say, "pig", "the radio line names the animal")
+    H.eq(made[1], "sow")
+    H.ok(string.find(info.topic, "a sow", 1, true), "AI is told which animal")
+end
+
+function T.scan_reports_the_spot_before_firing()
+    local p, ps = setup()
+    ready(p, "guard", "artillery")
+    local info = S().scan(p, "guard", 10500, 10000)
+    H.eq(info.reason, "too_far")
+    H.ok(not info.ok)
+    info = S().scan(p, "guard", 10005, 10000)
+    H.eq(info.reason, "too_close", "the player is standing there")
+    H.newZombie(10063, 10000)
+    H.newZombie(10058, 10004)
+    H.newZombie(10090, 10000)
+    info = S().scan(p, "guard", 10060, 10000)
+    H.ok(info.ok, tostring(info.reason))
+    H.eq(info.zombies, 2, "zombies within 10 tiles")
+    H.eq(info.nearest, 60)
+    H.eq(info.opt, "artillery")
+end
+
+function T.engineers_also_repair_walls_fences_and_windows()
+    local p, ps = setup()
+    ready(p, "guard", "barricade")
+    ps.home = { x = 10105, y = 10105, z = 0 }
+    p.x, p.y = 10105, 10105
+    local room = {}
+    function room:getZ() return 0 end
+    function room:getX() return 10100 end
+    function room:getY() return 10100 end
+    function room:getX2() return 10110 end
+    function room:getY2() return 10110 end
+    function room:getName() return "kitchen" end
+    local def = {}
+    function def:getRooms() return H.list({ room }) end
+    grid.buildingAt = function() return def end
+    IsoObjectChange = { STATE = "STATE" }
+    local fence = { __classes = { IsoThumpable = true }, hp = 40, max = 100 }
+    function fence:getHealth() return self.hp end
+    function fence:getMaxHealth() return self.max end
+    function fence:setHealth(v) self.hp = v end
+    function fence:syncIsoObject() end
+    local glass = { __classes = { IsoWindow = true }, smashed = true }
+    function glass:isSmashed() return self.smashed end
+    function glass:isGlassRemoved() return false end
+    function glass:setSmashed(v) self.smashed = v end
+    function glass:setGlassRemoved() end
+    function glass:isBarricaded() return true end
+    function glass:syncIsoObject() self.synced = true end
+    square(10095, 10095, 0, { objs = { fence } })
+    square(10100, 10103, 0, { objs = { glass } })
+    H.ok(S().use(p, "guard", {}), "repairs count even with no opening left to barricade")
+    H.eq(fence.hp, 100, "fence repaired")
+    H.eq(glass.smashed, false, "window re-glazed")
+    H.ok(glass.synced, "clients told")
+    H.ok(H.logHas("specialty2 repair around home"))
+end
+
+
+function T.debug_max_all_readies_every_npc()
+    local p, ps = setup()
+    StoryEngine.Fate.apply("pike", "gone", "debug")
+    StoryEngine.Commands.debugMaxAll(p, {})
+    for _, fid in ipairs({ "ray", "casey", "doc", "dewey", "guard", "rats", "hunter" }) do
+        H.eq(StoryEngine.Radio.channel(fid).trust, 100, fid .. " trust")
+        H.eq(StoryEngine.Life.npc(fid).res.food, 100, fid .. " resources")
+        H.ok(StoryEngine.Projects.done(fid) and StoryEngine.Projects.done2(fid), fid .. " both projects")
+        H.eq(S().status(fid, ps).reason, "no_choice", fid .. " second specialty unlocked, waiting for a pick")
+    end
+    H.ok(StoryEngine.Radio.channel("pike").trust < 100, "NPCs who left are skipped")
+    -- 쓴 뒤 다시 누르면 대기도 풀린다
+    H.ok(S().choose(p, "hunter", "game"))
+    H.ok(S().use(p, "hunter", {}))
+    H.eq(S().status("hunter", ps).reason, "cooldown")
+    StoryEngine.Commands.debugMaxAll(p, {})
+    H.eq(S().status("hunter", ps).reason, nil, "wait cleared")
+end
+
+
+function T.heist_follows_sandbox_loot_rarity_and_loot_remover()
+    setup()
+    SuburbsDistributions = { kitchen = { counter = { procedural = true, procList = { { name = "KitchenStuff" } } } } }
+    ProceduralDistributions = { list = { KitchenStuff = { rolls = 20, items = { "TinnedBeans", 100, "Base.Pot", 100 } } } }
+    H.defineItem("Base.TinnedBeans", "food", 1.5)
+    H.defineItem("Base.Pot", "tools", 2)
+    -- 샌드박스에서 음식 루팅을 없애면 (배율 0) 콩은 안 나온다
+    ItemPickerJava = { getLootModifier = function(name) return name == "TinnedBeans" and 0 or 1 end }
+    local out = {}
+    S().rollRoom("kitchen", out, 40)
+    H.ok(#out > 0)
+    for _, ft in ipairs(out) do H.ok(ft ~= "Base.TinnedBeans", "food loot off in the sandbox") end
+    ItemPickerJava = nil
+    -- LootRemover 100%면 모두 지워지고, 없으면 그대로
+    local items = { "Base.Pot", "Base.Pot", "Base.Pot" }
+    local kept, removed = S().lootRemover(items)
+    H.eq(#kept, 3, "no LootRemover installed")
+    LootRemover = { getChance = function() return 100 end, affectContainers = function() return true end }
+    kept, removed = S().lootRemover(items)
+    H.eq(#kept, 0)
+    H.eq(removed, 3)
+    LootRemover.affectContainers = function() return false end
+    kept = S().lootRemover(items)
+    H.eq(#kept, 3, "LootRemover set to skip containers")
+    LootRemover = nil
+end
+
+
+function T.engineers_hang_a_wooden_door_in_an_empty_outer_frame()
+    setup()
+    local room = {}
+    function room:getX() return 10100 end
+    function room:getY() return 10100 end
+    function room:getX2() return 10110 end
+    function room:getY2() return 10110 end
+    local def = {}
+    function def:getRooms() return H.list({ room }) end
+    IsoObjectType = { doorFrN = "doorFrN", doorFrW = "doorFrW" }
+    local function frame(t)
+        local f = {}
+        function f:getType() return t end
+        function f:getSprite() return nil end
+        return f
+    end
+    local made = {}
+    IsoDoor = { new = function(_, sq, sprite, north)
+        local d = { __classes = { IsoDoor = true }, sprite = sprite, north = north }
+        function d:getNorth() return self.north end
+        function d:transmitCompleteItemToClients() self.sent = true end
+        made[#made + 1] = d
+        return d
+    end }
+    -- 바깥 문틀 (안쪽 칸은 방, 북쪽 칸은 바깥) 에 문이 없음
+    local inside = square(10105, 10100, 0, { objs = { frame("doorFrN") }, room = {} })
+    function inside:AddSpecialObject(o) table.insert(self.objs, o) end
+    square(10105, 10099, 0, {})
+    -- 안쪽 통로 문틀 (양쪽 다 방) 은 그대로
+    local hall = square(10103, 10105, 0, { objs = { frame("doorFrW") }, room = {} })
+    function hall:AddSpecialObject(o) table.insert(self.objs, o) end
+    square(10102, 10105, 0, { room = {} })
+    local n = S().rebuildDoors(def)
+    H.eq(n, 1)
+    H.eq(made[1].sprite, "fixtures_doors_01_1")
+    H.ok(made[1].north and made[1].sent, "north door, sent to clients")
+    H.eq(#hall.objs, 1, "inner doorway left alone")
+    H.eq(S().rebuildDoors(def), 0, "a door is there now")
 end
 
 return T

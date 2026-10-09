@@ -26,15 +26,25 @@
 - 기우제: 다음 06시(6시간 안이면 그다음 날)부터 12시간. 멀티 `transmitServerStartRain(0.6)`/`StopRain`, 싱글 기후 값 `FLOAT_PRECIPITATION_INTENSITY`·`FLOAT_CLOUD_INTENSITY` 관리자 값 (인게임 확인)
 - 피난민: 24시간, 10분마다 집 25타일 둘레 시체 10구씩 `removeCorpse` (60타일 안에 사람이 있을 때만)
 - 견인: 10타일 안 차, 1~2시간(Ark 30분) 뒤 근처에 `Base.PickUpTruck`(`addVehicleDebug`), 기름 가득, 열쇠는 플레이어(없으면 글러브박스), `addPointConstraint(player, 차, trailer, trailerfront)` 자동 연결 시도(인게임 확인), 48시간 뒤 아무도 없을 때 `permanentlyRemove`
-- 임시 보강: 서버가 매분 부품 상태를 처음 값으로, 운전자 클라이언트가 매 틱 무게 2.5배·가속 중 서서히 떨어진 속도 되돌림(40% 넘게 한 번에 떨어지면 충돌로 보고 그대로)
+- 임시 보강: 서버가 매분 부품 상태를 처음 값으로, 운전자 클라이언트가 매 틱 가속 중 서서히 떨어진 속도 되돌림(40% 넘게 한 번에 떨어지면 충돌로 보고 그대로)
 - 포격: 지도 우클릭(관리자·디버그 지도 메뉴가 열리면 거기에 더함), 10분 뒤 3발 `IsoTrap` PipeBomb `triggerExplosion`, 클라이언트마다 반경 10 처치 `spec2Strike`, 소음 200, 12타일 안에 사람이 있으면 2분씩 5번 미루고 그래도면 취소·대기 환불
-- 헬기 후송: 20분 뒤 클라이언트 `teleportTo`, 출발지 소음 150, 멀티는 `getServerOptions():getInteger("AntiCheatSpeed")` 3·4 일 때만
+- 헬기 후송: 20분 뒤 클라이언트 `teleportTo`(세이프하우스가 있으면 그 사각형 안, 없으면 집 둘레 12타일에서 빈 바닥 칸 `isFree(false)`을 칸이 불러진 뒤 다시 골라 옮김, 방 안 칸 먼저), 출발지 소음 150, 멀티는 `getServerOptions():getInteger("AntiCheatSpeed")` 3·4 일 때만
 - 공병 바리케이드: 집 건물 1층 방 둘레의 창문·문 중 한쪽만 방인 것, `IsoBarricade.AddBarricadeToObject(obj, player)` + `addMetal(player, SheetMetal)` + `transmitCompleteItemToClients`
 - 대리 털이: `getBuildingAt`, 방 12개·넓이 1500 초과·총포상/군/경찰/교도소/은행 낱말·내 집·이미 턴 곳 거절, 6~10시간 뒤(맡긴 사람이 접속해 있을 때) 방마다 바닐라 분포표 2곳 굴림(`SuburbsDistributions`·`ProceduralDistributions`, 확률 x0.6, 최대 40개), 가치 30% 몫 떼고 보급, 건물 사각형 기록 → 로드된 칸과 나중에 `LoadGridsquare` 칸의 보관함 비우고 `setExplored(true)` (퀘스트 물건 제외)
 - 좀비 피 위장: 모든 클라이언트가 대상에게 달려드는 좀비 `setTarget(nil)`, 대상 클라이언트가 전력 질주·`OnPlayerAttackFinished`면 `spec2CamoEnd`
 - 소음기: 내 클라이언트가 인벤토리 총 `setSoundRadius/Volume` x0.3, 원래 값은 총 modData `seSupOrig`, 끝나거나 다음 접속 때 되돌림
 - 긴급 조명: 모든 클라이언트가 대상 둘레 `addLamppost(x,y,z, 1,0.85,0.6, 12)`, 타일이 바뀌면 옮김
 - 클라이언트 효과는 10분마다 다시 알린다(다시 접속해도 이어짐)
+
+### 인게임 테스트 뒤 수정 (2026-10-09, 사용자 요청)
+- 받는 물건은 보급 퀘스트가 아니라 바로 인벤토리 (`deliver` -> `Items.addTo`, 로그 `specialty2 given`): 레이 스튜, 행크 사냥감, 빅 대리 털이, 닥 약 조제
+- 레이 가축: 닭(암탉 3 + 수탉 1) 80%, 암퇘지(`sow`/`landrace`) 10%, 젖소 10% (`ANIMAL_KITS` weight), 무전 대체 문장 `RadioSay_spec2_livestock_<hens|pig|cow>` (처리기가 `info.say` 를 주면 키 꼬리)
+- 빅 몫: 누진 `HEIST_BRACKETS` 가치 20까지 30%, 50까지 50%, 100까지 70%, 그 위 85% (`cutOf`), 빅은 비싼 것부터 (몫에 더 가까운 두 고르기 중 하나), 로그 `heist done ... value V vic took C`
+- 조준 창 (`client/StoryEngine/Spec2Aim.lua`): 포격·대리 털이를 특기 아이콘·거점 탭에서 고르면 지도 + 창, 지도 우클릭 "여기 조준" -> `spec2Scan` -> 서버 `Specialty2.scan`(반경 10타일 좀비 수 = 칸이 불러졌을 때, 밀집도 `Danger.levelAt` 지역 순위 3단계, 가장 가까운 사람, 쓸 수 있는지·이유, 털이는 방 수) -> [요청] = `spec2Use {x, y}`
+- 공병: 바리케이드 + `repairAround`(집 건물 둘레 12타일·1~2층, `IsoThumpable`·`IsoDoor` 체력 최대, 깨진 `IsoWindow` 유리, 창·문은 `syncIsoObject(false, 0, nil, nil)`로 알림(`sendObjectChange(STATE)`로는 화면에 안 보였음, 인게임 확인), 벽·울타리는 `IsoThumpable.setHealth`가 스스로 알림, 최대 60개), 바리케이드할 곳이 없어도 고친 게 있으면 성공
+- 임시 보강: 차 무게를 바꾸지 않음 (`setMass` 2.5배면 서스펜션이 다 눌려 차가 가라앉았음), 남은 무거운 차는 `updateTotalMass`
+- 헬기 후송: 세이프하우스 사각형(없으면 집 둘레 12타일) 안 빈 바닥 칸(`isFree(false)`, 방 안 먼저)에 칸이 불러진 뒤 다시 놓음
+- 진단 로그: 피난민 `refugees tick home`, SOS `specialty2 sos ... guard= decoy= snipe=`, 세례 `baptism endurance`, 바리케이드 `barricade building ... +B/-B`, 디버그 "2차 특기 예약 바로 실행"(`debugRushJobs`)
 
 ### 확인된 제약 (jar·바닐라)
 - 이동·공격 속도는 게임이 매 틱·매 공격 다시 계산하고 멀티 속도 안티치트에 걸려 직접 올릴 수 없음 → 세례는 지구력 감소 1/3
@@ -290,7 +300,7 @@
 게임 1시간 동안 지정한 차가 좀비 무리·잔디밭·진흙·오르막·견인처럼 "끌리는" 상황에서도 힘 있게 밀고 나가고, 임시 보강(위 8번)처럼 망가지지도 않는다.
 
 - **밀고 나가기 (운전자 클라이언트)**: 차 물리는 운전하는 사람의 클라이언트에서 돌아서 여기서 처리하고, 서버는 "이 차가 효과 중"만 알려 준다
-  - 무게: 효과 동안 `setMass`로 2~3배(원래 값 `getInitialMass`로 되돌림), 가속이 느려지지 않게 엔진 출력도 올림(`setEngineFeature`)
+  - 무게: **안 바꿈** (2026-10-09 인게임: `setMass` 2.5배면 서스펜션이 다 눌려 차가 가라앉고 못 움직였음, 남은 차는 `updateTotalMass`로 되돌림). 처음 안: 효과 동안 `setMass`로 2~3배(원래 값 `getInitialMass`로 되돌림), 가속이 느려지지 않게 엔진 출력도 올림(`setEngineFeature`)
   - 속도 유지: 매 틱 `getCurrentSpeedKmHour`를 보고, 아래 조건이면 `setSpeedKmHour`로 직전 속도까지 되돌림 (최고 속도 `getMaxSpeed`는 넘지 않음)
   - 되돌리는 경우: 가속 페달을 밟음(`isGasPedalPressed`) + 브레이크 안 밟음(`isBrakePedalPressed`) + 속도가 서서히 떨어짐. 좀비만 가려내지 않음(사용자 결정: 잔디밭·견인 등도 함께)
   - 되돌리지 않는 경우: 한 틱에 속도가 크게 떨어짐(예: 40% 넘게) = 벽·나무·차에 부딪힘 → 그대로 멈추게 둠. 안 그러면 벽을 밀며 떨거나 뚫고 지나갈 수 있음

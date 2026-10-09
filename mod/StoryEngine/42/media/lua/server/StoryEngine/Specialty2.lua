@@ -91,10 +91,24 @@ Specialty2.PAIN_REDUCTION = 100
 Specialty2.SICK_STATS = { "FOOD_SICKNESS", "POISON", "SICKNESS" }
 Specialty2.SICK_MIN = 0.05
 Specialty2.ANIMAL_DIST = { 6, 12 }
+-- 가축 묶음 (2026-10-09 사용자 결정): 닭 80%, 돼지 10%, 소 10%. say = 무전 대체 문장 꼬리 (RadioSay_spec2_livestock_<say>)
 Specialty2.ANIMAL_KITS = {
-    { { "hen", "leghorn", 3 }, { "cockerel", "leghorn", 1 } },
-    { { "cow", "holstein", 1 } },
+    { weight = 80, say = "hens", what = "a few laying hens and a rooster",
+      { "hen", "leghorn", 3 }, { "cockerel", "leghorn", 1 } },
+    { weight = 10, say = "pig", what = "a sow", { "sow", "landrace", 1 } },
+    { weight = 10, say = "cow", what = "a milk cow", { "cow", "holstein", 1 } },
 }
+
+function Specialty2.pickKit()
+    local total = 0
+    for _, k in ipairs(Specialty2.ANIMAL_KITS) do total = total + k.weight end
+    local roll = ZombRand(total)
+    for _, k in ipairs(Specialty2.ANIMAL_KITS) do
+        roll = roll - k.weight
+        if roll < 0 then return k end
+    end
+    return Specialty2.ANIMAL_KITS[1]
+end
 
 Specialty2.STEW = "StoryEngine.Food_RayStew"
 -- 약 조제 (2026-10-09 사용자 결정): 약초 개수, 한 번에 최대 2개
@@ -316,15 +330,18 @@ end
 
 -- ---------------------------------------------------------------- 보급 (스튜·약·고기)
 
+-- 바로 인벤토리로 (2026-10-09 사용자 요청, 예전엔 근처 보급 퀘스트). 반환: 넣은 수 | nil
 local function deliver(player, ps, fid, opt, items)
-    local now = Sensor.now()
-    local ok, q = pcall(StoryEngine.Quests.create, "supply_drop", player, ps, 1, now,
-        { source = "director", faction = fid, initiator = "gift", spec2 = opt }, items)
-    if not ok or not q then
-        log("specialty2 delivery failed", fid, opt, tostring(q))
-        return nil
+    local inv = player and player:getInventory()
+    if not inv then return nil end
+    local given = 0
+    for _, ft in ipairs(items) do
+        local ok, item = pcall(StoryEngine.Items.addTo, inv, ft)
+        if ok and item then given = given + 1 else log("specialty2 give failed", fid, opt, ft, tostring(item)) end
     end
-    return q
+    log("specialty2 given", fid, opt, given, "of", #items)
+    if given == 0 and #items > 0 then return nil end
+    return given
 end
 
 -- ---------------------------------------------------------------- 레이
@@ -353,7 +370,7 @@ local function spawnAnimal(sq, kind, breedName)
 end
 
 local function livestock(player, ps, fid)
-    local kit = Specialty2.ANIMAL_KITS[ZombRand(#Specialty2.ANIMAL_KITS) + 1]
+    local kit = Specialty2.pickKit()
     local px, py, pz = math.floor(player:getX()), math.floor(player:getY()), math.floor(player:getZ())
     local spot = nil
     local start = ZombRand(8)
@@ -372,19 +389,19 @@ local function livestock(player, ps, fid)
         end
     end
     if made == 0 then return false, "no_spot" end
-    local what = kit[1][1] == "cow" and "a milk cow" or "a few laying hens and a rooster"
-    return true, { count = made, item = kit[1][1],
-                   topic = "You and your neighbors drove " .. what .. " over to " .. tostring(ps.name)
-                       .. " and left them nearby. Tell them to look after them." }
+    log("specialty2 livestock", kit.say, made)
+    return true, { count = made, item = kit[1][1], say = kit.say,
+                   topic = "You and your neighbors drove " .. kit.what .. " over to " .. tostring(ps.name)
+                       .. " and left them nearby. Say exactly which animals you brought and tell them to look after them." }
 end
 
 local function stew(player, ps, fid)
-    if not deliver(player, ps, fid, "stew", { Specialty2.STEW }) then return false, "no_spot" end
+    if not deliver(player, ps, fid, "stew", { Specialty2.STEW }) then return false, "no_room" end
     local now = Sensor.now()
     local f = addFx({ kind = "stew", key = ps.key, untilT = now.t + Specialty2.STEW_HOURS * 60 })
     pcall(function() f.last = player:getStats():get(CharacterStat.UNHAPPINESS) end)
     return true, { topic = "You invited " .. tostring(ps.name) .. " over for a home-cooked dinner and, since they could "
-        .. "not come, sent a pot of your stew their way (the location is in their quest list). Talk like family." }
+        .. "not come, sent a pot of your stew home with them. Talk like family." }
 end
 
 -- ---------------------------------------------------------------- 케이시
@@ -425,15 +442,17 @@ local function sos(player, ps, fid)
     local parts = {}
     local snipeCount = 0
     -- 1) 방위대원 1명 (A-Life) / 없으면 방위대 저격 몫
+    local report = {}
     if not Factions.isGone("guard") then
-        local sent = false
+        local sent, why = false, "no_alife"
         local ALife = StoryEngine.ALife
         if ALife and ALife.enabled() and ALife.available() then
-            local ok = ALife.sendSupport(player, "guard", "specialty2", nil, 1, nil, 1,
-                { hours = Specialty2.SOS_MIN / 60, quiet = true })
-            sent = ok == true
+            local ok, res = ALife.sendSupport(player, "guard", "specialty2", nil, 1, nil, 1,
+                { hours = Specialty2.SOS_MIN / 60, quiet = true, extra = true })
+            sent, why = ok == true, tostring(res)
         end
         if not sent then snipeCount = snipeCount + Specialty2.SOS_GUARD_SNIPE end
+        report[#report + 1] = "guard=" .. (sent and "soldier" or ("marksman(" .. why .. ")"))
         parts[#parts + 1] = "a soldier from the guard"
     end
     -- 2) 행크 저격
@@ -449,8 +468,13 @@ local function sos(player, ps, fid)
     end
     -- 3) 미끼 소음 (빅)
     if not Factions.isGone("rats") and Specialty.HANDLERS.rats then
-        local ok = pcall(Specialty.HANDLERS.rats, player, ps, "rats", 3)
-        if ok then parts[#parts + 1] = "Vic's crew making noise to draw the dead off" end
+        local ok, done, why = pcall(Specialty.HANDLERS.rats, player, ps, "rats", 3)
+        if ok and done then
+            parts[#parts + 1] = "Vic's crew making noise to draw the dead off"
+            report[#report + 1] = "decoy=ok"
+        else
+            report[#report + 1] = "decoy=" .. tostring(ok and why or done)
+        end
     end
     -- 4) 긴장·근육통 (파이크) / 5) 통증 (닥): SOS_MIN 동안 매분
     local calm = not Factions.isGone("pike")
@@ -461,6 +485,9 @@ local function sos(player, ps, fid)
         if calm then parts[#parts + 1] = "Pastor Pike talking them calm" end
         if numb then parts[#parts + 1] = "June's advice to fight through the pain" end
     end
+    report[#report + 1] = "snipe=" .. StoryEngine.intToString(snipeCount)
+    report[#report + 1] = "calm=" .. tostring(calm) .. " numb=" .. tostring(numb)
+    log("specialty2 sos", ps.name, table.concat(report, " "))
     if #parts == 0 then return false, "no_help" end
     return true, { count = #parts, topic = tostring(ps.name) .. " pressed the SOS beacon you built. You relayed it and "
         .. "help is coming right now: " .. table.concat(parts, ", ") .. ". Talk fast and steady." }
@@ -596,12 +623,12 @@ local function pharmacy(player, ps, fid, args)
     if #herbs < need then return false, "no_herbs" end
     local items = {}
     for _ = 1, count do items[#items + 1] = med.item end
-    if not deliver(player, ps, fid, "pharmacy", items) then return false, "no_spot" end
+    if not deliver(player, ps, fid, "pharmacy", items) then return false, "no_room" end
     for i = 1, need do StoryEngine.Items.remove(herbs[i], player) end
     return true, { count = count, item = med.item, herbs = need,
                    topic = tostring(ps.name) .. " sent you " .. StoryEngine.intToString(need) .. " medicinal herbs and you "
                        .. "turned them into " .. StoryEngine.intToString(count) .. " " .. med.item:gsub("^Base%.", "")
-                       .. ", now on the way to them. Sound proud of the work." }
+                       .. " and handed them over. Sound proud of the work." }
 end
 
 -- ---------------------------------------------------------------- 파이크
@@ -694,9 +721,9 @@ local function game(player, ps, fid)
             if roll < 0 then items[#items + 1] = m[1] break end
         end
     end
-    if not deliver(player, ps, fid, "game", items) then return false, "no_spot" end
+    if not deliver(player, ps, fid, "game", items) then return false, "no_room" end
     return true, { count = #items, topic = "You shared the meat from your last hunt with " .. tostring(ps.name)
-        .. " and left it nearby (it is in their quest list). Tell them to eat it before it turns." }
+        .. " and handed it over. Tell them to eat it before it turns." }
 end
 
 -- ---------------------------------------------------------------- 2단계 (2026-10-09): 집 둘레·차량·지도·클라이언트 효과
@@ -715,6 +742,8 @@ Specialty2.TOW_LEND_HOURS = 48
 Specialty2.TOW_WAIT_DAYS = 3
 Specialty2.VEHICLE_RADIUS = 10
 Specialty2.REINFORCE_HOURS = 6
+-- 임시 보강 엔진 출력 배율 (2026-10-09 사용자 결정 A: 좀비에 부딪혀 느려져도 금방 다시 속도가 붙게). 끝나면 원래대로
+Specialty2.REINFORCE_POWER = 1.5
 Specialty2.ARTY_RANGE = 120
 Specialty2.ARTY_SAFE = 15                -- 요청할 때 모든 플레이어가 이만큼 떨어져 있어야
 Specialty2.ARTY_ABORT = 12               -- 떨어질 때 이 안에 플레이어가 있으면 미룬다
@@ -730,7 +759,9 @@ Specialty2.BARRICADE_MAX = 8
 Specialty2.HEIST_DELAY = { 6 * 60, 10 * 60 }
 Specialty2.HEIST_MAX_ROOMS = 12
 Specialty2.HEIST_MAX_AREA = 1500
-Specialty2.HEIST_CUT = 0.3
+-- 빅 몫 (2026-10-09 사용자 결정, 예전 고정 30%): 털어 온 가치에 구간마다 다른 몫 (누진).
+-- 가치 20 까지 30%, 20~50 50%, 50~100 70%, 100 넘는 부분 85% -> 남는 가치: 20 -> 14, 50 -> 29, 100 -> 44, 200 -> 59
+Specialty2.HEIST_BRACKETS = { { 20, 0.3 }, { 50, 0.5 }, { 100, 0.7 }, { math.huge, 0.85 } }
 Specialty2.HEIST_MAX_ITEMS = 40
 Specialty2.HEIST_PER_ROOM = 2            -- 방마다 굴리는 보관함 수
 Specialty2.HEIST_PER_CONTAINER = 6
@@ -846,11 +877,18 @@ local function refugees(player, ps, fid)
 end
 
 local function clearCorpses(f)
-    local near = false
-    eachPlayerDist(f.hx, f.hy, function(_, d) if d <= Specialty2.HOME_NEAR then near = true end end)
-    if not near then return end
+    local near, closest = false, nil
+    eachPlayerDist(f.hx, f.hy, function(_, d)
+        if d <= Specialty2.HOME_NEAR then near = true end
+        if not closest or d < closest then closest = d end
+    end)
+    local where = StoryEngine.intToString(f.hx) .. "," .. StoryEngine.intToString(f.hy) .. "," .. StoryEngine.intToString(f.hz or 0)
+    if not near then
+        log("specialty2 refugees waiting: nobody near home", where, "closest", closest and StoryEngine.intToString(closest) or "none")
+        return
+    end
     local cell = getCell()
-    local removed = 0
+    local removed, seen = 0, 0
     local r = Specialty2.REFUGEE_RADIUS
     for x = f.hx - r, f.hx + r do
         for y = f.hy - r, f.hy + r do
@@ -858,6 +896,7 @@ local function clearCorpses(f)
             local sq = cell:getGridSquare(x, y, f.hz or 0)
             local bodies = sq and sq:getDeadBodys()
             if bodies and bodies:size() > 0 then
+                seen = seen + bodies:size()
                 for i = bodies:size() - 1, 0, -1 do
                     if removed >= Specialty2.REFUGEE_PER_TICK then break end
                     local ok = pcall(function() sq:removeCorpse(bodies:get(i), false) end)
@@ -867,7 +906,7 @@ local function clearCorpses(f)
         end
     end
     f.removed = (f.removed or 0) + removed
-    if removed > 0 then log("specialty2 refugees cleared", removed) end
+    log("specialty2 refugees tick home", where, "bodies seen", seen, "cleared", removed, "total", f.removed)
 end
 
 -- ---- 듀이: 견인·보강
@@ -969,9 +1008,60 @@ local function lentTick(now)
     state().lent = keep
 end
 
+-- 보강이 끝나면 엔진 출력을 되돌린다. 그 사이 다른 손(튜닝 등)으로 출력이 바뀌었으면 그대로 둔다.
+-- 차가 지금 안 불러져 있으면 나중에 (state().engineRestore, 매분)
+local function engineRestore(e)
+    local v = getVehicleById and getVehicleById(e.vid)
+    if not v then return false end
+    local ok, err = pcall(function()
+        if v:getEnginePower() == e.boosted then
+            v:setEngineFeature(v:getEngineQuality(), v:getEngineLoudness(), e.power)
+            v:transmitEngine()
+        end
+    end)
+    log("specialty2 reinforce engine restored", e.vid, ok and "" or tostring(err))
+    return true
+end
+
+local function reinforceEnd(f)
+    if not f.engine then return end
+    local e = f.engine
+    f.engine = nil
+    if not engineRestore(e) then
+        local s = state()
+        s.engineRestore = s.engineRestore or {}
+        s.engineRestore[#s.engineRestore + 1] = e
+    end
+end
+
+local function engineRestoreTick()
+    local list = state().engineRestore
+    if not list or #list == 0 then return end
+    local keep = {}
+    for _, e in ipairs(list) do
+        if not engineRestore(e) then keep[#keep + 1] = e end
+    end
+    state().engineRestore = keep
+end
+Specialty2.engineRestoreTick = engineRestoreTick
+
 local function reinforce(player, ps, fid)
     local car = nearestVehicle(player)
     if not car then return false, "no_vehicle" end
+    -- 이미 다른 차를 보강 중이면 그 차는 되돌린다
+    for _, old in ipairs(state().fx) do
+        if old.kind == "reinforce" and old.key == ps.key then reinforceEnd(old) end
+    end
+    local engine = nil
+    local okE, errE = pcall(function()
+        local power = car:getEnginePower()
+        local boosted = math.floor(power * Specialty2.REINFORCE_POWER)
+        car:setEngineFeature(car:getEngineQuality(), car:getEngineLoudness(), boosted)
+        car:transmitEngine()
+        engine = { vid = car:getId(), power = power, boosted = boosted }
+    end)
+    log("specialty2 reinforce engine", okE and (tostring(engine and engine.power) .. " -> " .. tostring(engine and engine.boosted))
+        or ("failed " .. tostring(errE)))
     local snap = {}
     for i = 0, car:getPartCount() - 1 do
         local part = car:getPartByIndex(i)
@@ -979,7 +1069,7 @@ local function reinforce(player, ps, fid)
     end
     local now = Sensor.now()
     clientFx({ kind = "reinforce", key = ps.key, untilT = now.t + Specialty2.REINFORCE_HOURS * 60, vid = car:getId(),
-               snap = snap }, player, true)
+               snap = snap, engine = engine }, player, true)
     return true, { topic = "You talked " .. tostring(ps.name) .. " through bracing their vehicle: for the next six "
         .. "hours it can plough through the dead without slowing or breaking. Sound like you built a tank." }
 end
@@ -1010,6 +1100,60 @@ local function artillery(player, ps, fid, args)
     list[#list + 1] = { kind = "artillery", key = ps.key, dueT = Sensor.now().t + Specialty2.ARTY_DELAY, x = x, y = y, tries = 0 }
     return true, { topic = "Fire mission confirmed for " .. tostring(ps.name) .. ": three shells on the marked spot in about "
         .. "ten minutes. Tell them to keep well clear and expect every dead thing for miles to hear it." }
+end
+
+-- 조준 창 (2026-10-09 사용자 요청): 지도에서 고른 자리의 형편. 쓰지는 않는다.
+-- 반환 { opt, x, y, ok, reason, dist, zombies (서버가 아는 좀비, 칸이 불러졌을 때만), loaded, density, nearest, rooms }
+Specialty2.SCAN_RADIUS = 10
+function Specialty2.scan(player, fid, x, y)
+    local ps = Store.player(player)
+    local st = Specialty2.status(fid, ps)
+    local opt = st.choice
+    x, y = math.floor(tonumber(x) or 0), math.floor(tonumber(y) or 0)
+    local out = { faction = fid, opt = opt, x = x, y = y, dist = math.floor(dist(player:getX(), player:getY(), x, y)) }
+    local sq = getCell() and getCell():getGridSquare(x, y, 0)
+    out.loaded = sq ~= nil
+    if out.loaded then
+        local n = 0
+        local list = getCell():getZombieList()
+        for i = 0, (list and list:size() or 0) - 1 do
+            local z = list:get(i)
+            if z and not z:isDead() and not (StoryEngine.isALifeNpc and StoryEngine.isALifeNpc(z))
+                and dist(z:getX(), z:getY(), x, y) <= Specialty2.SCAN_RADIUS then
+                n = n + 1
+            end
+        end
+        out.zombies = n
+    end
+    if StoryEngine.Danger and StoryEngine.Danger.levelAt then
+        local okD, lv = pcall(StoryEngine.Danger.levelAt, x, y)
+        if okD then out.density = lv end
+    end
+    local nearest
+    eachPlayerDist(x, y, function(_, d) if not nearest or d < nearest then nearest = d end end)
+    out.nearest = nearest and math.floor(nearest) or nil
+    local handler = (opt == "artillery" or opt == "heist") and Specialty2.HANDLERS[opt]
+    if not handler then
+        out.reason = st.reason or "bad_option"
+    elseif st.reason then
+        out.reason = st.reason
+    elseif opt == "artillery" then
+        if out.dist > Specialty2.ARTY_RANGE then out.reason = "too_far"
+        elseif nearest and nearest < Specialty2.ARTY_SAFE then out.reason = "too_close" end
+    else
+        local def, names, rect = Specialty2.heistTarget(x, y)
+        if not def then
+            out.reason = names
+        else
+            out.rooms = #names
+            local h = homeOf(ps)
+            if h and h.x >= rect.x1 and h.x <= rect.x2 and h.y >= rect.y1 and h.y <= rect.y2 then out.reason = "own_home" end
+        end
+    end
+    out.ok = out.reason == nil
+    log("specialty2 scan", fid, tostring(opt), x, y, "zombies", tostring(out.zombies), "density", tostring(out.density),
+        "nearest", tostring(out.nearest), "reason", tostring(out.reason))
+    return out
 end
 
 local function explode(sq)
@@ -1058,9 +1202,15 @@ local function evac(player, ps, fid)
     local h = homeOf(ps)
     if not h then return false, "no_home" end
     if dist(player:getX(), player:getY(), h.x, h.y) < Specialty2.EVAC_MIN_DIST then return false, "home_near" end
+    -- 세이프하우스가 있으면 그 사각형도 넘겨 클라이언트가 그 안의 빈 바닥 칸을 고른다
+    local rect
+    local okSh, sh = pcall(function() return SafeHouse.hasSafehouse(player) end)
+    if okSh and sh then
+        rect = { sh:getX(), sh:getY(), sh:getX2(), sh:getY2() }
+    end
     local list = jobs()
     list[#list + 1] = { kind = "evac", key = ps.key, dueT = Sensor.now().t + Specialty2.EVAC_DELAY,
-                        x = h.x, y = h.y, z = h.z or 0 }
+                        x = h.x, y = h.y, z = h.z or 0, rect = rect }
     return true, { topic = "A helicopter is on its way to pull " .. tostring(ps.name) .. " out and fly them home, about "
         .. "twenty minutes out. Tell them to find open ground and hold on." }
 end
@@ -1069,20 +1219,181 @@ local function runEvac(job, now)
     local p = playerByKey(job.key)
     if not p or p:isDead() then return now.t - job.dueT > 60 end
     pcall(addSound, nil, math.floor(p:getX()), math.floor(p:getY()), 0, Specialty2.EVAC_NOISE, Specialty2.EVAC_NOISE)
-    Net.toClient(p, "spec2Teleport", { x = job.x, y = job.y, z = job.z })
+    Net.toClient(p, "spec2Teleport", { x = job.x, y = job.y, z = job.z, rect = job.rect })
     log("specialty2 evac", job.key, job.x, job.y)
     return true
 end
 
+-- 바깥 문·창문인가. 두 번째 값 = 아닌 이유 (진단 로그): barricaded | no_opposite | inside | outside | error
 local function exterior(o)
-    local ok, out = pcall(function()
-        if o:isBarricaded() then return false end
+    local ok, out, why = pcall(function()
+        if o:isBarricaded() then return false, "barricaded" end
         local a = o:getSquare()
         local b = o:getOppositeSquare()
-        if not a or not b then return false end
-        return (a:getRoom() == nil) ~= (b:getRoom() == nil)
+        if not a or not b then return false, "no_opposite" end
+        local ra, rb = a:getRoom() ~= nil, b:getRoom() ~= nil
+        if ra and rb then return false, "inside" end
+        if not ra and not rb then return false, "outside" end
+        return true
     end)
-    return ok and out == true
+    if not ok then return false, "error" end
+    return out == true, why
+end
+
+-- 공병 수리 (2026-10-09 사용자 요청): 집 건물 둘레(REPAIR_PAD 타일, 1·2층)의 상한 벽·울타리·문(직접 지은 것 포함)을
+-- 최대 체력으로, 깨진 창은 유리를 끼운다. 고친 수를 돌려준다
+Specialty2.REPAIR_PAD = 12
+Specialty2.REPAIR_MAX = 60
+-- 서버에서 바꾼 창·문 상태를 클라이언트에 알린다 (2026-10-09 인게임: sendObjectChange(STATE) 로는 창 유리가 안 보였음).
+-- jar: IsoObject.syncIsoObject(false, 0, nil, nil) 이 서버면 SyncIsoObject 패킷을 모두에게 보내고, IsoWindow 는
+-- open·destroyed(깨짐)·locked·glassRemoved·health 를, IsoDoor 는 열림·잠금·health 를 실어 받는 쪽이 스프라이트를 다시 고른다
+-- (바닐라 ISLockDoor 와 같은 호출)
+local function syncObject(o)
+    local ok, err = pcall(function() o:syncIsoObject(false, 0, nil, nil) end)
+    if not ok then log("specialty2 repair sync failed", tostring(err)) end
+end
+
+local function repairObject(o)
+    if instanceof(o, "IsoWindow") then
+        local ok, fixed = pcall(function()
+            if not o:isSmashed() and not o:isGlassRemoved() then return false end
+            o:setSmashed(false)
+            o:setGlassRemoved(false)
+            return true
+        end)
+        if ok and fixed then syncObject(o) end
+        return ok and fixed
+    end
+    if instanceof(o, "IsoThumpable") or instanceof(o, "IsoDoor") then
+        local ok, fixed = pcall(function()
+            local hp, max = o:getHealth(), o:getMaxHealth()
+            if not hp or not max or max <= 0 or hp >= max then return false end
+            o:setHealth(max)
+            return true
+        end)
+        -- IsoThumpable.setHealth 는 서버에서 스스로 알린다 (jar), 문은 직접
+        if ok and fixed and not instanceof(o, "IsoThumpable") then syncObject(o) end
+        return ok and fixed
+    end
+    return false
+end
+
+-- 부서진 바깥 문 다시 달기 (2026-10-09 사용자 요청): 집 건물의 바깥 문틀(한쪽만 방) 중 문이 없는 곳에 기본 나무문.
+-- 원래 어떤 문이었는지는 남지 않으므로 바닐라 문 그림 하나를 쓴다. 바닐라 가구 옮기기와 같은 순서:
+-- IsoDoor.new(cell, sq, 그림, north) -> AddSpecialObject -> transmitCompleteItemToClients (ISMoveableSpriteProps)
+-- 안쪽 문틀(원래 문 없는 통로가 많다)은 건드리지 않는다
+Specialty2.DOOR_SPRITE = { north = "fixtures_doors_01_1", west = "fixtures_doors_01_0" }
+Specialty2.DOOR_MAX = 4
+
+-- 이 칸의 문틀 방향: "north" | "west" | nil
+local function frameDir(sq)
+    local objs = sq:getObjects()
+    for j = 0, objs:size() - 1 do
+        local o = objs:get(j)
+        local ok, dir = pcall(function()
+            local t = o:getType()
+            if t == IsoObjectType.doorFrN then return "north" end
+            if t == IsoObjectType.doorFrW then return "west" end
+            local sp = o:getSprite()
+            local props = sp and sp:getProperties()
+            if props and props:has("DoorWallN") then return "north" end
+            if props and props:has("DoorWallW") then return "west" end
+            return nil
+        end)
+        if ok and dir then return dir end
+    end
+    return nil
+end
+
+local function hasDoor(sq, north)
+    local objs = sq:getObjects()
+    for j = 0, objs:size() - 1 do
+        local o = objs:get(j)
+        local ok, yes = pcall(function()
+            if instanceof(o, "IsoDoor") then return o:getNorth() == north end
+            if instanceof(o, "IsoThumpable") and o:isDoor() then return o:getNorth() == north end
+            return false
+        end)
+        if ok and yes then return true end
+    end
+    return false
+end
+
+function Specialty2.rebuildDoors(def)
+    local x1, y1, x2, y2
+    local rooms = def:getRooms()
+    for i = 0, rooms:size() - 1 do
+        local r = rooms:get(i)
+        x1 = math.min(x1 or r:getX(), r:getX())
+        y1 = math.min(y1 or r:getY(), r:getY())
+        x2 = math.max(x2 or r:getX2(), r:getX2())
+        y2 = math.max(y2 or r:getY2(), r:getY2())
+    end
+    if not x1 then return 0 end
+    local cell = getCell()
+    local made, notes = 0, {}
+    for z = 0, 1 do
+        for x = x1 - 1, x2 + 1 do
+            for y = y1 - 1, y2 + 1 do
+                if made >= Specialty2.DOOR_MAX then break end
+                local sq = cell:getGridSquare(x, y, z)
+                local dir = sq and frameDir(sq)
+                if dir then
+                    local north = dir == "north"
+                    -- 문틀 칸과 맞은편 칸 (북쪽 벽이면 y-1, 서쪽 벽이면 x-1) 중 한쪽만 방이면 바깥 문
+                    local other = north and cell:getGridSquare(x, y - 1, z) or cell:getGridSquare(x - 1, y, z)
+                    local outer = other ~= nil and ((sq:getRoom() ~= nil) ~= (other:getRoom() ~= nil))
+                    if outer and not hasDoor(sq, north) then
+                        local ok, err = pcall(function()
+                            local door = IsoDoor.new(cell, sq, Specialty2.DOOR_SPRITE[dir], north)
+                            sq:AddSpecialObject(door)
+                            door:transmitCompleteItemToClients()
+                        end)
+                        notes[#notes + 1] = dir .. "@" .. StoryEngine.intToString(x) .. "," .. StoryEngine.intToString(y)
+                            .. (ok and "" or ("!" .. tostring(err)))
+                        if ok then made = made + 1 end
+                    end
+                end
+            end
+        end
+    end
+    log("specialty2 doors rebuilt", made, table.concat(notes, " "))
+    return made
+end
+
+function Specialty2.repairAround(def)
+    local x1, y1, x2, y2
+    local rooms = def:getRooms()
+    for i = 0, rooms:size() - 1 do
+        local r = rooms:get(i)
+        x1 = math.min(x1 or r:getX(), r:getX())
+        y1 = math.min(y1 or r:getY(), r:getY())
+        x2 = math.max(x2 or r:getX2(), r:getX2())
+        y2 = math.max(y2 or r:getY2(), r:getY2())
+    end
+    if not x1 then return 0 end
+    local pad = Specialty2.REPAIR_PAD
+    local fixed, kinds = 0, {}
+    for z = 0, 1 do
+        for x = x1 - pad, x2 + pad do
+            for y = y1 - pad, y2 + pad do
+                if fixed >= Specialty2.REPAIR_MAX then break end
+                local sq = getCell():getGridSquare(x, y, z)
+                local objs = sq and sq:getObjects()
+                for j = 0, (objs and objs:size() or 0) - 1 do
+                    local o = objs:get(j)
+                    if o and repairObject(o) then
+                        fixed = fixed + 1
+                        local k = instanceof(o, "IsoWindow") and "window" or instanceof(o, "IsoDoor") and "door" or "thumpable"
+                        kinds[k] = (kinds[k] or 0) + 1
+                    end
+                end
+            end
+        end
+    end
+    log("specialty2 repair around home", fixed, "window", tostring(kinds.window or 0), "door", tostring(kinds.door or 0),
+        "wall/fence", tostring(kinds.thumpable or 0))
+    return fixed
 end
 
 local function barricade(player, ps, fid)
@@ -1092,39 +1403,62 @@ local function barricade(player, ps, fid)
     local def = getWorld():getMetaGrid():getBuildingAt(h.x, h.y)
     if not def then return false, "no_building" end
     local seen, openings = {}, {}
+    local nSeen, nRooms, nGround, nSquares, skip = 0, 0, 0, 0, {}
     local rooms = def:getRooms()
     for i = 0, rooms:size() - 1 do
         local room = rooms:get(i)
+        nRooms = nRooms + 1
         if room:getZ() == 0 then
+            nGround = nGround + 1
             for x = room:getX() - 1, room:getX2() + 1 do
                 for y = room:getY() - 1, room:getY2() + 1 do
                     local sq = getCell():getGridSquare(x, y, 0)
+                    if sq then nSquares = nSquares + 1 end
                     local objs = sq and sq:getObjects()
                     for j = 0, (objs and objs:size() or 0) - 1 do
                         local o = objs:get(j)
-                        if o and not seen[o] and (instanceof(o, "IsoWindow") or instanceof(o, "IsoDoor")) then
+                        if o and not seen[o] and instanceof(o, "IsoWindow") then   -- 문은 막지 않는다 (2026-10-09: 집 안에 갇혔음)
                             seen[o] = true
-                            if exterior(o) then openings[#openings + 1] = o end
+                            nSeen = nSeen + 1
+                            local ext, why = exterior(o)
+                            if ext then openings[#openings + 1] = o else skip[why or "?"] = (skip[why or "?"] or 0) + 1 end
                         end
                     end
                 end
             end
         end
     end
-    local made = 0
+    local made, notes = 0, {}
     for _, o in ipairs(openings) do
         if made >= Specialty2.BARRICADE_MAX then break end
-        local ok = pcall(function()
+        local ok, err = pcall(function()
             local b = IsoBarricade.AddBarricadeToObject(o, player)
             if not b then error("no barricade") end
             b:addMetal(player, instanceItem("Base.SheetMetal"))
             b:transmitCompleteItemToClients()
         end)
+        -- 진단 (2026-10-09 인게임: 성공으로 끝났는데 바리케이드가 안 보였다는 보고)
+        local okB, after = pcall(function() return o:isBarricaded() end)
+        local sq = o:getSquare()
+        notes[#notes + 1] = (instanceof(o, "IsoDoor") and "door" or "window") .. "@"
+            .. StoryEngine.intToString(sq and sq:getX() or 0) .. "," .. StoryEngine.intToString(sq and sq:getY() or 0)
+            .. (ok and "" or ("!" .. tostring(err))) .. (okB and after and "+B" or "-B")
         if ok then made = made + 1 end
     end
-    if made == 0 then return false, "no_openings" end
-    return true, { count = made, topic = "Your engineers just bolted metal sheets over " .. StoryEngine.intToString(made)
-        .. " doors and windows at " .. tostring(ps.name) .. "'s home. Report it like a sergeant." }
+    local skipped = {}
+    for k, v in pairs(skip) do skipped[#skipped + 1] = k .. "=" .. StoryEngine.intToString(v) end
+    log("specialty2 barricade building", StoryEngine.intToString(h.x), StoryEngine.intToString(h.y),
+        "rooms", nRooms, "ground", nGround, "squares", nSquares, "doors/windows", nSeen,
+        "skipped", table.concat(skipped, ","), "openings", #openings, "made", made, table.concat(notes, " "))
+    local fixed = Specialty2.repairAround(def)
+    local okD, doors = pcall(Specialty2.rebuildDoors, def)
+    if not okD then log("specialty2 doors error", tostring(doors)) doors = 0 end
+    fixed = fixed + doors
+    if made == 0 and fixed == 0 then return false, "no_openings" end
+    return true, { count = made, fixed = fixed,
+                   topic = "Your engineers just bolted metal sheets over " .. StoryEngine.intToString(made)
+        .. " windows (not the doors, so nobody gets locked in) at " .. tostring(ps.name) .. "'s home and patched up " .. StoryEngine.intToString(fixed)
+        .. " damaged walls, fences, doors and windows around it. Report it like a sergeant." }
 end
 
 -- ---- 빅: 대리 털이
@@ -1185,7 +1519,17 @@ local function fullType(name)
     return nil
 end
 
--- 바닐라 분포표로 방 하나를 굴린다 (SuburbsDistributions -> ProceduralDistributions)
+-- 서버 샌드박스의 품목별 루팅 배율 (음식·무기·탄약 … 희귀도, 0 = 안 나옴). 바닐라 SpawnRateChecker 와 같은 함수.
+-- 못 읽으면 1
+function Specialty2.lootModifier(name)
+    local ok, m = pcall(function() return ItemPickerJava.getLootModifier(name) end)
+    m = ok and tonumber(m) or nil
+    if not m then return 1 end
+    return math.max(0, m)
+end
+
+-- 바닐라 분포표로 방 하나를 굴린다 (SuburbsDistributions -> ProceduralDistributions).
+-- 확률 = 표의 값 x 샌드박스 품목 배율 x HEIST_LOOT (바닐라 SpawnRateChecker: 값 x getLootModifier / 100)
 local function rollItems(list, rolls, out, cap)
     if type(list) ~= "table" then return end
     for _ = 1, math.max(1, rolls or 1) do
@@ -1193,9 +1537,29 @@ local function rollItems(list, rolls, out, cap)
             if #out >= cap then return end
             local ft = fullType(list[i])
             local chance = (tonumber(list[i + 1]) or 0) * Specialty2.HEIST_LOOT
-            if ft and ZombRandFloat(0, 100) < chance then out[#out + 1] = ft end
+            if ft then chance = chance * Specialty2.lootModifier(list[i]) end
+            if ft and chance > 0 and ZombRandFloat(0, 100) < chance then out[#out + 1] = ft end
         end
     end
+end
+
+-- LootRemover 모드가 켜져 있으면 보관함 루팅에 쓰는 것과 같은 확률로 지운다 (그 모드는 OnFillContainer 에서
+-- 지우는데 털이는 보관함을 채우지 않아 그냥 두면 비켜 간다). 반환: 남은 물건, 지운 수
+function Specialty2.lootRemover(items)
+    local LR = LootRemover
+    if type(LR) ~= "table" or type(LR.getChance) ~= "function" then return items, 0 end
+    local okC, chance = pcall(LR.getChance)
+    chance = okC and tonumber(chance) or 0
+    if type(LR.affectContainers) == "function" then
+        local okA, on = pcall(LR.affectContainers)
+        if okA and on == false then chance = 0 end
+    end
+    if chance <= 0 then return items, 0 end
+    local kept, removed = {}, 0
+    for _, ft in ipairs(items) do
+        if chance >= 100 or ZombRand(100) < chance then removed = removed + 1 else kept[#kept + 1] = ft end
+    end
+    return kept, removed
 end
 
 function Specialty2.rollRoom(name, out, cap)
@@ -1229,7 +1593,20 @@ function Specialty2.rollRoom(name, out, cap)
     end
 end
 
--- 빅 몫: 가치로 30% 를 떼어 간다 (비싼 것부터 무작위로 빼지 않고, 무작위 순서로 몫이 찰 때까지)
+function Specialty2.cutOf(total)
+    local cut, low = 0, 0
+    for _, b in ipairs(Specialty2.HEIST_BRACKETS) do
+        if total <= low then break end
+        cut = cut + (math.min(total, b[1]) - low) * b[2]
+        low = b[1]
+    end
+    return cut
+end
+
+-- 빅이 몫을 떼어 간다. 두 가지로 골라 몫에 더 가까운 쪽 (같으면 빅이 더 가져가는 쪽):
+--  A 비싼 물건부터 몫을 넘지 않는 만큼 + 모자라면 남은 몫의 두 배 이하인 가장 싼 물건 하나
+--  B 가장 비싼 물건을 먼저 챙기고 나머지를 몫을 넘지 않는 만큼
+-- 반환: 남은 물건, 털어 온 가치, 빅이 가져간 가치
 function Specialty2.takeCut(items)
     local Value = StoryEngine.Value
     local total = 0
@@ -1238,25 +1615,42 @@ function Specialty2.takeCut(items)
         vals[i] = Value and Value.of(ft) or 1
         total = total + vals[i]
     end
-    local target = total * Specialty2.HEIST_CUT
-    local taken = 0
+    local target = Specialty2.cutOf(total)
     local idx = {}
     for i = 1, #items do idx[i] = i end
-    for i = #idx, 2, -1 do
-        local j = ZombRand(i) + 1
-        idx[i], idx[j] = idx[j], idx[i]
+    table.sort(idx, function(a, b) return vals[a] > vals[b] end)
+    local function greedy(drop, taken)
+        for _, i in ipairs(idx) do
+            if not drop[i] and taken + vals[i] <= target then
+                drop[i] = true
+                taken = taken + vals[i]
+            end
+        end
+        return drop, taken
     end
-    local drop = {}
-    for _, i in ipairs(idx) do
-        if taken >= target then break end
-        drop[i] = true
-        taken = taken + vals[i]
+    local dropA, takenA = greedy({}, 0)
+    if takenA < target then
+        local left = target - takenA
+        for k = #idx, 1, -1 do
+            local i = idx[k]
+            if not dropA[i] and vals[i] >= left and vals[i] <= left * 2 then
+                dropA[i] = true
+                takenA = takenA + vals[i]
+                break
+            end
+        end
+    end
+    local drop, taken = dropA, takenA
+    if #idx > 0 and target > 0 then
+        local dropB, takenB = greedy({ [idx[1]] = true }, vals[idx[1]])
+        local dA, dB = math.abs(takenA - target), math.abs(takenB - target)
+        if dB < dA or (dB == dA and takenB > takenA) then drop, taken = dropB, takenB end
     end
     local kept = {}
     for i, ft in ipairs(items) do
         if not drop[i] then kept[#kept + 1] = ft end
     end
-    return kept
+    return kept, total, taken
 end
 
 -- 그 건물 보관함을 비우고 다시 루팅이 생기지 않게 (지금 로드된 칸, 그리고 나중에 로드될 때)
@@ -1317,7 +1711,11 @@ local function runHeist(job, now)
         Specialty2.rollRoom(name, items, Specialty2.HEIST_MAX_ITEMS)
         if #items >= Specialty2.HEIST_MAX_ITEMS then break end
     end
-    items = Specialty2.takeCut(items)
+    local rolled = #items
+    local removed
+    items, removed = Specialty2.lootRemover(items)
+    local total, taken
+    items, total, taken = Specialty2.takeCut(items)
     local s = state()
     s.heistSeq = (s.heistSeq or 0) + 1
     local h = { id = s.heistSeq, x1 = job.rect.x1, y1 = job.rect.y1, x2 = job.rect.x2, y2 = job.rect.y2, t = now.t }
@@ -1327,7 +1725,8 @@ local function runHeist(job, now)
         local ps = Store.player(player)
         deliver(player, ps, "rats", "heist", items)
     end
-    log("specialty2 heist done", job.key, #items)
+    log("specialty2 heist done", job.key, #items, "rolled", rolled, "loot remover", removed,
+        "value", string.format("%.1f", total or 0), "vic took", string.format("%.1f", taken or 0))
     return true
 end
 
@@ -1385,6 +1784,28 @@ local function jobTick(now)
     end
     state().jobs = keep
     lentTick(now)
+end
+
+-- 디버그: 이 사람이 맡긴 예약 일(털이·견인·후송·포격·기우제 시작)을 지금 바로 실행한다.
+-- 기우제는 시작을 당긴 만큼 그치는 때도 당겨 12시간 그대로. 실행한 수를 돌려준다
+function Specialty2.debugRushJobs(key)
+    local now = Sensor.now()
+    local n, shift = 0, nil
+    for _, job in ipairs(jobs()) do
+        if job.key == key and job.kind ~= "rain_stop" and job.dueT > now.t then
+            if job.kind == "rain_start" then shift = job.dueT - now.t end
+            job.dueT = now.t
+            n = n + 1
+        end
+    end
+    if shift then
+        for _, job in ipairs(jobs()) do
+            if job.key == key and job.kind == "rain_stop" then job.dueT = job.dueT - shift end
+        end
+    end
+    jobTick(now)
+    log("specialty2 debug rush", key, n)
+    return n
 end
 Specialty2.jobTick = jobTick
 
@@ -1446,7 +1867,8 @@ function Specialty2.use(player, fid, args)
                         item = info.item })
     if info.topic then
         Radio.react(fid, "event", info.topic .. " Keep it short and in character.",
-            { text = "On it.", lt = { key = "IGUI_StoryEngine_RadioSay_spec2_" .. opt } }, ps, { overhead = true })
+            { text = "On it.", lt = { key = "IGUI_StoryEngine_RadioSay_spec2_" .. opt .. (info.say and ("_" .. info.say) or "") } },
+            ps, { overhead = true })
     end
     log("specialty2", fid, opt, "for", ps.name)
     return true, info
@@ -1454,10 +1876,20 @@ end
 
 -- ---------------------------------------------------------------- 매분: 지속 효과
 
+-- 효과가 끝날 때 (플레이어가 접속해 있지 않아도)
+Specialty2.FX_END = {
+    reinforce = function(f) reinforceEnd(f) end,
+}
+
 local function fxTick(now)
     local s = state()
     local keep = {}
+    engineRestoreTick()
     for _, f in ipairs(s.fx) do
+        if now.t >= f.untilT and Specialty2.FX_END[f.kind] then
+            local okE, errE = pcall(Specialty2.FX_END[f.kind], f)
+            if not okE then log("specialty2 fx end error", f.kind, tostring(errE)) end
+        end
         if now.t < f.untilT then
             keep[#keep + 1] = f
             local p = playerByKey(f.key)
@@ -1514,16 +1946,24 @@ Specialty2.FX = {
         numb(p)
     end,
     -- 지구력이 줄어든 만큼의 2/3 을 돌려준다 (줄어드는 속도 1/3)
-    baptism = function(p, f)
+    baptism = function(p, f, now)
         local stats = p:getStats()
         local cur = stats:get(CharacterStat.ENDURANCE)
         if f.last and cur < f.last then
             local kept = f.last - (f.last - cur) * Specialty2.BAPTISM_SHARE
             stats:set(CharacterStat.ENDURANCE, kept)
             pcall(syncPlayerStats, p, 0x7FFFFFFF)
+            f.lost = (f.lost or 0) + (f.last - cur)
+            f.back = (f.back or 0) + (kept - cur)
             f.last = kept
         else
             f.last = cur
+        end
+        -- 진단 (2026-10-09): 10분마다 서버가 본 지구력과 돌려준 양 (멀티에서 서버가 지구력 감소를 보는지 확인용)
+        if now and (not f.logT or now.t - f.logT >= 10) then
+            f.logT = now.t
+            log("specialty2 baptism endurance", string.format("%.3f", cur), "lost", string.format("%.3f", f.lost or 0),
+                "given back", string.format("%.3f", f.back or 0))
         end
     end,
     -- A-Life 가 없을 때의 보디가드: 10분마다 가까이 온 좀비를 둘까지 (요청한 클라이언트가 쓰러뜨린다)

@@ -118,6 +118,18 @@ function Danger.rank(x, y, v)
     return below / #values
 end
 
+-- 이 자리의 밀집도 값 (못 읽으면 nil)
+Danger.at = readAt
+
+-- 이 자리의 밀집도를 둘레 지역 순위로: "low" | "mid" | "high" | nil
+function Danger.levelAt(x, y)
+    local v = readAt(x, y)
+    local rank = v and Danger.rank(x, y, v)
+    if not rank then return nil end
+    if rank < 0.34 then return "low" elseif rank < 0.67 then return "mid" end
+    return "high"
+end
+
 -- 디버그 한 줄: 이 자리·이 건물의 밀집도와 지역 경계
 function Danger.statusAt(x, y)
     local here = readAt(x, y)

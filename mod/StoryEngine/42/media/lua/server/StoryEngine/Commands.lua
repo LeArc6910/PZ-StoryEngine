@@ -217,6 +217,16 @@ function Commands.spec2Use(player, args)
 end
 
 -- 2차 특기 좀비 피 위장: 전력 질주·공격으로 풀렸다 (위장한 클라이언트가 알린다)
+-- 조준 창: 지도에서 고른 자리의 형편 (포격·대리 털이)
+function Commands.spec2Scan(player, args)
+    local ok, info = pcall(StoryEngine.Specialty2.scan, player, tostring(args.faction or ""), args.x, args.y)
+    if not ok then
+        StoryEngine.log("specialty2 scan error", tostring(info))
+        info = { faction = args.faction, x = args.x, y = args.y, reason = "bad_target" }
+    end
+    reply(player, "spec2ScanResult", info)
+end
+
 function Commands.spec2CamoEnd(player, args)
     StoryEngine.Specialty2.camoEnd(player)
 end
@@ -374,6 +384,10 @@ function Commands.debugLife(player, args)
         if ps.spec2 and ps.spec2[fid] then ps.spec2[fid].t = nil end
     end
     if args.project then StoryEngine.Projects.debugAdd(fid, math.floor(tonumber(args.project) or 0)) end
+    if args.spec2Now then
+        local n = StoryEngine.Specialty2.debugRushJobs(StoryEngine.Store.playerKey(player))
+        reply(player, "debugStatus", { text = "spec2 jobs run now: " .. tostring(n) })
+    end
     -- NPC 사이 사건 시험 (간격·확률 무시): share | clash | raid
     local NE = StoryEngine.NpcEvents
     local now = StoryEngine.Sensor.now()
@@ -458,6 +472,44 @@ end
 Commands.personalStatus = personalStatus
 
 -- 디버그: 요청한 사람의 개인 신뢰 조절 (개인 모드). args = { faction, delta } 또는 { faction, set }
+-- 테스트용 한 번에 (2026-10-09): 떠나지 않은 모든 NPC 신뢰도 100(개인 모드면 이 사람 개인 신뢰도 100), 자원 100,
+-- 1·2차 프로젝트 완성, 1·2차 특기 대기와 2차 특기 바꾸기 대기 초기화
+function Commands.debugMaxAll(player, args)
+    if not canUseDebug(player) then return end
+    local Trust, Projects = StoryEngine.Trust, StoryEngine.Projects
+    local key = StoryEngine.Store.playerKey(player)
+    local ps = StoryEngine.Store.player(player)
+    local done = {}
+    for _, f in ipairs(StoryEngine.Factions.list) do
+        local fid = f.id
+        if fid ~= "open" and not StoryEngine.Factions.isGone(fid) then
+            local ch = StoryEngine.Radio.channel(fid)
+            if ch.trust < 100 then Trust.apply(fid, 100 - ch.trust, "debug", nil, key) end
+            if Trust.personalMode() then
+                local now = Trust.personal(fid, key)
+                if now < 100 then Trust.addPersonal(fid, key, 100 - now, "debug") end
+            end
+            StoryEngine.Life.debugAdjust(fid, 0, 100)
+            if Projects.DEF[fid] then
+                if not Projects.done(fid) then Projects.debugAdd(fid, Projects.GOAL * 10) end
+                if not Projects.done2(fid) then Projects.debugAdd(fid, Projects.GOAL2 * 10) end
+            end
+            StoryEngine.Specialty.clearWait(fid)
+            StoryEngine.Specialty2.clearWait(fid)
+            if ps.spec2 and ps.spec2[fid] then ps.spec2[fid].t = nil end
+            done[#done + 1] = fid
+        end
+    end
+    StoryEngine.log("debug max all", key, table.concat(done, ","))
+    reply(player, "debugStatus", { text = "max all: " .. table.concat(done, ",") .. " | "
+        .. StoryEngine.Projects.statusText() })
+    reply(player, "radioChannels", {
+        channels = StoryEngine.Radio.channelList(key), hasRadio = StoryEngine.Factions.canTalk(player),
+        support = StoryEngine.ALife.channelInfo(),
+    })
+    reply(player, "lifeList", { npcs = StoryEngine.Life.list(key) })
+end
+
 function Commands.debugPersonalTrust(player, args)
     if not canUseDebug(player) then return end
     local Trust = StoryEngine.Trust

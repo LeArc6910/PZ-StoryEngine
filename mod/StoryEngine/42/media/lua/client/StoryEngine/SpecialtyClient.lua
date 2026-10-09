@@ -227,8 +227,15 @@ end
 -- 2단계 (2026-10-09): camo(좀비 표적 지우기)·flare(빛)·suppressor(내 총 소음)·reinforce(밀고 나가기, 운전자)
 SpecClient.fx = {}
 SpecClient.SUPPRESS = 0.3
-SpecClient.PLOW_MASS = 2.5
-SpecClient.PLOW_BUMP = 0.4          -- 한 틱에 속도가 이만큼(비율) 넘게 떨어지면 부딪힌 것: 되돌리지 않는다
+SpecClient.PLOW_BUMP = 0.4          -- 한 틱에 속도가 이만큼(비율) 넘게 떨어지면 벽 같은 큰 충돌: 밀어 주지 않는다
+-- 밀어 주기 (2026-10-09 사용자 결정 B, 시험): 가속 중 좀비 등에 부딪혀 줄어든 속도만큼 차를 앞으로 민다.
+-- jar: BaseVehicle.applyImpulseGeneric(점 x, 점 y, 점 z, 방향 x, 방향 y, 방향 z, 크기) — 충격 = 방향(정규화) x 크기,
+-- 바닐라가 보행자에 부딪힐 때 쌓는 충격 목록(impulsesFromHitObjects)에 더해진다. 크기 = 차 무게 x 줄어든 속도(m/s) x PLOW_PUSH
+-- (setSpeedKmHour 는 표시용 속도만 바꿔 효과가 없었다)
+SpecClient.PLOW_PUSH_ON = true
+SpecClient.PLOW_PUSH = 1.0
+SpecClient.PLOW_MIN_DROP = 0.3      -- km/h, 이보다 작은 변화는 무시
+SpecClient.PLOW_LOG_MS = 3000
 SpecClient.CAMO_RADIUS = 25
 
 local function sameFx(a, b)
@@ -241,7 +248,7 @@ function Client.handlers.spec2Fx(args)
     local keep = {}
     for _, f in ipairs(SpecClient.fx) do
         if sameFx(f, entry) then
-            entry.light, entry.lx, entry.ly, entry.mass = f.light, f.lx, f.ly, f.mass   -- 이어 쓰기
+            entry.light, entry.lx, entry.ly, entry.massFixed = f.light, f.lx, f.ly, f.massFixed   -- 이어 쓰기
         else
             keep[#keep + 1] = f
         end
@@ -266,7 +273,23 @@ local function isMe(f)
     return p ~= nil and t == p
 end
 
--- 위장: 대상에게 달려드는 좀비의 표적을 지운다 (좀비는 맡은 클라이언트가 움직이므로 모든 클라이언트가 한다)
+-- 위장: 둘레 좀비를 "쓸모없는" 좀비로 만든다 (2026-10-09 인게임: 표적만 지우면 공격은 못 해도 계속 쫓아와 붙었음).
+-- jar: IsoZombie.useless 면 보고 쫓기(spottedNew/Old)·소리 반응(RespondToSound)·걸어가기를 하지 않고, 네트워크 좀비 변수로
+-- 동기화된다. 좀비는 맡은 클라이언트가 움직이므로 모든 클라이언트가 한다. 우리가 바꾼 좀비만 기억했다가
+-- 반경을 벗어나거나 위장이 끝나면 되돌린다 (원래 쓸모없던 좀비는 건드리지 않음)
+SpecClient.camoZeds = {}
+SpecClient.CAMO_RELEASE = 10        -- 반경 + 이만큼 벗어나면 되돌린다
+
+local function camoRelease(z)
+    pcall(function() z:setUseless(false) end)
+    SpecClient.camoZeds[z] = nil
+end
+
+function SpecClient.camoEnd()
+    for z, _ in pairs(SpecClient.camoZeds) do camoRelease(z) end
+    SpecClient.camoZeds = {}
+end
+
 local function camoTick(f)
     local t = targetOf(f)
     if not t then return end
@@ -281,10 +304,24 @@ local function camoTick(f)
     local r2 = SpecClient.CAMO_RADIUS * SpecClient.CAMO_RADIUS
     for i = 0, list:size() - 1 do
         local z = list:get(i)
-        if z and not z:isDead() and z:getTarget() == t then
+        if z and not z:isDead() then
             local dx, dy = z:getX() - tx, z:getY() - ty
-            if dx * dx + dy * dy <= r2 then z:setTarget(nil) end
+            if dx * dx + dy * dy <= r2 then
+                if not SpecClient.camoZeds[z] and not z:isUseless() then
+                    z:setUseless(true)
+                    SpecClient.camoZeds[z] = true
+                end
+                if z:getTarget() == t then z:setTarget(nil) end
+            end
         end
+    end
+    local far = (SpecClient.CAMO_RADIUS + SpecClient.CAMO_RELEASE) ^ 2
+    for z, _ in pairs(SpecClient.camoZeds) do
+        local ok, d2 = pcall(function()
+            if z:isDead() then return math.huge end
+            return (z:getX() - tx) ^ 2 + (z:getY() - ty) ^ 2
+        end)
+        if not ok or d2 > far then camoRelease(z) end
     end
 end
 
@@ -329,6 +366,12 @@ function SpecClient.suppress(p, on)
     end)
 end
 
+-- 차 무게를 부품·짐으로 다시 계산 (바닐라 updateTotalMass), 안 되면 처음 무게
+local function restoreMass(v)
+    local ok = pcall(function() v:updateTotalMass() end)
+    if not ok then pcall(function() v:setMass(v:getInitialMass()) end) end
+end
+
 -- 밀고 나가기 (운전하는 사람만): 가속 중 서서히 떨어진 속도를 되돌린다, 크게 부딪히면 그대로
 function SpecClient.plowTick(p, f)
     local v = p:getVehicle()
@@ -336,27 +379,44 @@ function SpecClient.plowTick(p, f)
         f.lastSpeed = nil
         return
     end
-    if not f.mass then
-        f.mass = v:getMass()
-        v:setMass(v:getInitialMass() * SpecClient.PLOW_MASS)
+    -- 무게는 바꾸지 않는다 (2026-10-09 인게임: setMass 2.5배면 서스펜션이 다 눌려 차가 바닥에 가라앉고 못 움직였음).
+    -- 0.3.16 이 무겁게 만든 차는 처음 한 번 원래 무게로 다시 계산한다
+    if not f.massFixed then
+        f.massFixed = true
+        restoreMass(v)
     end
     local speed = v:getCurrentSpeedKmHour()
-    local last = f.lastSpeed
-    if last and v:isGasPedalPressed() and not v:isBrakePedalPressed() and math.abs(speed) < math.abs(last) then
-        local drop = (math.abs(last) - math.abs(speed)) / math.max(1, math.abs(last))
-        if drop < SpecClient.PLOW_BUMP then
-            v:setSpeedKmHour(last)
-            speed = last
-        end
+    local x, y = v:getX(), v:getY()
+    local last, lx, ly = f.lastSpeed, f.lastX, f.lastY
+    f.lastSpeed, f.lastX, f.lastY = speed, x, y
+    if not SpecClient.PLOW_PUSH_ON or f.pushOff or not last or not lx then return end
+    if not v:isGasPedalPressed() or v:isBrakePedalPressed() then return end
+    local lost = math.abs(last) - math.abs(speed)
+    if lost < SpecClient.PLOW_MIN_DROP or lost / math.max(1, math.abs(last)) >= SpecClient.PLOW_BUMP then return end
+    -- 움직이는 방향 (앞으로든 뒤로든 지금 가는 쪽)
+    local dx, dy = x - lx, y - ly
+    local len = math.sqrt(dx * dx + dy * dy)
+    if len < 0.001 then return end
+    local mag = v:getMass() * (lost / 3.6) * SpecClient.PLOW_PUSH
+    local ok, err = pcall(function()
+        v:applyImpulseGeneric(x, y, v:getZ(), dx / len, dy / len, 0, mag)
+    end)
+    if not ok then
+        f.pushOff = true
+        log("plow push failed, turned off:", tostring(err))
+        return
     end
-    f.lastSpeed = speed
+    local nowMs = StoryEngine.nowMs()
+    if not f.pushLogMs or nowMs - f.pushLogMs >= SpecClient.PLOW_LOG_MS then
+        f.pushLogMs = nowMs
+        log("plow push lost", string.format("%.1f", lost), "kmh speed", string.format("%.1f", speed), "impulse",
+            string.format("%.0f", mag))
+    end
 end
 
 local function plowEnd(p, f)
-    if not f.mass then return end
     local v = getVehicleById and getVehicleById(f.vid)
-    if v then pcall(function() v:setMass(f.mass) end) end
-    f.mass = nil
+    if v then restoreMass(v) end
 end
 
 -- 포격: 이 클라이언트가 보는 좀비 중 반경 안의 것을 쓰러뜨린다 (A-Life NPC 제외)
@@ -380,11 +440,68 @@ function Client.handlers.spec2Strike(args)
 end
 
 -- 헬기 후송: 서버가 정한 집으로 옮긴다 (차에 타 있으면 teleportTo 가 내리게 한다)
+-- 내릴 칸: 걸을 수 있는 빈 바닥 (벽·가구·물 위가 아님)
+local function freeFloor(sq)
+    if not sq then return false end
+    local ok, free = pcall(function() return sq:isFree(false) and not sq:isSolidTrans() end)
+    return ok and free == true
+end
+
+-- 목적지 둘레에서 빈 바닥 칸을 고른다. 세이프하우스 사각형(rect = {x1, y1, x2, y2})이 있으면 그 안만,
+-- 방 안 칸을 먼저, 그다음 가운데에 가까운 칸. 칸이 아직 안 불러졌으면 nil, "unloaded"
+SpecClient.LANDING_RADIUS = 12
+function SpecClient.findLanding(cell, x, y, z, rect)
+    if not cell:getGridSquare(x, y, z) then return nil, "unloaded" end
+    local x1, y1, x2, y2
+    if rect then
+        x1, y1, x2, y2 = math.min(rect[1], rect[3]), math.min(rect[2], rect[4]), math.max(rect[1], rect[3]), math.max(rect[2], rect[4])
+    else
+        local r = SpecClient.LANDING_RADIUS
+        x1, y1, x2, y2 = x - r, y - r, x + r, y + r
+    end
+    local best, bestScore
+    for sx = x1, x2 do
+        for sy = y1, y2 do
+            local sq = cell:getGridSquare(sx, sy, z)
+            if freeFloor(sq) then
+                local d = (sx - x) * (sx - x) + (sy - y) * (sy - y)
+                local score = d + ((sq:getRoom() and 0) or 10000)
+                if not bestScore or score < bestScore then best, bestScore = sq, score end
+            end
+        end
+    end
+    if not best then return nil, "no_floor" end
+    return best
+end
+
+-- 헬기 후송 착지: 옮긴 뒤 칸이 불러지면 빈 바닥 칸으로 다시 놓는다 (최대 약 15초)
+SpecClient.landing = nil
+local function landingTick(p)
+    local l = SpecClient.landing
+    if not l then return end
+    l.tries = l.tries + 1
+    local sq, why = SpecClient.findLanding(getCell(), l.x, l.y, l.z, l.rect)
+    if not sq and why == "unloaded" and l.tries < 150 then return end
+    SpecClient.landing = nil
+    if not sq then
+        log("evac landing kept:", why)
+        return
+    end
+    local cur = p:getCurrentSquare()
+    if cur ~= sq then
+        p:teleportTo(sq:getX() + 0.5, sq:getY() + 0.5, sq:getZ())
+    end
+    log("evac landed at", sq:getX(), sq:getY(), sq:getZ())
+end
+
 function Client.handlers.spec2Teleport(args)
     local p = getPlayer()
     if not p then return end
-    p:teleportTo(math.floor(tonumber(args.x) or p:getX()), math.floor(tonumber(args.y) or p:getY()),
-        math.floor(tonumber(args.z) or 0))
+    local x, y = math.floor(tonumber(args.x) or p:getX()), math.floor(tonumber(args.y) or p:getY())
+    local z = math.floor(tonumber(args.z) or 0)
+    p:teleportTo(x + 0.5, y + 0.5, z)
+    local rect = type(args.rect) == "table" and args.rect[4] and args.rect or nil
+    SpecClient.landing = { x = x, y = y, z = z, rect = rect, tries = 0 }
     HaloTextHelper.addGoodText(p, getText("IGUI_StoryEngine_Spec2_EvacDone"))
 end
 
@@ -418,6 +535,7 @@ local function spec2Tick(p)
         else
             if f.kind == "flare" then pcall(flareTick, f, true) end
             if f.kind == "reinforce" then pcall(plowEnd, p, f) end
+            if f.kind == "camo" then pcall(SpecClient.camoEnd) end
         end
     end
     SpecClient.fx = keep
@@ -461,6 +579,13 @@ Events.OnTick.Add(function()
     if not ok then log("comfort tick error:", err) end
     ok, err = pcall(spec2Tick, p)
     if not ok then log("spec2 tick error:", err) end
+    if SpecClient.landing then
+        ok, err = pcall(landingTick, p)
+        if not ok then
+            SpecClient.landing = nil
+            log("evac landing error:", err)
+        end
+    end
 end)
 
 
@@ -478,7 +603,23 @@ function SpecClient.mapOptions()
     return out
 end
 
+local function debugCamera()
+    return StoryEngine.CameraView ~= nil and Client.showDebugMenu ~= nil and Client.showDebugMenu()
+end
+
 function SpecClient.addMapOptions(context, wx, wy)
+    -- 디버그: 카메라만 그 자리로 (실시간 보기 시험)
+    if debugCamera() then
+        context:addOption(getText("IGUI_StoryEngine_Camera_Here"), nil, function()
+            StoryEngine.CameraView.start(math.floor(wx), math.floor(wy), 0)
+        end)
+    end
+    -- 조준 창이 열려 있으면 "여기 조준" 하나만
+    local Aim = StoryEngine.Aim
+    if Aim and Aim.active() then
+        context:addOption(getText("IGUI_StoryEngine_Aim_Here"), nil, function() Aim.pick(wx, wy) end)
+        return
+    end
     for _, e in ipairs(SpecClient.mapOptions()) do
         context:addOption(getText("IGUI_StoryEngine_Spec2_Map_" .. e.opt), e, function(entry)
             local p = getPlayer()
@@ -493,7 +634,8 @@ local function hookWorldMap()
     local orig = ISWorldMap.onRightMouseUp
     function ISWorldMap:onRightMouseUp(x, y)
         local entries = SpecClient.mapOptions()
-        if #entries == 0 then return orig(self, x, y) end
+        local aiming = StoryEngine.Aim and StoryEngine.Aim.active()
+        if #entries == 0 and not aiming and not debugCamera() then return orig(self, x, y) end
         if self.symbolsUI and self.symbolsUI:onRightMouseUpMap(x, y) then return true end
         local wx = self.mapAPI:uiToWorldX(x, y)
         local wy = self.mapAPI:uiToWorldY(x, y)

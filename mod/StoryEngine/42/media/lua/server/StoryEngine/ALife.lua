@@ -68,6 +68,10 @@ ALife.STATUS_LOG_MIN = 5                  -- 지원 대원 상태를 로그에 �
 ALife.PROTECT_MS = 500                    -- 아군 보호 주기 (실시간)
 ALife.IGNORE_HOLD_MS = 3000               -- 플레이어를 무시 대상으로 거는 시간 (PROTECT_MS 마다 갱신)
 ALife.ATTACK_LEVEL = { 1, 3, 5 }
+-- 따라오지 못한 대원 다시 붙이기 (2026-10-09 사용자 요청: 순간 이동·차량 뒤 대원이 140타일 떨어져 멈춰 있었음)
+ALife.REGROUP_DIST = 30                   -- 대상과 이만큼 떨어지면
+ALife.REGROUP_SPOT = { 4, 6 }             -- 대상 둘레 이 거리로 (거점 안이면 더 멀리, spawnSpot)
+ALife.REGROUP_GAP_MIN = 10                -- 같은 대원은 이 간격(게임 분)으로만
 
 local function PA() return ProjectALife end
 
@@ -152,21 +156,50 @@ local function profilesOf(factionId)
     return out
 end
 
+-- 그 세력이 지금 A-Life 에서 나올 수 있는가. 세력마다 등장 기간(일)이 있어 기간 밖이면 spawnEncounter 가
+-- 바로 거절한다 (faction_out_of_window, 2026-10-09 인게임: SOS 의 방위대원이 안 나옴). 확인할 수 없으면 된다고 본다
+function ALife.inSeason(factionId)
+    local pa = PA()
+    local catalog = pa and pa.Catalog
+    if type(catalog) ~= "table" then return true end
+    local ok, bad = pcall(function()
+        if type(catalog.deletedReason) == "function" and catalog.deletedReason(factionId, nil) ~= nil then return true end
+        local rules = pa.FactionSpawnRules
+        local faction = type(catalog.faction) == "function" and catalog.faction(factionId) or nil
+        if faction ~= nil and type(rules) == "table" and type(rules.inSeason) == "function" then
+            local day = getGameTime():getWorldAgeHours() / 24
+            return not rules.inSeason(faction, day)
+        end
+        return false
+    end)
+    return not (ok and bad)
+end
+
 -- 세력 목록과 구간(1~5)으로 A-Life 세력 하나와 대원 count 명을 고른다. 구간이 높을수록 강한 대원 위주.
 function ALife.pickSquad(fid, level, count)
     local list = ALife.FACTIONS[fid]
     if not list then return nil, "no_mapping" end
     level = math.max(1, math.min(5, level))
     local index = math.max(1, math.ceil(level * #list / 5))
+    -- 구간에 맞는 세력부터 약한 쪽으로, 없으면 강한 쪽으로 (등장 기간 밖이거나 대원이 없는 세력은 건너뜀)
+    local order = {}
+    for i = index, 1, -1 do order[#order + 1] = i end
+    for i = index + 1, #list do order[#order + 1] = i end
     local factionId, pool
-    for i = index, 1, -1 do
-        pool = profilesOf(list[i])
-        if #pool > 0 then
-            factionId = list[i]
-            break
+    local skipped = {}
+    for _, i in ipairs(order) do
+        if ALife.inSeason(list[i]) then
+            pool = profilesOf(list[i])
+            if #pool > 0 then
+                factionId = list[i]
+                break
+            end
+        else
+            skipped[#skipped + 1] = list[i]
         end
     end
-    if not factionId then return nil, "no_profiles" end
+    if #skipped > 0 then log("alife factions out of their window:", table.concat(skipped, ",")) end
+    if not factionId then return nil, #skipped > 0 and "out_of_window" or "no_profiles" end
     local scored = {}
     for _, p in ipairs(pool) do scored[#scored + 1] = { p = p, s = power(p) } end
     table.sort(scored, function(a, b) return a.s > b.s end)
@@ -637,7 +670,9 @@ function ALife.sendSupport(player, fid, how, reason, levelOverride, retry, count
     if not Factions.byId[fid] or not ALife.FACTIONS[fid] then return false, "no_faction" end
     if Factions.isGone(fid) then return false, "gone" end
     local ps = Store.player(player)
-    if activeFor(ps.key) then return false, "active" end
+    -- 이미 와 있는 지원이 있어도 특기·요청으로 부르는 지원은 더 보낸다 (2026-10-09 사용자 요청: 빅 보디가드가 있으면
+    -- SOS·방위대 특기가 막혔음). 자동 지원만 겹치지 않게 (opts.extra 는 예전 호출용)
+    if how == "auto" and not opts.extra and activeFor(ps.key) then return false, "active" end
     local level = levelOverride or ALife.level(trustOf(fid, ps.key))
     if level <= 0 then return false, "low_trust" end
     local count = countOverride or ALife.SIZE[level]
@@ -739,6 +774,39 @@ function ALife.request(player, fid)
     return ALife.sendSupport(player, fid, "request")
 end
 
+-- 멀리 떨어진 대원을 대상 둘레로 옮긴다: 깨어 있으면 A-Life 방식대로 내린 뒤(dehydrate) 자리만 바꿔
+-- 다시 띄운다(SpawnService.request, ALifePopulation 의 근접 스폰과 같은 순서). 싸우는 중이면 건드리지 않는다.
+-- 반환: 옮겼는가, 이유
+function ALife.regroup(uid, target)
+    local pa = PA()
+    local Reg, Spawn = pa and pa.ActorRegistry, pa and pa.SpawnService
+    if not Reg or not Spawn or type(Reg.update) ~= "function" or type(Spawn.request) ~= "function" then
+        return false, "no_api"
+    end
+    local record = actor(uid)
+    if not alive(record) then return false, "dead" end
+    if record.lifecycle == "active" then
+        local loop = pa.DecisionLoop
+        local st = loop and loop.states and loop.states[uid]
+        if st and st.kind == "combat" then return false, "combat" end
+        local okD, done, why = pcall(Spawn.dehydrate, uid, "storyengine_regroup")
+        if not okD or not done then return false, "dehydrate:" .. tostring(okD and why or done) end
+        record = actor(uid)
+        if not alive(record) then return false, "dead" end
+    end
+    local x, y = ALife.spawnSpot(target:getX(), target:getY(), ALife.REGROUP_SPOT)
+    local z = math.floor(target:getZ())
+    local okU, updated = pcall(Reg.update, uid, record.revision, function(r)
+        r.worldPosition = { x = x, y = y, z = z }
+    end)
+    if not okU or not updated then return false, "update_failed" end
+    local gen = (tonumber(updated.generation) or 0) + 1
+    local okR, req = pcall(Spawn.request, uid, "storyengine:regroup:" .. uid .. ":" .. gen,
+        uid .. ":" .. gen .. ":" .. tostring(x) .. ":" .. tostring(y), 2500)
+    if not okR or req == nil then return false, "request_refused" end
+    return true, x, y
+end
+
 -- 지원 대원에게 따라오기(또는 떠나기) 명령을 유지하고, 끝난 지원을 정리한다
 function ALife.refresh(s)
     local now = Sensor.now()
@@ -766,7 +834,16 @@ function ALife.refresh(s)
     end
     if s.phase == "follow" and target then
         local parts = {}
+        s.regroupT = s.regroupT or {}
         for _, uid in ipairs(living) do
+            local rx, ry = positionOf(actor(uid))
+            local far = rx and dist(rx, ry, target:getX(), target:getY()) or 0
+            if far >= ALife.REGROUP_DIST and now.t - (s.regroupT[uid] or -1e9) >= ALife.REGROUP_GAP_MIN then
+                s.regroupT[uid] = now.t
+                local okG, moved, gx, gy = pcall(ALife.regroup, uid, target)
+                log("alife regroup", uid, "from", math.floor(far), okG and moved and ("to " .. tostring(gx) .. " " .. tostring(gy))
+                    or ("skipped " .. tostring(okG and gx or moved)))
+            end
             local okOrder = order(uid, { kind = "follow", player = target, untilMs = nowMs() + ALife.ORDER_MS, quiet = true })
             local record = actor(uid)
             local x, y = positionOf(record)

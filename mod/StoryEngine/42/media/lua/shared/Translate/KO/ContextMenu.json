@@ -29,6 +29,8 @@
     "ContextMenu_StoryEngine_Life": "StoryEngine: 생활 자원 조절 (%1, 거점 탭에서 고른 상대)",
     "ContextMenu_StoryEngine_LifeBase": "기준값으로",
     "ContextMenu_StoryEngine_LifeClearWait": "물자 지원 대기 초기화",
+    "ContextMenu_StoryEngine_MaxAll": "모든 NPC 최대로 (신뢰도·자원 100, 1·2차 프로젝트 완성, 특기 대기 초기화)",
+    "ContextMenu_StoryEngine_Spec2Rush": "2차 특기 예약 바로 실행 (대리 털이·견인·헬기 후송·포격·기우제)",
     "ContextMenu_StoryEngine_SpecClearWait": "특기 대기 초기화",
     "ContextMenu_StoryEngine_FateDoom": "이야기 최악 결말 (다음 10분에)",
     "ContextMenu_StoryEngine_FateDead": "바로 죽음",
