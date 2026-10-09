@@ -66,6 +66,37 @@ Projects.DEF = {
     rats = { name = "turning the crew's hideout into a trading post", accept = "any", mult = 0.8 },
 }
 
+-- 2차 장기 프로젝트 (2026-10-09, docs/IDEAS_SPECIALTY_2.md): 1차를 끝낸 NPC 만 열린다. 점수 얻는 법은 1차와 같고
+-- (Projects.add 가 1차가 끝났으면 2차로 보낸다), 끝나면 플레이어마다 2차 특기를 고른다 (Specialty2.lua)
+Projects.GOAL2 = 2000
+Projects.DEF2 = {
+    ray = { name = "a farming co-op with the neighboring farms" },
+    casey = { name = "a county-wide relay radio network" },
+    doc = { name = "a proper field hospital" },
+    pike = { name = "a refugee shelter at the church" },
+    dewey = { name = "a full machine shop" },
+    guard = { name = "rebuilding the guard's forward outpost" },
+    hunter = { name = "a chain of hunting cabins across the woods" },
+    rats = { name = "an underground network out of Coalfield" },
+}
+
+function Projects.of2(fid)
+    if not Projects.DEF2[fid] then return nil end
+    local n = Life.npc(fid)
+    n.project2 = n.project2 or { points = 0, stage = 0 }
+    return n.project2
+end
+
+function Projects.done2(fid)
+    local p = Projects.DEF2[fid] and Life.npc(fid).project2
+    return p ~= nil and p.done == true
+end
+
+-- 지원할 프로젝트가 더 없다 (1차·2차 모두 끝)
+function Projects.allDone(fid)
+    return Projects.done(fid) and (not Projects.DEF2[fid] or Projects.done2(fid))
+end
+
 function Projects.of(fid)
     if not Projects.DEF[fid] then return nil end
     local n = Life.npc(fid)
@@ -87,6 +118,7 @@ end
 
 local function pct(points) return math.floor(math.min(Projects.GOAL, points) * 100 / Projects.GOAL) end
 local function percent(p) return pct(p.points) end
+local function pct2(points) return math.floor(math.min(Projects.GOAL2, points) * 100 / Projects.GOAL2) end
 
 -- 물건을 받는 규칙 (Value.projectItem 에 넘긴다)
 function Projects.rule(fid)
@@ -141,6 +173,15 @@ end
 -- 진행도를 반으로 (방치·실패로 잃은 NPC 의 후임이 이어받을 때, Voices.lua). 끝난 프로젝트는 그대로
 function Projects.halve(fid)
     local p = Projects.DEF[fid] and Projects.of(fid)
+    if p and p.done and Projects.DEF2[fid] then
+        local p2 = Projects.of2(fid)
+        if not p2.done then
+            p2.points = math.floor((p2.points or 0) / 2)
+            p2.stage = 0
+            log("project2 halved", fid, p2.points)
+        end
+        return
+    end
     if not p or p.done then return end
     p.points = math.floor((p.points or 0) / 2)
     local stage = 0
@@ -156,7 +197,7 @@ function Projects.add(fid, points, who, why)
     local def = Projects.DEF[fid]
     if not def or points <= 0 or Factions.isGone(fid) then return 0 end
     local p = Projects.of(fid)
-    if p.done then return 0 end
+    if p.done then return Projects.add2(fid, points, who, why) end
     local before = p.points
     p.points = math.min(Projects.GOAL, p.points + points)
     local added = p.points - before
@@ -173,6 +214,53 @@ function Projects.add(fid, points, who, why)
                 .. StoryEngine.intToString(percent(p)) .. "% done, thanks to the players. Tell them how it is going.",
                 StoryEngine.Lines.fallback(fid, "project_progress", "The project is coming along.",
                     { { t = "num", v = percent(p) } }), nil)
+        end
+    end
+    return added
+end
+
+local function complete2(fid, who)
+    local p = Projects.of2(fid)
+    local now = Sensor.now()
+    p.done, p.doneDay = true, Store.dayIndex(now.dayKey)
+    local def = Projects.DEF2[fid]
+    log("project2 done", fid, who or "")
+    if StoryEngine.Chronicle then StoryEngine.Chronicle.add(fid, { k = "project", done = true, who = who, phase = 2 }) end
+    Life.record(fid, "project_done", who, 0)
+    Radio.react(fid, "event", "Your second big project is finished: " .. def.name .. ", thanks to the players. Tell them, "
+        .. "and say you can now do something special for each of them: they should pick it in the base tab.",
+        StoryEngine.Lines.fallback(fid, "project_done", "We finished it. Thank you."), nil)
+    if StoryEngine.Social then
+        StoryEngine.Social.news("all", (Stories.NAMES[fid] or fid) .. " finished " .. def.name .. " with the players' help.")
+    end
+    for _, ps in ipairs(livingPlayers()) do
+        Store.addNote(ps, { kind = "project_done", faction = fid, item = def.name, clock = now.clock })
+    end
+    pcall(Net.toAll, "projectDone", { faction = fid, phase = 2 })
+end
+
+-- 2차 프로젝트에 점수를 더한다 (1차가 끝난 뒤). 반환: 실제로 더한 점수
+function Projects.add2(fid, points, who, why)
+    local def = Projects.DEF2[fid]
+    if not def or points <= 0 or Factions.isGone(fid) or not Projects.done(fid) then return 0 end
+    if StoryEngine.Specialty2 and not StoryEngine.Specialty2.enabled() then return 0 end
+    local p = Projects.of2(fid)
+    if p.done then return 0 end
+    local before = p.points
+    p.points = math.min(Projects.GOAL2, p.points + points)
+    local added = p.points - before
+    log("project2", fid, before, "->", p.points, why or "")
+    if p.points >= Projects.GOAL2 then
+        complete2(fid, who)
+        return added
+    end
+    for i, stage in ipairs(Projects.STAGES) do
+        if pct2(before) < stage and pct2(p.points) >= stage and (p.stage or 0) < i then
+            p.stage = i
+            Radio.react(fid, "event", "Progress on your second big project (" .. def.name .. "): about "
+                .. StoryEngine.intToString(pct2(p.points)) .. "% done, thanks to the players. Tell them how it is going.",
+                StoryEngine.Lines.fallback(fid, "project_progress", "The project is coming along.",
+                    { { t = "num", v = pct2(p.points) } }), nil)
         end
     end
     return added
@@ -233,6 +321,12 @@ function Projects.info(fid)
     local def = Projects.DEF[fid]
     if not def then return nil end
     local p = Projects.of(fid)
+    -- 1차가 끝났으면 지금 채우는 2차를 보여 준다 (phase = 2, 받는 물건 규칙은 1차와 같음)
+    if p.done and Projects.DEF2[fid] and (not StoryEngine.Specialty2 or StoryEngine.Specialty2.enabled()) then
+        local p2 = Projects.of2(fid)
+        return { points = p2.points, goal = Projects.GOAL2, done = p2.done or nil, res = def.res, accept = def.accept,
+                 mult = def.mult, name = Projects.DEF2[fid].name, percent = pct2(p2.points), phase = 2 }
+    end
     return { points = p.points, goal = Projects.GOAL, done = p.done or nil, res = def.res, accept = def.accept,
              mult = def.mult, name = def.name, percent = percent(p) }
 end
@@ -245,7 +339,12 @@ function Projects.statusText()
     local parts = {}
     for fid, _ in pairs(Projects.DEF) do
         local p = Projects.of(fid)
-        if p.points > 0 then parts[#parts + 1] = fid .. ":" .. (p.done and "done" or tostring(p.points)) end
+        if p.points > 0 then
+            local text = p.done and "done" or tostring(p.points)
+            local p2 = p.done and Projects.of2(fid)
+            if p2 and p2.points > 0 then text = text .. "/2:" .. (p2.done and "done" or tostring(p2.points)) end
+            parts[#parts + 1] = fid .. ":" .. text
+        end
     end
     table.sort(parts)
     return "projects " .. (#parts > 0 and table.concat(parts, " ") or "none")

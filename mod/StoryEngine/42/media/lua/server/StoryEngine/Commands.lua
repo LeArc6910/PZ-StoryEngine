@@ -22,6 +22,7 @@ require "StoryEngine/Banter"
 require "StoryEngine/Social"
 require "StoryEngine/Life"
 require "StoryEngine/Specialty"
+require "StoryEngine/Specialty2"
 require "StoryEngine/Fate"
 require "StoryEngine/Projects"
 require "StoryEngine/NpcEvents"
@@ -196,6 +197,24 @@ function Commands.specialtyRequest(player, args)
     reply(player, "lifeList", { npcs = StoryEngine.Life.list(StoryEngine.Store.playerKey(player)) })
 end
 
+-- 2차 특기 고르기 (2차 장기 프로젝트가 끝난 NPC, 처음이거나 30일마다)
+function Commands.spec2Choose(player, args)
+    local fid = tostring(args.faction or "")
+    local ok, info = StoryEngine.Specialty2.choose(player, fid, tostring(args.option or ""))
+    reply(player, "spec2Result", { ok = ok, faction = fid, chosen = ok and info.option or nil,
+                                   error = (not ok) and tostring(info) or nil })
+    reply(player, "lifeList", { npcs = StoryEngine.Life.list(StoryEngine.Store.playerKey(player)) })
+end
+
+-- 2차 특기 쓰기. 약 조제는 args.med·count
+function Commands.spec2Use(player, args)
+    local fid = tostring(args.faction or "")
+    local ok, info, wait = StoryEngine.Specialty2.use(player, fid, { med = args.med, count = args.count })
+    reply(player, "spec2Result", { ok = ok, faction = fid, used = ok or nil, error = (not ok) and tostring(info) or nil,
+                                   wait = wait })
+    reply(player, "lifeList", { npcs = StoryEngine.Life.list(StoryEngine.Store.playerKey(player)) })
+end
+
 -- 닥 치료: 클라이언트가 10초 동안 가만히 있었다
 function Commands.specHealDone(player, args)
     local ok, info = StoryEngine.Specialty.healDone(player)
@@ -341,7 +360,13 @@ function Commands.debugLife(player, args)
         StoryEngine.Life.npc(fid).donatedT = nil
         StoryEngine.Life.npc(fid).donateWin = nil
     end
-    if args.clearSpec then StoryEngine.Specialty.clearWait(fid) end
+    if args.clearSpec then
+        StoryEngine.Specialty.clearWait(fid)
+        StoryEngine.Specialty2.clearWait(fid)
+        -- 2차 특기 고르기 대기도 (30일)
+        local ps = StoryEngine.Store.player(player)
+        if ps.spec2 and ps.spec2[fid] then ps.spec2[fid].t = nil end
+    end
     if args.project then StoryEngine.Projects.debugAdd(fid, math.floor(tonumber(args.project) or 0)) end
     -- NPC 사이 사건 시험 (간격·확률 무시): share | clash | raid
     local NE = StoryEngine.NpcEvents

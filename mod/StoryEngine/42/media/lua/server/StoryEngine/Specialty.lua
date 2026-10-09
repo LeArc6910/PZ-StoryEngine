@@ -295,7 +295,10 @@ function Specialty.snipeDone(player, fid, kills)
     local cap = Specialty.snipeCap[ps.key] or Specialty.SNIPE_MAX_KILLS
     Specialty.snipeCap[ps.key] = nil
     kills = math.max(0, math.min(cap, math.floor(tonumber(kills) or 0)))
-    Store.addNote(ps, { kind = "specialty_snipe", faction = fid, count = kills, clock = Sensor.now().clock })
+    -- 빅 보디가드(2차 특기, A-Life 없을 때)는 10분마다 쏘므로 일지에 남기지 않는다
+    if fid ~= "rats" then
+        Store.addNote(ps, { kind = "specialty_snipe", faction = fid, count = kills, clock = Sensor.now().clock })
+    end
     log("specialty snipe done", fid, ps.name, kills)
 end
 
@@ -419,6 +422,8 @@ local function vehiclesNear(x, y, radius)
     table.sort(out, function(a, b) return a.d < b.d end)
     return out
 end
+
+Specialty.vehiclesNear = vehiclesNear     -- 2차 특기 튜닝 (Specialty2)
 
 -- 아이템 칸이 없는 부품인가 (엔진). 칸은 있는데 비어 있으면 빠진 부품이라 고치지 않는다
 local function structural(part)

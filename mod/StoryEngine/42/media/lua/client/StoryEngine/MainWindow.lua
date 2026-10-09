@@ -1967,6 +1967,10 @@ function StoryEngineLifePanel:createChildren()
     self.projectButton = newButton(x + DONATE_W + SPEC_W + PAD * 2, h - PAD - BUTTON_H, PROJECT_W,
         getText("IGUI_StoryEngine_Project_Button"), self, StoryEngineLifePanel.onProject)
     self:addChild(self.projectButton)
+    -- 2차 특기 (Specialty2): 프로젝트 버튼 자리 (두 프로젝트가 다 끝나면 프로젝트 버튼이 사라진다)
+    self.spec2Button = newButton(x + DONATE_W + SPEC_W + PAD * 2, h - PAD - BUTTON_H, PROJECT_W, "",
+        self, StoryEngineLifePanel.onSpecialty2)
+    self:addChild(self.spec2Button)
     -- 일거리 청하기 (Work.volunteer): 보수 없이 일해 주고 신뢰도를 얻는다
     self.volunteerButton = newButton(x + DONATE_W + SPEC_W + PROJECT_W + PAD * 3, h - PAD - BUTTON_H, VOLUNTEER_W,
         getText("IGUI_StoryEngine_Volunteer_Button"), self, function(panel)
@@ -2007,6 +2011,100 @@ function StoryEngineLifePanel:onSpecialty()
             end)
         end
     end
+end
+
+-- 2차 특기: 쓰기(약 조제는 약 고르기) + 고르기/바꾸기
+local function spec2Tip(option, text)
+    local tip = ISToolTip:new()
+    tip:initialise()
+    tip:setVisible(false)
+    tip.description = text
+    option.toolTip = tip
+end
+
+local function spec2ErrorText(reason, wait)
+    local key = "IGUI_StoryEngine_Spec2_Error_" .. tostring(reason)
+    if getTextOrNull(key) then return getText(key, StoryEngine.intToString(wait or 0)) end
+    return tostring(reason)
+end
+
+StoryEngineLifePanel.PHARMACY = { { "vitamins", 6 }, { "sleeping", 6 }, { "beta", 6 }, { "antidep", 6 },
+                                  { "painkillers", 6 }, { "disinfectant", 6 }, { "antibiotics", 8 } }
+StoryEngineLifePanel.HERBS = { ["Base.Plantain"] = true, ["Base.Comfrey"] = true, ["Base.WildGarlic2"] = true,
+                               ["Base.CommonMallow"] = true, ["Base.LemonGrass"] = true, ["Base.BlackSage"] = true,
+                               ["Base.Ginseng"] = true }
+
+local function herbCount()
+    local p = getPlayer()
+    if not p then return 0 end
+    local n = 0
+    local list = p:getInventory():getItems()
+    for i = 0, list:size() - 1 do
+        local it = list:get(i)
+        if it and StoryEngineLifePanel.HERBS[it:getFullType()] and not p:isEquipped(it) then n = n + 1 end
+    end
+    return n
+end
+
+function StoryEngineLifePanel.fillSpec2(menu, n)
+    local s2 = n.spec2
+    if not s2 then return end
+    local fid = n.id
+    if s2.choice then
+        local name = getText("IGUI_StoryEngine_Spec2_Name_" .. s2.choice)
+        local use = menu:addOption(getText("IGUI_StoryEngine_Spec2_Use", name), fid, function(id)
+            request("spec2Use", { faction = id })
+        end)
+        local desc = getText("IGUI_StoryEngine_Spec2_Desc_" .. s2.choice)
+        if s2.reason then
+            use.notAvailable = true
+            desc = spec2ErrorText(s2.reason, s2.wait) .. " <LINE> " .. desc
+        end
+        spec2Tip(use, desc)
+        if s2.choice == "pharmacy" and not s2.reason then
+            use.onSelect = nil
+            local sub = ISContextMenu:getNew(menu)
+            menu:addSubMenu(use, sub)
+            local have = herbCount()
+            sub:addOption(getText("IGUI_StoryEngine_Spec2_PharmacyHave", StoryEngine.intToString(have)), nil, nil).notAvailable = true
+            for _, m in ipairs(StoryEngineLifePanel.PHARMACY) do
+                for count = 1, 2 do
+                    local need = m[2] * count
+                    local o = sub:addOption(getText("IGUI_StoryEngine_Spec2_PharmacyItem",
+                        getText("IGUI_StoryEngine_Spec2_Med_" .. m[1]), StoryEngine.intToString(count),
+                        StoryEngine.intToString(need)), fid, function(id)
+                            request("spec2Use", { faction = id, med = m[1], count = count })
+                        end)
+                    if have < need then o.notAvailable = true end
+                end
+            end
+        end
+    end
+    -- 고르기 / 바꾸기 (30일마다)
+    local label = s2.choice and ((s2.change or 0) > 0
+        and getText("IGUI_StoryEngine_Spec2_ChangeWait", StoryEngine.intToString(s2.change))
+        or getText("IGUI_StoryEngine_Spec2_Change")) or getText("IGUI_StoryEngine_Spec2_ChooseButton")
+    local pick = menu:addOption(label, nil, nil)
+    local sub = ISContextMenu:getNew(menu)
+    menu:addSubMenu(pick, sub)
+    for i, opt in ipairs(s2.options or {}) do
+        local text = getText("IGUI_StoryEngine_Spec2_Name_" .. opt)
+        local ready = (s2.ready or {})[i] == true
+        if opt == s2.choice then text = text .. " " .. getText("IGUI_StoryEngine_Spec2_Current") end
+        if not ready then text = text .. " " .. getText("IGUI_StoryEngine_Spec2_NotReady") end
+        local o = sub:addOption(text, opt, function(chosen)
+            request("spec2Choose", { faction = fid, option = chosen })
+        end)
+        if not ready or opt == s2.choice or (s2.choice and (s2.change or 0) > 0) then o.notAvailable = true end
+        spec2Tip(o, getText("IGUI_StoryEngine_Spec2_Desc_" .. opt) .. " <LINE> " .. getText("IGUI_StoryEngine_Spec2_Common"))
+    end
+end
+
+function StoryEngineLifePanel:onSpecialty2()
+    local n = lifeOf(Cache.lifeFaction)
+    if not n or not n.spec2 then return end
+    local menu = ISContextMenu.get(0, getMouseX(), getMouseY())
+    StoryEngineLifePanel.fillSpec2(menu, n)
 end
 
 function StoryEngineLifePanel:onSelect(fid)
@@ -2115,6 +2213,7 @@ function StoryEngineLifePanel:refresh()
     self.donateButton:setVisible(n ~= nil)
     self.specButton:setVisible(n ~= nil)
     self.projectButton:setVisible(false)
+    self.spec2Button:setVisible(false)
     self.volunteerButton:setVisible(n ~= nil and n.volunteer ~= nil and not n.fate)
     if n and n.volunteer then
         local v = n.volunteer
@@ -2139,6 +2238,19 @@ function StoryEngineLifePanel:refresh()
     end
     self.donateButton:setEnable((n.donateWait or 0) == 0)
     self.donateButton.tooltip = getText(n.personalMode and "IGUI_StoryEngine_Life_DonateTooltip_Personal" or "IGUI_StoryEngine_Life_DonateTooltip")
+    -- 2차 특기: 2차 프로젝트가 끝나면 프로젝트 버튼 자리에
+    local s2 = n.spec2
+    if s2 and s2.unlocked and not n.fate and not self.projectButton:isVisible() and s2.reason ~= "off" then
+        self.spec2Button:setVisible(true)
+        local title = s2.choice and getText("IGUI_StoryEngine_Spec2_Button",
+            getText("IGUI_StoryEngine_Spec2_Name_" .. s2.choice)) or getText("IGUI_StoryEngine_Spec2_ChooseButton")
+        self.spec2Button:setTitle(title)
+        local tip2 = s2.choice and getText("IGUI_StoryEngine_Spec2_Desc_" .. s2.choice)
+            or getText("IGUI_StoryEngine_Spec2_Tooltip_Pick")
+        if s2.active then tip2 = getText("IGUI_StoryEngine_Spec2_Active", StoryEngine.intToString(s2.active)) .. " <LINE> " .. tip2 end
+        if s2.choice and s2.reason then tip2 = spec2ErrorText(s2.reason, s2.wait) .. " <LINE> " .. tip2 end
+        self.spec2Button.tooltip = tip2 .. " <LINE> " .. getText("IGUI_StoryEngine_Spec2_Common")
+    end
     -- 특기: 구간 1~3, 막힌 이유는 툴팁으로
     local spec = n.spec or {}
     self.specButton:setVisible(n.spec ~= nil and not n.fate)
@@ -2169,17 +2281,27 @@ function StoryEngineLifePanel:refresh()
         local pts = math.min(goal, pr.points or 0)
         local filled = math.floor(pts * 10 / goal)
         local bar = "[" .. string.rep("#", filled) .. string.rep("-", 10 - filled) .. "]"
-        local head = getText("IGUI_StoryEngine_Project_Name_" .. n.id)
+        local two = pr.phase == 2
+        local head = getText((two and "IGUI_StoryEngine_Project2_Name_" or "IGUI_StoryEngine_Project_Name_") .. n.id)
+        if two then
+            -- 1차는 끝났다: 그 효과를 먼저 한 줄로
+            parts[#parts + 1] = " <RGB:0.5,0.9,0.6> " .. UI.escape(getText("IGUI_StoryEngine_Project_Done",
+                getText("IGUI_StoryEngine_Project_Name_" .. n.id))) .. " <LINE> "
+            parts[#parts + 1] = " <RGB:0.65,0.65,0.65> " .. UI.escape(getText("IGUI_StoryEngine_Project_Effect_" .. n.id))
+                .. " <LINE> "
+        end
         if pr.done then
-            parts[#parts + 1] = " <RGB:0.5,0.9,0.6> " .. UI.escape(getText("IGUI_StoryEngine_Project_Done", head)) .. " <LINE> "
+            parts[#parts + 1] = " <RGB:0.5,0.9,0.6> " .. UI.escape(getText(two and "IGUI_StoryEngine_Project2_Done"
+                or "IGUI_StoryEngine_Project_Done", head)) .. " <LINE> "
         else
             local needs = pr.accept and getText("IGUI_StoryEngine_Project_Accept_" .. tostring(pr.accept))
                 or getText("IGUI_StoryEngine_Life_Res_" .. tostring(pr.res))
-            parts[#parts + 1] = " <RGB:0.85,0.8,0.55> " .. UI.escape(getText("IGUI_StoryEngine_Project_Line", head, bar,
+            parts[#parts + 1] = " <RGB:0.85,0.8,0.55> " .. UI.escape(getText(two and "IGUI_StoryEngine_Project2_Line"
+                or "IGUI_StoryEngine_Project_Line", head, bar,
                 StoryEngine.intToString(pts), StoryEngine.intToString(goal), needs)) .. " <LINE> "
         end
-        parts[#parts + 1] = " <RGB:0.65,0.65,0.65> " .. UI.escape(getText("IGUI_StoryEngine_Project_Effect_" .. n.id))
-            .. " <LINE> <LINE> "
+        parts[#parts + 1] = " <RGB:0.65,0.65,0.65> " .. UI.escape(getText(two and "IGUI_StoryEngine_Project2_Effect"
+            or ("IGUI_StoryEngine_Project_Effect_" .. n.id))) .. " <LINE> <LINE> "
     end
     local names = function(list)
         local out = {}

@@ -325,6 +325,18 @@ option StoryEngine.ProjectGoal
 	page = StoryEngineNPC, translation = StoryEngine_ProjectGoal,
 }
 
+option StoryEngine.Specialty2
+{
+	type = boolean, default = true,
+	page = StoryEngineNPC, translation = StoryEngine_Specialty2,
+}
+
+option StoryEngine.Project2Goal
+{
+	type = integer, min = 100, max = 10000, default = 2000,
+	page = StoryEngineNPC, translation = StoryEngine_Project2Goal,
+}
+
 option StoryEngine.ProjectDonateCap
 {
 	type = integer, min = 10, max = 1000, default = 100,

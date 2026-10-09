@@ -629,7 +629,9 @@ end
 
 -- 지원을 보낸다. how: "request" | "auto" | "debug". reason: 자동 지원의 이유 (AI 반응용)
 -- countOverride: 인원을 직접 정할 때 (방위대 특기 분대 2/4/6)
-function ALife.sendSupport(player, fid, how, reason, levelOverride, retry, countOverride)
+-- opts (2차 특기, 2026-10-09): { hours = 머무는 시간, quiet = 출동 무전 없음 }
+function ALife.sendSupport(player, fid, how, reason, levelOverride, retry, countOverride, opts)
+    opts = opts or {}
     if not ALife.enabled() then return false, "disabled" end
     if not ALife.available() then return false, "alife_unavailable" end
     if not Factions.byId[fid] or not ALife.FACTIONS[fid] then return false, "no_faction" end
@@ -657,7 +659,7 @@ function ALife.sendSupport(player, fid, how, reason, levelOverride, retry, count
             st.active[info.requestId] = {
                 id = info.requestId, fid = fid, target = ps.key, targetName = ps.name, how = how, level = level,
                 count = info.count, alifeFaction = info.factionId, uids = {}, phase = "follow",
-                untilT = now.t + ALife.HOURS[level] * 60, exit = { x = info.x, y = info.y, z = 0 }, startT = now.t,
+                untilT = now.t + math.floor((opts.hours or ALife.HOURS[level]) * 60), exit = { x = info.x, y = info.y, z = 0 }, startT = now.t,
             }
         end,
         done = function(outcome, info)
@@ -671,13 +673,17 @@ function ALife.sendSupport(player, fid, how, reason, levelOverride, retry, count
                 -- 막힌 칸·시야 문제로 그룹이 취소됐으면 다른 자리로 한 번 더 (대기 시간은 이미 기록됨)
                 if not retry and not player:isDead() then
                     st.active[info.requestId] = nil
-                    ALife.sendSupport(player, fid, how, reason, levelOverride, true, countOverride)
+                    ALife.sendSupport(player, fid, how, reason, levelOverride, true, countOverride, opts)
                     return
                 end
                 -- 다시 불러도 못 나왔다: 쓴 대기 시간을 돌려주고, 이미 "보냈다"고 한 무전을 바로잡는다
                 if how == "auto" then st.autoAt[ps.key] = nil end
                 if how == "request" then st.cooldown[fid] = nil end
                 if how == "specialty" and StoryEngine.Specialty then pcall(StoryEngine.Specialty.clearWait, fid, ps.key) end
+                -- 2차 특기 빅 보디가드만 환불 (SOS 의 방위대원은 다른 지원이 이미 갔다)
+                if how == "specialty2" and fid == "rats" and StoryEngine.Specialty2 then
+                    pcall(StoryEngine.Specialty2.clearWait, "rats", ps.key)
+                end
                 log("alife support gave up, cooldown refunded", fid, how)
                 if not player:isDead() then
                     pcall(Radio.react, fid, "event", "The armed people you sent to back up " .. tostring(ps.name)
@@ -700,7 +706,7 @@ function ALife.sendSupport(player, fid, how, reason, levelOverride, retry, count
         if failed then st.active[failed.requestId] = nil end
         return false, info
     end
-    if retry then return true, info end          -- 다시 부른 것: 알림·기록은 처음에 이미 했다
+    if retry or opts.quiet then return true, info end   -- 다시 부른 것 / 2차 특기 (무전은 Specialty2 가 따로)
     if how == "request" then st.cooldown[fid] = now.t end
     if how == "auto" then st.autoAt[ps.key] = now.t end
     Store.addNote(ps, { kind = "alife_support", faction = fid, count = info.count, clock = now.clock })

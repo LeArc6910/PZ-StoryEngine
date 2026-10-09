@@ -25,7 +25,7 @@ Tuning.DEFAULTS = {
     SpecialtyDays_dewey = 7, SpecialtyDays_guard = 7, SpecialtyDays_rats = 1, SpecialtyDays_hunter = 3,
     ZombieMult = 1, SafehouseRadius = 30, HuntSizeMult = 1, Extortion = true, StayHorde = true, StayHordeDays = 4, HeliGapDays = 5, RaidSizeMult = 1,
     LifeDrift = 5, LifeLossMult = 1, StarveDays = 3, NpcFateCause = 1, StoryPace = 2, SuccessorRule = 2,
-    ProjectGoal = 1000, ProjectDonateCap = 100, DonateGapDays = 3,
+    ProjectGoal = 1000, ProjectDonateCap = 100, DonateGapDays = 3, Specialty2 = true, Project2Goal = 2000,
     SpecialtyCooldownMult = 1, SpecialtyTrustOffset = 0, AutoSupportTrust = 70, AutoSupportDays = 7,
     AISaver = false, ContactHours = 5, SceneHours = 6, BanterHours = 3, LetterChance = 30,
     BroadcastHour = 19, BroadcastRerun = true,
@@ -135,6 +135,7 @@ function Tuning.apply()
     if S.Projects then
         S.Projects.GOAL = math.max(100, math.floor(Tuning.num("ProjectGoal")))
         S.Projects.DONATE_CAP = math.max(10, math.floor(Tuning.num("ProjectDonateCap")))
+        S.Projects.GOAL2 = math.max(100, math.floor(Tuning.num("Project2Goal")))
     end
     if S.Specialty then
         BASE.cooldown = BASE.cooldown or copy(S.Specialty.COOLDOWN_DAYS)

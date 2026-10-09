@@ -110,11 +110,17 @@ function Grid.ensure()
         local r = s.restored[k]
         if r then
             if today >= r.untilDay then
-                log("grid restore ended", k, "day", math.floor(today))
-                s.endedDay = s.endedDay or {}
-                s.endedDay[k] = r.untilDay          -- 복구 작전의 "끊긴 날" (Ops.offDay)
-                Grid.reset(k, "expired")
-                if StoryEngine.Ops then pcall(StoryEngine.Ops.onGridLost, k) end
+                log("grid restore ended", k, "day", math.floor(today), r.why or "")
+                if r.why == "casey_temp" then
+                    -- 케이시 임시 송전(2차 특기): 작전 날짜·"다시 끊김" 사건 없이 원래대로
+                    Grid.reset(k, "expired")
+                    if StoryEngine.Specialty2 then pcall(StoryEngine.Specialty2.onTempPowerEnd) end
+                else
+                    s.endedDay = s.endedDay or {}
+                    s.endedDay[k] = r.untilDay          -- 복구 작전의 "끊긴 날" (Ops.offDay)
+                    Grid.reset(k, "expired")
+                    if StoryEngine.Ops then pcall(StoryEngine.Ops.onGridLost, k) end
+                end
             elseif GridSync.get(k) ~= r.untilDay then
                 GridSync.apply({ [k] = r.untilDay })
                 log("grid reapplied", k, "until day", r.untilDay)

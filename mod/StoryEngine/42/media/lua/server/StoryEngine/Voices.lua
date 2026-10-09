@@ -150,6 +150,12 @@ function Voices.take(fid, now, cold)
     ch.favorOwed, ch.favorOwedBy = nil, nil
     -- 개인 모드의 개인 신뢰도 모두 처음부터 (다음에 만나면 소개 몫으로 새로, DESIGN_PER_PLAYER_TRUST 5-4절)
     if StoryEngine.Trust and StoryEngine.Trust.resetPersonal then StoryEngine.Trust.resetPersonal(fid) end
+    -- 2차 특기는 앞 사람이 익힌 것: 후임에게는 없다 (2차 프로젝트를 다시 채우면 다시 고른다)
+    if StoryEngine.Specialty2 then StoryEngine.Specialty2.forget(fid) end
+    if StoryEngine.Projects and StoryEngine.Projects.DEF2 and StoryEngine.Projects.DEF2[fid] then
+        local p2 = StoryEngine.Life.npc(fid).project2
+        if p2 and p2.done then p2.done, p2.points, p2.stage = nil, math.floor(StoryEngine.Projects.GOAL2 / 2), 0 end
+    end
     n.byWho, n.log, n.counts = {}, {}, {}
     Radio.queue[fid], Radio.again[fid] = nil, nil
     if StoryEngine.Bonds and StoryEngine.Bonds.reset then pcall(StoryEngine.Bonds.reset, fid) end

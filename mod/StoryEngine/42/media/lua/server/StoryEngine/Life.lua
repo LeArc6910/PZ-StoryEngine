@@ -532,7 +532,7 @@ function Life.donate(player, fid, itemIds, mode)
     local Projects = StoryEngine.Projects
     local project = mode == "project"
     if project and (not Projects or not Projects.DEF[fid]) then return false, "no_project" end
-    if project and Projects.done(fid) then return false, "project_done" end
+    if project and Projects.allDone(fid) then return false, "project_done" end
     if not Factions.canTalk(player) then return false, "no_radio" end
     local now = Sensor.now()
     local ps = Store.player(player)
@@ -601,6 +601,7 @@ function Life.donate(player, fid, itemIds, mode)
     local wasLow = {}
     local gains = {}
     local points = 0
+    local wasDone1 = project and Projects.done(fid)
     if project then
         -- 프로젝트 지원: 자원 대신 진행도로 (받는 자원의 물건 1점, 나머지 0.5점)
         local add = math.min(st.points, math.floor(projectPoints + 0.5))
@@ -639,9 +640,12 @@ function Life.donate(player, fid, itemIds, mode)
     if string.len(summary) > 200 then summary = string.sub(summary, 1, 200) .. "..." end
     Store.addNote(ps, { kind = project and "project_donation" or "donation", faction = fid, item = summary, clock = now.clock })
     local topic = tostring(ps.name) .. " just sent your people supplies over the radio network (" .. summary .. ")."
-    if project and not Projects.done(fid) then
-        topic = tostring(ps.name) .. " just sent supplies for your big project, " .. Projects.DEF[fid].name .. " ("
-            .. summary .. "). It is now about " .. StoryEngine.intToString(Projects.info(fid).percent) .. "% done."
+    -- 이번 지원으로 그 프로젝트가 끝났나 (1차 -> 완성, 또는 2차 -> 완성)
+    local finished = project and ((not wasDone1 and Projects.done(fid)) or (wasDone1 and Projects.done2(fid)))
+    if project and not finished then
+        local info = Projects.info(fid)
+        topic = tostring(ps.name) .. " just sent supplies for your big project, " .. info.name .. " ("
+            .. summary .. "). It is now about " .. StoryEngine.intToString(info.percent) .. "% done."
     end
     if #wasLow > 0 then
         topic = topic .. " You were running low on " .. table.concat(wasLow, " and ") .. ", so this really helps."
@@ -649,7 +653,7 @@ function Life.donate(player, fid, itemIds, mode)
     topic = topic .. " Thank them in character, by name."
     -- 프로젝트를 완성시킨 지원이면 완성 무전이 따로 가므로 감사 무전은 생략.
     -- 나눠 낼 때는 통의 첫 지원과 신뢰도가 오를 때만 감사한다 (조금씩 낼 때마다 무전이 쏟아지지 않게)
-    if not (project and Projects.done(fid)) and (fresh or applied > 0) then
+    if not finished and (fresh or applied > 0) then
         Radio.react(fid, "event", topic, StoryEngine.Lines.fallback(fid, "donation", "Got your supplies. Thank you."), ps)
     end
     log(project and "project donation" or "donation", fid, "by", ps.name, "value", total, "trust", applied, "points", points)
@@ -705,6 +709,7 @@ function Life.list(psKey)
             spec = StoryEngine.Specialty and StoryEngine.Specialty.status(f.id, psKey) or nil,
             project = StoryEngine.Projects and StoryEngine.Projects.info(f.id) or nil,
             volunteer = StoryEngine.Work and StoryEngine.Work.volunteerStatus(f.id, psKey) or nil,
+            spec2 = StoryEngine.Specialty2 and StoryEngine.Specialty2.listFor(f.id, psKey) or nil,
         }
         -- 개인 모드: 보는 사람의 개인 신뢰 (trust 는 집단 신뢰 그대로). 혜택은 personal 로 판정한다
         if personal then

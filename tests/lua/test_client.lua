@@ -244,6 +244,38 @@ function T.quick_specialty_menu_lists_contacts()
     H.ok(Q.pending, "waits for the camp list")
 end
 
+-- 2차 특기 메뉴 (2026-10-09): 쓰기 + 약 조제 하위 메뉴 + 고르기
+function T.second_specialty_menu()
+    local p = H.addPlayer("tester", "Gerald", "Kar")
+    ISContextMenu = { getNew = function() return fakeMenu() end }
+    ISToolTip = { new = function() return { initialise = function() end, setVisible = function() end } end }
+    for _ = 1, 7 do H.give(p, "Base.Plantain") end
+    local n = { id = "doc", spec2 = { unlocked = true, options = { "illness", "pain", "pharmacy" },
+                                     ready = { true, true, true }, choice = "pharmacy", change = 100 } }
+    local m = fakeMenu()
+    StoryEngineLifePanel.fillSpec2(m, n)
+    H.eq(#m.options, 2, "use + switch")
+    local meds = m.options[1].sub
+    H.ok(meds, "pharmacy picks a medicine")
+    H.ok(meds.options[1].notAvailable, "header line")
+    local single, double = meds.options[2], meds.options[3]
+    H.ok(not single.notAvailable, "7 herbs: one vitamin pack")
+    H.ok(double.notAvailable, "not enough for two")
+    H.toServer = {}
+    single.fn(single.target)
+    H.eq(H.toServer[#H.toServer].command, "spec2Use")
+    H.eq(H.toServer[#H.toServer].args.med, "vitamins")
+    local pick = m.options[2].sub
+    H.ok(pick.options[3].notAvailable, "current pick")
+    H.ok(pick.options[1].notAvailable, "switching waits 30 days")
+    -- 아직 고르지 않음: 고르기만
+    n.spec2.choice, n.spec2.change = nil, 0
+    m = fakeMenu()
+    StoryEngineLifePanel.fillSpec2(m, n)
+    H.eq(#m.options, 1)
+    H.ok(not m.options[1].sub.options[1].notAvailable, "can pick")
+end
+
 -- 특기 아이콘 (2026-10-07): 접힌 버튼의 숫자와 펼친 줄
 function T.quick_dock_rows_and_hotkey()
     H.addPlayer("tester", "Gerald", "Kar")
