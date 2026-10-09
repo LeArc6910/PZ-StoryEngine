@@ -86,6 +86,8 @@
     "ContextMenu_StoryEngine_QuickSpecialty": "Quick specialty",
     "ContextMenu_StoryEngine_QuickDockShow": "Show the skills icon",
     "ContextMenu_StoryEngine_QuickDockHide": "Hide the skills icon",
+    "ContextMenu_StoryEngine_QuickDock2Show": "Show second specialty icon",
+    "ContextMenu_StoryEngine_QuickDock2Hide": "Hide second specialty icon",
     "ContextMenu_StoryEngine_MainIconShow": "Show the radio icon",
     "ContextMenu_StoryEngine_MainIconHide": "Hide the radio icon",
     "ContextMenu_StoryEngine_DebugVoice": "Successor takes over now (radio tab contact)",

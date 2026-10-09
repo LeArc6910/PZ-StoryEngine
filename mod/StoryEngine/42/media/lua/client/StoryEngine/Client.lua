@@ -838,6 +838,15 @@ local function onFillWorldObjectContextMenu(playerNum, context, worldobjects, te
             if StoryEngineQuickSpecialty.dockShown() then StoryEngineQuickSpecialty.hideDock()
             else StoryEngineQuickSpecialty.showDock() end
         end)
+        -- 2차 특기 아이콘: 2차 특기가 열린 NPC 가 있거나 이미 떠 있을 때만
+        if StoryEngineQuickSpecialty.dock2Shown()
+            or StoryEngineQuickSpecialty.anyUnlocked((StoryEngine.Cache or {}).life) then
+            context:addOption(getText(StoryEngineQuickSpecialty.dock2Shown() and "ContextMenu_StoryEngine_QuickDock2Hide"
+                or "ContextMenu_StoryEngine_QuickDock2Show"), worldobjects, function()
+                if StoryEngineQuickSpecialty.dock2Shown() then StoryEngineQuickSpecialty.hideDock2()
+                else StoryEngineQuickSpecialty.showDock2() end
+            end)
+        end
     end
     if StoryEngineMainIcon then
         context:addOption(getText(StoryEngineMainIcon.instance and "ContextMenu_StoryEngine_MainIconHide"

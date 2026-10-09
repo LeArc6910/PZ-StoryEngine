@@ -86,6 +86,8 @@
     "ContextMenu_StoryEngine_QuickSpecialty": "특기 빠른 사용",
     "ContextMenu_StoryEngine_QuickDockShow": "특기 아이콘 보이기",
     "ContextMenu_StoryEngine_QuickDockHide": "특기 아이콘 숨기기",
+    "ContextMenu_StoryEngine_QuickDock2Show": "2차 특기 아이콘 보이기",
+    "ContextMenu_StoryEngine_QuickDock2Hide": "2차 특기 아이콘 숨기기",
     "ContextMenu_StoryEngine_MainIconShow": "무전 아이콘 보이기",
     "ContextMenu_StoryEngine_MainIconHide": "무전 아이콘 숨기기",
     "ContextMenu_StoryEngine_DebugVoice": "후임 목소리가 바로 이어받기 (교신 탭 상대)",

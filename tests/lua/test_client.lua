@@ -306,6 +306,28 @@ function T.quick_dock_rows_and_hotkey()
     H.eq(toggled, 1)
 end
 
+-- 2차 특기 아이콘 (2026-10-09): 2차가 열린 NPC 만, 고르지 않았으면 "고르기"
+function T.second_specialty_dock_rows()
+    H.addPlayer("tester", "Gerald", "Kar")
+    local Q = StoryEngineQuickSpecialty
+    local life = {
+        { id = "hunter", spec2 = { unlocked = true, choice = "game" } },
+        { id = "doc", spec2 = { unlocked = true, choice = "pharmacy", reason = "cooldown", wait = 30 } },
+        { id = "ray", spec2 = { unlocked = true } },
+        { id = "pike", spec2 = { unlocked = false } },
+        { id = "rats", fate = "dead", spec2 = { unlocked = true, choice = "bodyguard" } },
+    }
+    H.ok(Q.anyUnlocked(life))
+    local rows = Q.rows2Of(life)
+    H.eq(#rows, 3, "locked and dead contacts get no row")
+    H.ok(rows[1].usable and not rows[1].menu, "hank: use right away")
+    H.ok(not rows[2].usable and rows[2].menu, "doc on cooldown, pharmacy opens a menu")
+    H.ok(rows[3].usable and rows[3].menu, "ray: pick first")
+    H.eq(Q.readyCount(rows), 2)
+    H.ok(not Q.anyUnlocked({ { id = "pike", spec2 = { unlocked = false } } }))
+    H.ok(StoryEngineQuickDock2.rows ~= StoryEngineQuickDock.rows, "own rows")
+end
+
 -- 메인 창 아이콘 (2026-10-07): 창이 닫혀 있는 동안 새로 온 NPC 무전을 센다
 function T.main_icon_counts_unread_npc_messages()
     H.addPlayer("tester", "Gerald", "Kar")
