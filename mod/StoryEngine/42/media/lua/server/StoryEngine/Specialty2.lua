@@ -54,6 +54,9 @@ Specialty2.DAYS = {
 Specialty2.READY = {
     livestock = true, stew = true, praise = true, sos = true, power = true, illness = true, pain = true,
     pharmacy = true, reconcile = true, baptism = true, tuning = true, bodyguard = true, game = true,
+    -- 2단계 (2026-10-09)
+    rain = true, refugees = true, tow = true, reinforce = true, artillery = true, evac = true, barricade = true,
+    heist = true, camo = true, suppressor = true, flare = true,
 }
 -- 진행 중이면 다른 사람도 못 쓰는 세계 효과
 Specialty2.WORLD = { rain = true, power = true }
@@ -223,6 +226,12 @@ local OPTION_CHECKS = {
         if Specialty2.worldActive("rain", now) then return "world_active" end
         return nil
     end,
+    evac = function(ps, now)
+        if not Specialty2.teleportAllowed() then return "anticheat" end
+        return nil
+    end,
+    refugees = function(ps) if not (ps and ps.home) then return "no_home" end return nil end,
+    barricade = function(ps) if not (ps and ps.home) then return "no_home" end return nil end,
 }
 
 -- 거점 탭 표시·요청 공통. 반환: { unlocked, options, ready, choice, wait(시간), change(시간), reason, active(시간) }
@@ -690,10 +699,724 @@ local function game(player, ps, fid)
         .. " and left it nearby (it is in their quest list). Tell them to eat it before it turns." }
 end
 
+-- ---------------------------------------------------------------- 2단계 (2026-10-09): 집 둘레·차량·지도·클라이언트 효과
+
+Specialty2.RAIN_HOURS = 12
+Specialty2.RAIN_HOUR = 6
+Specialty2.RAIN_INTENSITY = 0.6
+Specialty2.REFUGEE_HOURS = 24
+Specialty2.REFUGEE_RADIUS = 25
+Specialty2.REFUGEE_PER_TICK = 10
+Specialty2.HOME_NEAR = 60                -- 집 둘레 일(바리케이드·피난민)은 이만큼 안에서 (칸이 로드돼 있어야)
+Specialty2.TOW_DELAY = { 60, 120 }
+Specialty2.TOW_DELAY_ARK = { 30, 30 }
+Specialty2.TOW_TRUCK = "Base.PickUpTruck"
+Specialty2.TOW_LEND_HOURS = 48
+Specialty2.TOW_WAIT_DAYS = 3
+Specialty2.VEHICLE_RADIUS = 10
+Specialty2.REINFORCE_HOURS = 6
+Specialty2.ARTY_RANGE = 120
+Specialty2.ARTY_SAFE = 15                -- 요청할 때 모든 플레이어가 이만큼 떨어져 있어야
+Specialty2.ARTY_ABORT = 12               -- 떨어질 때 이 안에 플레이어가 있으면 미룬다
+Specialty2.ARTY_DELAY = 10
+Specialty2.ARTY_RADIUS = 10
+Specialty2.ARTY_NOISE = 200
+Specialty2.ARTY_SHELLS = 3
+Specialty2.ARTY_TRIES = 5
+Specialty2.EVAC_MIN_DIST = 100
+Specialty2.EVAC_DELAY = 20
+Specialty2.EVAC_NOISE = 150
+Specialty2.BARRICADE_MAX = 8
+Specialty2.HEIST_DELAY = { 6 * 60, 10 * 60 }
+Specialty2.HEIST_MAX_ROOMS = 12
+Specialty2.HEIST_MAX_AREA = 1500
+Specialty2.HEIST_CUT = 0.3
+Specialty2.HEIST_MAX_ITEMS = 40
+Specialty2.HEIST_PER_ROOM = 2            -- 방마다 굴리는 보관함 수
+Specialty2.HEIST_PER_CONTAINER = 6
+Specialty2.HEIST_LOOT = 0.6              -- 바닐라 루팅 확률에 곱한다
+-- 총포상·군·경찰 보관실 같은 곳은 맡지 않는다 (방 이름에 이 낱말)
+Specialty2.HEIST_GUARDED = { "gun", "army", "military", "police", "armory", "armoury", "prison", "bank" }
+Specialty2.CAMO_HOURS = 4
+Specialty2.SUPPRESSOR_HOURS = 24
+Specialty2.FLARE_HOURS = 6
+Specialty2.CLIENT_RESEND = 10            -- 클라이언트 효과를 이만큼(분)마다 다시 알린다 (다시 접속해도 이어지게)
+
+local function jobs()
+    local s = state()
+    s.jobs = s.jobs or {}
+    s.lent = s.lent or {}
+    s.heists = s.heists or {}
+    return s.jobs
+end
+
+local function homeOf(ps)
+    local h = ps and ps.home
+    if not h or not h.x then return nil end
+    return h
+end
+
+local function eachPlayerDist(x, y, fn)
+    for _, p in ipairs(Sensor.players()) do
+        if not p:isDead() then fn(p, dist(p:getX(), p:getY(), x, y)) end
+    end
+end
+
+local function onlineTarget(player)
+    if isServer() then
+        local ok, id = pcall(function() return player:getOnlineID() end)
+        if ok then return id end
+    end
+    return nil
+end
+
+-- 클라이언트 효과 알리기 (to = 한 사람 / 모두)
+local function sendFx(f, player, now)
+    local left = math.max(0, f.untilT - now.t)
+    local args = { kind = f.kind, minutes = left, target = player and onlineTarget(player) or nil, vid = f.vid,
+                   radius = f.radius }
+    if f.everyone then Net.toAll("spec2Fx", args) else Net.toClient(player, "spec2Fx", args) end
+    f.sentT = now.t
+end
+
+local function clientFx(fx, player, everyone)
+    fx.client, fx.everyone = true, everyone or nil
+    local f = addFx(fx)
+    sendFx(f, player, Sensor.now())
+    return f
+end
+
+-- ---- 레이: 기우제
+
+local function rainStart()
+    local cm = getClimateManager()
+    if isServer() then
+        cm:transmitServerStartRain(Specialty2.RAIN_INTENSITY)
+    else
+        local v = cm:getClimateFloat(ClimateManager.FLOAT_PRECIPITATION_INTENSITY)
+        v:setEnableAdmin(true)
+        v:setAdminValue(Specialty2.RAIN_INTENSITY)
+        local c = cm:getClimateFloat(ClimateManager.FLOAT_CLOUD_INTENSITY)
+        c:setEnableAdmin(true)
+        c:setAdminValue(0.8)
+    end
+    log("specialty2 rain started")
+end
+
+local function rainStop()
+    local cm = getClimateManager()
+    if isServer() then
+        cm:transmitServerStopRain()
+    else
+        cm:getClimateFloat(ClimateManager.FLOAT_PRECIPITATION_INTENSITY):setEnableAdmin(false)
+        cm:getClimateFloat(ClimateManager.FLOAT_CLOUD_INTENSITY):setEnableAdmin(false)
+    end
+    log("specialty2 rain stopped")
+end
+
+-- 다음 06시까지 (6시간보다 가까우면 그다음 날)
+local function minutesToMorning()
+    local gt = getGameTime()
+    local m = ((Specialty2.RAIN_HOUR - gt:getHour()) % 24) * 60 - gt:getMinutes()
+    if m < 6 * 60 then m = m + 24 * 60 end
+    return m
+end
+
+local function rain(player, ps, fid)
+    local now = Sensor.now()
+    local startT = now.t + minutesToMorning()
+    local endT = startT + Specialty2.RAIN_HOURS * 60
+    state().world.rain = { untilT = endT, key = ps.key }
+    local list = jobs()
+    list[#list + 1] = { kind = "rain_start", dueT = startT, key = ps.key }
+    list[#list + 1] = { kind = "rain_stop", dueT = endT, key = ps.key }
+    return true, { topic = "You and the neighbors prayed for rain with " .. tostring(ps.name) .. ". Rain is coming tomorrow "
+        .. "morning and should last half a day. Say it like an old farmer who trusts the sky." }
+end
+
+-- ---- 파이크: 피난민 일손
+
+local function refugees(player, ps, fid)
+    local h = homeOf(ps)
+    if not h then return false, "no_home" end
+    clientFx({ kind = "refugees", key = ps.key, untilT = Sensor.now().t + Specialty2.REFUGEE_HOURS * 60,
+               hx = h.x, hy = h.y, hz = h.z or 0, removed = 0 }, player)
+    return true, { topic = "You sent refugees from the church to " .. tostring(ps.name) .. "'s place for a day to clear "
+        .. "away the bodies piled up around it. Speak kindly of them." }
+end
+
+local function clearCorpses(f)
+    local near = false
+    eachPlayerDist(f.hx, f.hy, function(_, d) if d <= Specialty2.HOME_NEAR then near = true end end)
+    if not near then return end
+    local cell = getCell()
+    local removed = 0
+    local r = Specialty2.REFUGEE_RADIUS
+    for x = f.hx - r, f.hx + r do
+        for y = f.hy - r, f.hy + r do
+            if removed >= Specialty2.REFUGEE_PER_TICK then break end
+            local sq = cell:getGridSquare(x, y, f.hz or 0)
+            local bodies = sq and sq:getDeadBodys()
+            if bodies and bodies:size() > 0 then
+                for i = bodies:size() - 1, 0, -1 do
+                    if removed >= Specialty2.REFUGEE_PER_TICK then break end
+                    local ok = pcall(function() sq:removeCorpse(bodies:get(i), false) end)
+                    if ok then removed = removed + 1 end
+                end
+            end
+        end
+    end
+    f.removed = (f.removed or 0) + removed
+    if removed > 0 then log("specialty2 refugees cleared", removed) end
+end
+
+-- ---- 듀이: 견인·보강
+
+local function nearestVehicle(player)
+    local list = Specialty.vehiclesNear and Specialty.vehiclesNear(player:getX(), player:getY(), Specialty2.VEHICLE_RADIUS) or {}
+    return list[1] and list[1].v or nil
+end
+
+local function tow(player, ps, fid)
+    local car = nearestVehicle(player)
+    if not car then return false, "no_vehicle" end
+    local now = Sensor.now()
+    local delay = (Projects.done("dewey") and Specialty2.TOW_DELAY_ARK) or Specialty2.TOW_DELAY
+    local list = jobs()
+    list[#list + 1] = { kind = "tow", key = ps.key, dueT = now.t + rand(delay), giveUpT = now.t + Specialty2.TOW_WAIT_DAYS * 1440,
+                        vid = car:getId(), x = math.floor(car:getX()), y = math.floor(car:getY()) }
+    return true, { topic = "You are sending your tow truck out to " .. tostring(ps.name) .. " for the car they are stuck "
+        .. "with. It will be there within a couple of hours, keys and a full tank, but you want it back in two days." }
+end
+
+local function findVehicle(job)
+    local v = getVehicleById and getVehicleById(job.vid) or nil
+    if v and dist(v:getX(), v:getY(), job.x, job.y) < 30 then return v end
+    local near = Specialty.vehiclesNear and Specialty.vehiclesNear(job.x, job.y, 5) or {}
+    return near[1] and near[1].v or nil
+end
+
+local function giveKey(player, truck)
+    local key = truck:createVehicleKey()
+    if not key then return end
+    if player then
+        player:getInventory():AddItem(key)
+        sendAddItemToContainer(player:getInventory(), key)
+        return
+    end
+    local glove = truck:getPartById("GloveBox")
+    local c = glove and glove:getItemContainer()
+    if c then
+        c:AddItem(key)
+        sendAddItemToContainer(c, key)
+    end
+end
+
+local function runTow(job, now)
+    local car = findVehicle(job)
+    if not car then return now.t >= job.giveUpT end      -- 차가 로드될 때까지 (3일)
+    local spot = nil
+    for i = 0, 15 do
+        local angle = (i % 8) * math.pi / 4
+        local d = 6 + math.floor(i / 8) * 3
+        spot = freeOutdoor(math.floor(car:getX() + math.cos(angle) * d), math.floor(car:getY() + math.sin(angle) * d), 0)
+        if spot then break end
+    end
+    if not spot then return now.t >= job.giveUpT end
+    local truck = addVehicleDebug(Specialty2.TOW_TRUCK, IsoDirections.N, nil, spot)
+    if not truck then
+        log("specialty2 tow: truck spawn failed")
+        return true
+    end
+    pcall(function()
+        local tank = truck:getPartById("GasTank")
+        if tank then
+            tank:setContainerContentAmount(tank:getContainerCapacity())
+            truck:transmitPartModData(tank)
+        end
+    end)
+    local player = playerByKey(job.key)
+    pcall(giveKey, player, truck)
+    if player then
+        local ok, err = pcall(function() truck:addPointConstraint(player, car, "trailer", "trailerfront") end)
+        log("specialty2 tow attach", ok and "ok" or tostring(err))
+    end
+    state().lent[#state().lent + 1] = { vid = truck:getId(), untilT = now.t + Specialty2.TOW_LEND_HOURS * 60,
+                                        x = spot:getX(), y = spot:getY() }
+    log("specialty2 tow truck arrived", truck:getId())
+    return true
+end
+
+-- 빌려준 트럭: 기한이 지나고 아무도 타지 않았으며 30타일 안에 아무도 없으면 가져간다
+local function lentTick(now)
+    local keep = {}
+    for _, l in ipairs(state().lent or {}) do
+        local done = false
+        if now.t >= l.untilT then
+            local v = getVehicleById and getVehicleById(l.vid)
+            if v then
+                local busy = v:getDriver() ~= nil
+                eachPlayerDist(v:getX(), v:getY(), function(_, d) if d < 30 then busy = true end end)
+                if not busy then
+                    pcall(function() v:permanentlyRemove() end)
+                    log("specialty2 tow truck returned", l.vid)
+                    done = true
+                end
+            end
+        end
+        if not done then keep[#keep + 1] = l end
+    end
+    state().lent = keep
+end
+
+local function reinforce(player, ps, fid)
+    local car = nearestVehicle(player)
+    if not car then return false, "no_vehicle" end
+    local snap = {}
+    for i = 0, car:getPartCount() - 1 do
+        local part = car:getPartByIndex(i)
+        snap[i] = part and part:getCondition() or nil
+    end
+    local now = Sensor.now()
+    clientFx({ kind = "reinforce", key = ps.key, untilT = now.t + Specialty2.REINFORCE_HOURS * 60, vid = car:getId(),
+               snap = snap }, player, true)
+    return true, { topic = "You talked " .. tostring(ps.name) .. " through bracing their vehicle: for the next six "
+        .. "hours it can plough through the dead without slowing or breaking. Sound like you built a tank." }
+end
+
+local function holdParts(f)
+    local v = getVehicleById and getVehicleById(f.vid)
+    if not v then return end
+    for i, cond in pairs(f.snap or {}) do
+        local part = v:getPartByIndex(i)
+        if part and cond and part:getCondition() < cond then
+            part:setCondition(cond)
+            pcall(function() v:transmitPartCondition(part) end)
+        end
+    end
+end
+
+-- ---- 휘태커: 포격·후송·바리케이드
+
+local function artillery(player, ps, fid, args)
+    local x, y = tonumber(args.x), tonumber(args.y)
+    if not x or not y then return false, "bad_target" end
+    x, y = math.floor(x), math.floor(y)
+    if dist(player:getX(), player:getY(), x, y) > Specialty2.ARTY_RANGE then return false, "too_far" end
+    local close = false
+    eachPlayerDist(x, y, function(_, d) if d < Specialty2.ARTY_SAFE then close = true end end)
+    if close then return false, "too_close" end
+    local list = jobs()
+    list[#list + 1] = { kind = "artillery", key = ps.key, dueT = Sensor.now().t + Specialty2.ARTY_DELAY, x = x, y = y, tries = 0 }
+    return true, { topic = "Fire mission confirmed for " .. tostring(ps.name) .. ": three shells on the marked spot in about "
+        .. "ten minutes. Tell them to keep well clear and expect every dead thing for miles to hear it." }
+end
+
+local function explode(sq)
+    local w = instanceItem("Base.PipeBomb")
+    if not w then return end
+    local trap = IsoTrap.new(w, getCell(), sq)
+    trap:place()
+    trap:triggerExplosion(false)
+end
+
+local function runArtillery(job, now)
+    local close = false
+    eachPlayerDist(job.x, job.y, function(_, d) if d < Specialty2.ARTY_ABORT then close = true end end)
+    if close then
+        job.tries = job.tries + 1
+        if job.tries > Specialty2.ARTY_TRIES then
+            log("specialty2 artillery called off (players too close)")
+            Specialty2.clearWait("guard", job.key)
+            return true
+        end
+        job.dueT = now.t + 2
+        return false
+    end
+    Net.toAll("spec2Strike", { x = job.x, y = job.y, radius = Specialty2.ARTY_RADIUS })
+    pcall(addSound, nil, job.x, job.y, 0, Specialty2.ARTY_NOISE, Specialty2.ARTY_NOISE)
+    for i = 1, Specialty2.ARTY_SHELLS do
+        local sq = getCell():getGridSquare(job.x + ZombRand(7) - 3, job.y + ZombRand(7) - 3, 0)
+        if sq then
+            local ok, err = pcall(explode, sq)
+            if not ok then log("specialty2 shell error:", tostring(err)) end
+        end
+    end
+    log("specialty2 artillery fired", job.x, job.y)
+    return true
+end
+
+-- 서버의 속도 안티치트가 강퇴·추방이면 순간이동이 걸린다 (1 추방 / 2 강퇴 / 3 기록 / 4 끔, jar AntiCheat$Policy)
+function Specialty2.teleportAllowed()
+    if not isServer() then return true end
+    local ok, v = pcall(function() return getServerOptions():getInteger("AntiCheatSpeed") end)
+    if not ok or type(v) ~= "number" then return true end
+    return v >= 3
+end
+
+local function evac(player, ps, fid)
+    local h = homeOf(ps)
+    if not h then return false, "no_home" end
+    if dist(player:getX(), player:getY(), h.x, h.y) < Specialty2.EVAC_MIN_DIST then return false, "home_near" end
+    local list = jobs()
+    list[#list + 1] = { kind = "evac", key = ps.key, dueT = Sensor.now().t + Specialty2.EVAC_DELAY,
+                        x = h.x, y = h.y, z = h.z or 0 }
+    return true, { topic = "A helicopter is on its way to pull " .. tostring(ps.name) .. " out and fly them home, about "
+        .. "twenty minutes out. Tell them to find open ground and hold on." }
+end
+
+local function runEvac(job, now)
+    local p = playerByKey(job.key)
+    if not p or p:isDead() then return now.t - job.dueT > 60 end
+    pcall(addSound, nil, math.floor(p:getX()), math.floor(p:getY()), 0, Specialty2.EVAC_NOISE, Specialty2.EVAC_NOISE)
+    Net.toClient(p, "spec2Teleport", { x = job.x, y = job.y, z = job.z })
+    log("specialty2 evac", job.key, job.x, job.y)
+    return true
+end
+
+local function exterior(o)
+    local ok, out = pcall(function()
+        if o:isBarricaded() then return false end
+        local a = o:getSquare()
+        local b = o:getOppositeSquare()
+        if not a or not b then return false end
+        return (a:getRoom() == nil) ~= (b:getRoom() == nil)
+    end)
+    return ok and out == true
+end
+
+local function barricade(player, ps, fid)
+    local h = homeOf(ps)
+    if not h then return false, "no_home" end
+    if dist(player:getX(), player:getY(), h.x, h.y) > Specialty2.HOME_NEAR then return false, "not_home" end
+    local def = getWorld():getMetaGrid():getBuildingAt(h.x, h.y)
+    if not def then return false, "no_building" end
+    local seen, openings = {}, {}
+    local rooms = def:getRooms()
+    for i = 0, rooms:size() - 1 do
+        local room = rooms:get(i)
+        if room:getZ() == 0 then
+            for x = room:getX() - 1, room:getX2() + 1 do
+                for y = room:getY() - 1, room:getY2() + 1 do
+                    local sq = getCell():getGridSquare(x, y, 0)
+                    local objs = sq and sq:getObjects()
+                    for j = 0, (objs and objs:size() or 0) - 1 do
+                        local o = objs:get(j)
+                        if o and not seen[o] and (instanceof(o, "IsoWindow") or instanceof(o, "IsoDoor")) then
+                            seen[o] = true
+                            if exterior(o) then openings[#openings + 1] = o end
+                        end
+                    end
+                end
+            end
+        end
+    end
+    local made = 0
+    for _, o in ipairs(openings) do
+        if made >= Specialty2.BARRICADE_MAX then break end
+        local ok = pcall(function()
+            local b = IsoBarricade.AddBarricadeToObject(o, player)
+            if not b then error("no barricade") end
+            b:addMetal(player, instanceItem("Base.SheetMetal"))
+            b:transmitCompleteItemToClients()
+        end)
+        if ok then made = made + 1 end
+    end
+    if made == 0 then return false, "no_openings" end
+    return true, { count = made, topic = "Your engineers just bolted metal sheets over " .. StoryEngine.intToString(made)
+        .. " doors and windows at " .. tostring(ps.name) .. "'s home. Report it like a sergeant." }
+end
+
+-- ---- 빅: 대리 털이
+
+local function guardedRoom(name)
+    name = string.lower(tostring(name or ""))
+    for _, w in ipairs(Specialty2.HEIST_GUARDED) do
+        if string.find(name, w, 1, true) then return true end
+    end
+    return false
+end
+
+local function heistDone(x1, y1, x2, y2)
+    for _, h in ipairs(state().heists or {}) do
+        if h.x1 <= x2 and x1 <= h.x2 and h.y1 <= y2 and y1 <= h.y2 then return true end
+    end
+    return false
+end
+
+-- 건물 검사. 반환: def, 방 이름 목록, 사각형 / nil, 이유
+function Specialty2.heistTarget(x, y)
+    local def = getWorld():getMetaGrid():getBuildingAt(x, y)
+    if not def then return nil, "no_building" end
+    local rooms = def:getRooms()
+    local names, area = {}, 0
+    for i = 0, rooms:size() - 1 do
+        local room = rooms:get(i)
+        local name = room:getName()
+        if guardedRoom(name) then return nil, "guarded_building" end
+        names[#names + 1] = name
+        area = area + (room:getArea() or 0)
+    end
+    if #names > Specialty2.HEIST_MAX_ROOMS or area > Specialty2.HEIST_MAX_AREA then return nil, "big_building" end
+    local rect = { x1 = def:getX(), y1 = def:getY(), x2 = def:getX2(), y2 = def:getY2() }
+    if heistDone(rect.x1, rect.y1, rect.x2, rect.y2) then return nil, "already_heisted" end
+    return def, names, rect
+end
+
+local function heist(player, ps, fid, args)
+    local x, y = tonumber(args.x), tonumber(args.y)
+    if not x or not y then return false, "bad_target" end
+    local def, names, rect = Specialty2.heistTarget(math.floor(x), math.floor(y))
+    if not def then return false, names end
+    local h = homeOf(ps)
+    if h and h.x >= rect.x1 and h.x <= rect.x2 and h.y >= rect.y1 and h.y <= rect.y2 then return false, "own_home" end
+    local list = jobs()
+    list[#list + 1] = { kind = "heist", key = ps.key, dueT = Sensor.now().t + rand(Specialty2.HEIST_DELAY),
+                        rooms = names, rect = rect }
+    return true, { topic = "Your crew is going to clean out the building " .. tostring(ps.name) .. " marked on the map. "
+        .. "Give it most of the night; you keep a cut, that is how it works." }
+end
+
+local function fullType(name)
+    name = tostring(name)
+    if not string.find(name, ".", 1, true) then name = "Base." .. name end
+    local ok, sc = pcall(function() return getScriptManager():getItem(name) end)
+    if ok and sc then return name end
+    return nil
+end
+
+-- 바닐라 분포표로 방 하나를 굴린다 (SuburbsDistributions -> ProceduralDistributions)
+local function rollItems(list, rolls, out, cap)
+    if type(list) ~= "table" then return end
+    for _ = 1, math.max(1, rolls or 1) do
+        for i = 1, #list - 1, 2 do
+            if #out >= cap then return end
+            local ft = fullType(list[i])
+            local chance = (tonumber(list[i + 1]) or 0) * Specialty2.HEIST_LOOT
+            if ft and ZombRandFloat(0, 100) < chance then out[#out + 1] = ft end
+        end
+    end
+end
+
+function Specialty2.rollRoom(name, out, cap)
+    local sub = SuburbsDistributions and (SuburbsDistributions[name] or SuburbsDistributions.all)
+    if type(sub) ~= "table" then return end
+    local entries = {}
+    for _, entry in pairs(sub) do
+        if type(entry) == "table" and (entry.procList or entry.items) then entries[#entries + 1] = entry end
+    end
+    for _ = 1, math.min(Specialty2.HEIST_PER_ROOM, #entries) do
+        local entry = entries[ZombRand(#entries) + 1]
+        local box = {}
+        local boxCap = math.min(cap - #out, Specialty2.HEIST_PER_CONTAINER)
+        if entry.procList then
+            local total = 0
+            for _, p in ipairs(entry.procList) do total = total + (p.weightChance or 100) end
+            local roll = ZombRand(math.max(1, total))
+            for _, p in ipairs(entry.procList) do
+                roll = roll - (p.weightChance or 100)
+                if roll < 0 then
+                    local dist = ProceduralDistributions and ProceduralDistributions.list[p.name]
+                    if dist then rollItems(dist.items, dist.rolls, box, boxCap) end
+                    break
+                end
+            end
+        else
+            rollItems(entry.items, entry.rolls, box, boxCap)
+        end
+        for _, ft in ipairs(box) do out[#out + 1] = ft end
+        if #out >= cap then return end
+    end
+end
+
+-- 빅 몫: 가치로 30% 를 떼어 간다 (비싼 것부터 무작위로 빼지 않고, 무작위 순서로 몫이 찰 때까지)
+function Specialty2.takeCut(items)
+    local Value = StoryEngine.Value
+    local total = 0
+    local vals = {}
+    for i, ft in ipairs(items) do
+        vals[i] = Value and Value.of(ft) or 1
+        total = total + vals[i]
+    end
+    local target = total * Specialty2.HEIST_CUT
+    local taken = 0
+    local idx = {}
+    for i = 1, #items do idx[i] = i end
+    for i = #idx, 2, -1 do
+        local j = ZombRand(i) + 1
+        idx[i], idx[j] = idx[j], idx[i]
+    end
+    local drop = {}
+    for _, i in ipairs(idx) do
+        if taken >= target then break end
+        drop[i] = true
+        taken = taken + vals[i]
+    end
+    local kept = {}
+    for i, ft in ipairs(items) do
+        if not drop[i] then kept[#kept + 1] = ft end
+    end
+    return kept
+end
+
+-- 그 건물 보관함을 비우고 다시 루팅이 생기지 않게 (지금 로드된 칸, 그리고 나중에 로드될 때)
+local function emptyContainers(sq, id)
+    local objs = sq:getObjects()
+    for i = 0, objs:size() - 1 do
+        local o = objs:get(i)
+        local md = o and o:getModData()
+        if o and o:getContainer() and md and md.seHeist ~= id then
+            md.seHeist = id
+            for c = 0, o:getContainerCount() - 1 do
+                local cont = o:getContainerByIndex(c)
+                local items = cont:getItems()
+                for k = items:size() - 1, 0, -1 do
+                    local it = items:get(k)
+                    local imd = it and it:getModData()
+                    if not (imd and imd.storyQuest) then
+                        cont:Remove(it)
+                        pcall(sendRemoveItemFromContainer, cont, it)
+                    end
+                end
+                cont:setExplored(true)
+                pcall(function() cont:setHasBeenLooted(true) end)
+            end
+        end
+    end
+end
+
+local function emptyRect(h)
+    local cell = getCell()
+    for x = h.x1, h.x2 do
+        for y = h.y1, h.y2 do
+            for z = 0, 2 do
+                local sq = cell:getGridSquare(x, y, z)
+                if sq then pcall(emptyContainers, sq, h.id) end
+            end
+        end
+    end
+end
+
+function Specialty2.onLoadSquare(sq)
+    local list = state().heists
+    if not list or #list == 0 then return end
+    local x, y = sq:getX(), sq:getY()
+    for _, h in ipairs(list) do
+        if x >= h.x1 and x <= h.x2 and y >= h.y1 and y <= h.y2 then
+            pcall(emptyContainers, sq, h.id)
+            return
+        end
+    end
+end
+
+local function runHeist(job, now)
+    local player = playerByKey(job.key)
+    if not player then return false end            -- 맡긴 사람이 접속해 있을 때 건넨다
+    local items = {}
+    for _, name in ipairs(job.rooms or {}) do
+        Specialty2.rollRoom(name, items, Specialty2.HEIST_MAX_ITEMS)
+        if #items >= Specialty2.HEIST_MAX_ITEMS then break end
+    end
+    items = Specialty2.takeCut(items)
+    local s = state()
+    s.heistSeq = (s.heistSeq or 0) + 1
+    local h = { id = s.heistSeq, x1 = job.rect.x1, y1 = job.rect.y1, x2 = job.rect.x2, y2 = job.rect.y2, t = now.t }
+    s.heists[#s.heists + 1] = h
+    emptyRect(h)
+    if #items > 0 then
+        local ps = Store.player(player)
+        deliver(player, ps, "rats", "heist", items)
+    end
+    log("specialty2 heist done", job.key, #items)
+    return true
+end
+
+-- ---- 빅: 위장 / 행크: 소음기·조명 (클라이언트가 한다)
+
+local function camo(player, ps, fid)
+    clientFx({ kind = "camo", key = ps.key, untilT = Sensor.now().t + Specialty2.CAMO_HOURS * 60 }, player, true)
+    return true, { topic = "You showed " .. tostring(ps.name) .. " how your crew smears itself with the guts of the dead. "
+        .. "For a few hours the dead will not chase them, as long as they do not sprint or swing at anything." }
+end
+
+-- 클라이언트가 알림: 전력 질주·공격으로 위장이 풀렸다
+function Specialty2.camoEnd(player)
+    local key = Store.playerKey(player)
+    local f = fxOf("camo", key, Sensor.now().t)
+    if not f then return end
+    f.untilT = Sensor.now().t
+    Net.toAll("spec2Fx", { kind = "camo", minutes = 0, target = onlineTarget(player) })
+    log("specialty2 camo broken", key)
+end
+
+local function suppressor(player, ps, fid)
+    clientFx({ kind = "suppressor", key = ps.key, untilT = Sensor.now().t + Specialty2.SUPPRESSOR_HOURS * 60 }, player)
+    return true, { topic = "You rigged suppressors on " .. tostring(ps.name) .. "'s guns for the next day. Warn them they "
+        .. "will not hold up forever." }
+end
+
+local function flare(player, ps, fid)
+    clientFx({ kind = "flare", key = ps.key, untilT = Sensor.now().t + Specialty2.FLARE_HOURS * 60, radius = 12 }, player, true)
+    return true, { topic = "You lit emergency flares around " .. tostring(ps.name) .. " so they can see for the next six "
+        .. "hours. Tell them to use the light well." }
+end
+
+-- 일거리 (예약)
+local JOB_RUN = {
+    rain_start = function() rainStart() return true end,
+    rain_stop = function() rainStop() return true end,
+    tow = runTow, artillery = runArtillery, evac = runEvac, heist = runHeist,
+}
+
+local function jobTick(now)
+    local keep = {}
+    for _, job in ipairs(jobs()) do
+        local finished = false
+        if now.t >= job.dueT then
+            local ok, res = pcall(JOB_RUN[job.kind] or function() return true end, job, now)
+            if not ok then
+                log("specialty2 job error", job.kind, tostring(res))
+                finished = true
+            else
+                finished = res == true
+            end
+        end
+        if not finished then keep[#keep + 1] = job end
+    end
+    state().jobs = keep
+    lentTick(now)
+end
+Specialty2.jobTick = jobTick
+
+-- 클라이언트 효과를 다시 알린다 (다시 접속해도 이어지게)
+local function resendTick(now)
+    for _, f in ipairs(state().fx) do
+        if f.client and now.t < f.untilT and (not f.sentT or now.t - f.sentT >= Specialty2.CLIENT_RESEND) then
+            local p = playerByKey(f.key)
+            if p then sendFx(f, p, now) end
+        end
+    end
+end
+Specialty2.resendTick = resendTick
+
+Specialty2.STAGE2_HANDLERS = {
+    rain = rain, refugees = refugees, tow = tow, reinforce = reinforce, artillery = artillery, evac = evac,
+    barricade = barricade, heist = heist, camo = camo, suppressor = suppressor, flare = flare,
+}
+Specialty2.STAGE2_FX = {
+    refugees = function(p, f, now)
+        if f.nextT and now.t < f.nextT then return end
+        f.nextT = now.t + 10
+        clearCorpses(f)
+    end,
+    reinforce = function(p, f) holdParts(f) end,
+}
+
 Specialty2.HANDLERS = {
     livestock = livestock, stew = stew, praise = praise, sos = sos, power = power, illness = illness, pain = pain,
     pharmacy = pharmacy, reconcile = reconcile, baptism = baptism, tuning = tuning, bodyguard = bodyguard, game = game,
 }
+for k, fn in pairs(Specialty2.STAGE2_HANDLERS) do Specialty2.HANDLERS[k] = fn end
 
 -- ---------------------------------------------------------------- 쓰기
 
@@ -751,6 +1474,7 @@ local function fxTick(now)
 end
 
 Specialty2.FX = {
+    -- 2단계 효과는 아래에서 덧붙인다 (STAGE2_FX)
     -- 24시간 동안 불행이 오르지 않는다 (내려가는 것은 그대로)
     stew = function(p, f)
         local stats = p:getStats()
@@ -811,8 +1535,10 @@ Specialty2.FX = {
     end,
 }
 
+for k, fn in pairs(Specialty2.STAGE2_FX) do Specialty2.FX[k] = fn end
+
 function Specialty2.tick(now)
-    for _, fn in ipairs({ fxTick, praiseTick }) do
+    for _, fn in ipairs({ fxTick, praiseTick, jobTick, resendTick }) do
         local ok, err = pcall(fn, now)
         if not ok then log("specialty2 tick error:", err) end
     end
@@ -835,6 +1561,12 @@ end
 Events.EveryOneMinute.Add(function()
     if not Specialty2.enabled() then return end
     Specialty2.tick(Sensor.now())
+end)
+
+-- 대리 털이한 건물의 보관함은 칸이 로드될 때 비운다
+Events.LoadGridsquare.Add(function(sq)
+    local ok, err = pcall(Specialty2.onLoadSquare, sq)
+    if not ok then log("specialty2 load square error:", err) end
 end)
 
 return Specialty2

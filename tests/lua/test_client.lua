@@ -328,6 +328,41 @@ function T.second_specialty_dock_rows()
     H.ok(StoryEngineQuickDock2.rows ~= StoryEngineQuickDock.rows, "own rows")
 end
 
+-- 2차 특기 2단계 클라이언트 효과 (2026-10-09): 포격 처치, 위장, 소음기
+function T.second_specialty_client_effects()
+    local p = H.addPlayer("tester", "Gerald", "Kar")
+    local h = StoryEngine.Client.handlers
+    local near, far = H.newZombie(10003, 10000), H.newZombie(10050, 10000)
+    h.spec2Strike({ x = 10000, y = 10000, radius = 10 })
+    H.ok(near.dead and not far.dead, "only inside the radius")
+    -- 위장: 나를 쫓던 좀비의 표적을 지운다
+    local z = H.newZombie(10004, 10000)
+    z.target = p
+    function z:getTarget() return self.target end
+    function z:setTarget(t) self.target = t end
+    function p:isSprinting() return false end
+    function p:getStats() return { set = function() end } end
+    h.spec2Fx({ kind = "camo", minutes = 240 })
+    StoryEngine.SpecClient.fx[#StoryEngine.SpecClient.fx].untilH = 1e9
+    local camo = StoryEngine.SpecClient.fx[#StoryEngine.SpecClient.fx]
+    H.eq(camo.kind, "camo")
+    -- 소음기: 내 총 소음이 줄고, 끝나면 되돌아온다
+    local gun = H.newItem("Base.Pistol")
+    gun.__classes = { HandWeapon = true }
+    gun.r, gun.v = 100, 80
+    function gun:isRanged() return true end
+    function gun:getSoundRadius() return self.r end
+    function gun:setSoundRadius(v) self.r = v end
+    function gun:getSoundVolume() return self.v end
+    function gun:setSoundVolume(v) self.v = v end
+    p.items[#p.items + 1] = gun
+    StoryEngine.SpecClient.suppress(p, true)
+    H.eq(gun.r, 30)
+    StoryEngine.SpecClient.suppress(p, false)
+    H.eq(gun.r, 100, "restored")
+    H.eq(gun:getModData().seSupOrig, nil)
+end
+
 -- 메인 창 아이콘 (2026-10-07): 창이 닫혀 있는 동안 새로 온 NPC 무전을 센다
 function T.main_icon_counts_unread_npc_messages()
     H.addPlayer("tester", "Gerald", "Kar")

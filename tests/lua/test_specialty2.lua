@@ -99,8 +99,9 @@ function T.each_player_picks_and_can_switch_every_30_days()
     H.eq(why, "locked", "only after the second project")
     finish("hunter")
     H.eq(S().status("hunter", ps).reason, "no_choice")
+    StoryEngine.Specialty2.READY.flare = nil
     ok, why = S().choose(p, "hunter", "flare")
-    H.eq(why, "not_ready", "later-stage options cannot be picked yet")
+    H.eq(why, "not_ready", "options not marked ready cannot be picked")
     H.ok(S().choose(p, "hunter", "game"))
     H.ok(S().choose(q, "hunter", "game"), "another player picks their own")
     H.eq(S().choiceOf(ps, "hunter"), "game")
@@ -111,7 +112,6 @@ function T.each_player_picks_and_can_switch_every_30_days()
     H.eq(why, "change_wait", "no switching within 30 days")
     H.advanceDays(30)
     H.ok(S().choose(p, "hunter", "flare"))
-    StoryEngine.Specialty2.READY.flare = nil
 end
 
 function T.use_conditions_cost_and_personal_cooldown()

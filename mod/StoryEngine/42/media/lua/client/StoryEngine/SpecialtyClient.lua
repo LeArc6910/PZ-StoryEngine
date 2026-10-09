@@ -224,26 +224,224 @@ function Client.handlers.spec2Result(args)
 end
 
 -- SOS·진통: 서버가 매분 정하지만, 그 사이에도 이 클라이언트가 공포·통증을 0으로 둔다 (위로의 공포 0 과 같은 방식)
+-- 2단계 (2026-10-09): camo(좀비 표적 지우기)·flare(빛)·suppressor(내 총 소음)·reinforce(밀고 나가기, 운전자)
 SpecClient.fx = {}
-function Client.handlers.spec2Fx(args)
-    local untilH = worldHours() + (tonumber(args.minutes) or 60) / 60
-    SpecClient.fx[#SpecClient.fx + 1] = { kind = args.kind, untilH = untilH, calm = args.calm, numb = args.numb }
+SpecClient.SUPPRESS = 0.3
+SpecClient.PLOW_MASS = 2.5
+SpecClient.PLOW_BUMP = 0.4          -- 한 틱에 속도가 이만큼(비율) 넘게 떨어지면 부딪힌 것: 되돌리지 않는다
+SpecClient.CAMO_RADIUS = 25
+
+local function sameFx(a, b)
+    return a.kind == b.kind and (a.target or -1) == (b.target or -1)
 end
 
+function Client.handlers.spec2Fx(args)
+    local entry = { kind = args.kind, untilH = worldHours() + (tonumber(args.minutes) or 60) / 60, calm = args.calm,
+                    numb = args.numb, target = args.target, vid = args.vid, radius = args.radius }
+    local keep = {}
+    for _, f in ipairs(SpecClient.fx) do
+        if sameFx(f, entry) then
+            entry.light, entry.lx, entry.ly, entry.mass = f.light, f.lx, f.ly, f.mass   -- 이어 쓰기
+        else
+            keep[#keep + 1] = f
+        end
+    end
+    if (tonumber(args.minutes) or 0) > 0 then
+        keep[#keep + 1] = entry
+    elseif entry.light then
+        pcall(function() getCell():removeLamppost(entry.light) end)
+    end
+    SpecClient.fx = keep
+end
+
+-- 효과 대상 (멀티: online ID, 싱글: 나)
+local function targetOf(f)
+    if f.target == nil then return getPlayer() end
+    return getPlayerByOnlineID and getPlayerByOnlineID(f.target) or nil
+end
+
+local function isMe(f)
+    local p = getPlayer()
+    local t = targetOf(f)
+    return p ~= nil and t == p
+end
+
+-- 위장: 대상에게 달려드는 좀비의 표적을 지운다 (좀비는 맡은 클라이언트가 움직이므로 모든 클라이언트가 한다)
+local function camoTick(f)
+    local t = targetOf(f)
+    if not t then return end
+    if isMe(f) and t:isSprinting() then
+        f.untilH = 0
+        Net.toServer(t, "spec2CamoEnd", {})
+        return
+    end
+    local list = getCell() and getCell():getZombieList()
+    if not list then return end
+    local tx, ty = t:getX(), t:getY()
+    local r2 = SpecClient.CAMO_RADIUS * SpecClient.CAMO_RADIUS
+    for i = 0, list:size() - 1 do
+        local z = list:get(i)
+        if z and not z:isDead() and z:getTarget() == t then
+            local dx, dy = z:getX() - tx, z:getY() - ty
+            if dx * dx + dy * dy <= r2 then z:setTarget(nil) end
+        end
+    end
+end
+
+-- 조명: 대상이 한 타일 넘게 움직이면 빛을 옮긴다
+local function flareTick(f, ending)
+    local cell = getCell()
+    if ending then
+        if f.light then pcall(function() cell:removeLamppost(f.light) end) end
+        f.light = nil
+        return
+    end
+    local t = targetOf(f)
+    if not t then return end
+    local x, y, z = math.floor(t:getX()), math.floor(t:getY()), math.floor(t:getZ())
+    if f.light and f.lx == x and f.ly == y then return end
+    if f.light then pcall(function() cell:removeLamppost(f.light) end) end
+    f.light = cell:addLamppost(x, y, z, 1.0, 0.85, 0.6, f.radius or 12)
+    f.lx, f.ly = x, y
+end
+
+-- 소음기: 내 인벤토리의 총 소음을 줄이고, 원래 값은 총에 적어 둔다 (끝나면 되돌린다)
+local function eachGun(p, fn)
+    local items = p:getInventory():getItems()
+    for i = 0, items:size() - 1 do
+        local it = items:get(i)
+        if it and instanceof(it, "HandWeapon") and it:isRanged() then fn(it) end
+    end
+end
+
+function SpecClient.suppress(p, on)
+    eachGun(p, function(gun)
+        local md = gun:getModData()
+        if on and not md.seSupOrig then
+            md.seSupOrig = { r = gun:getSoundRadius(), v = gun:getSoundVolume() }
+            gun:setSoundRadius(math.max(1, math.floor(gun:getSoundRadius() * SpecClient.SUPPRESS)))
+            gun:setSoundVolume(math.max(1, math.floor(gun:getSoundVolume() * SpecClient.SUPPRESS)))
+        elseif not on and md.seSupOrig then
+            gun:setSoundRadius(md.seSupOrig.r)
+            gun:setSoundVolume(md.seSupOrig.v)
+            md.seSupOrig = nil
+        end
+    end)
+end
+
+-- 밀고 나가기 (운전하는 사람만): 가속 중 서서히 떨어진 속도를 되돌린다, 크게 부딪히면 그대로
+function SpecClient.plowTick(p, f)
+    local v = p:getVehicle()
+    if not v or v:getId() ~= f.vid or v:getDriver() ~= p then
+        f.lastSpeed = nil
+        return
+    end
+    if not f.mass then
+        f.mass = v:getMass()
+        v:setMass(v:getInitialMass() * SpecClient.PLOW_MASS)
+    end
+    local speed = v:getCurrentSpeedKmHour()
+    local last = f.lastSpeed
+    if last and v:isGasPedalPressed() and not v:isBrakePedalPressed() and math.abs(speed) < math.abs(last) then
+        local drop = (math.abs(last) - math.abs(speed)) / math.max(1, math.abs(last))
+        if drop < SpecClient.PLOW_BUMP then
+            v:setSpeedKmHour(last)
+            speed = last
+        end
+    end
+    f.lastSpeed = speed
+end
+
+local function plowEnd(p, f)
+    if not f.mass then return end
+    local v = getVehicleById and getVehicleById(f.vid)
+    if v then pcall(function() v:setMass(f.mass) end) end
+    f.mass = nil
+end
+
+-- 포격: 이 클라이언트가 보는 좀비 중 반경 안의 것을 쓰러뜨린다 (A-Life NPC 제외)
+function Client.handlers.spec2Strike(args)
+    local list = getCell() and getCell():getZombieList()
+    if not list then return end
+    local x, y, r = tonumber(args.x) or 0, tonumber(args.y) or 0, tonumber(args.radius) or 10
+    local kills = 0
+    for i = list:size() - 1, 0, -1 do
+        local z = list:get(i)
+        if z and not z:isDead() and not StoryEngine.isALifeNpc(z) then
+            local dx, dy = z:getX() - x, z:getY() - y
+            if dx * dx + dy * dy <= r * r then
+                local ok = pcall(function() z:Kill(nil) end)
+                if not ok then pcall(function() z:setHealth(0) end) end
+                kills = kills + 1
+            end
+        end
+    end
+    log("spec2 strike", x, y, kills)
+end
+
+-- 헬기 후송: 서버가 정한 집으로 옮긴다 (차에 타 있으면 teleportTo 가 내리게 한다)
+function Client.handlers.spec2Teleport(args)
+    local p = getPlayer()
+    if not p then return end
+    p:teleportTo(math.floor(tonumber(args.x) or p:getX()), math.floor(tonumber(args.y) or p:getY()),
+        math.floor(tonumber(args.z) or 0))
+    HaloTextHelper.addGoodText(p, getText("IGUI_StoryEngine_Spec2_EvacDone"))
+end
+
+-- 위장 중 공격하면 풀린다
+Events.OnPlayerAttackFinished.Add(function(character)
+    local p = getPlayer()
+    if not p or character ~= p then return end
+    for _, f in ipairs(SpecClient.fx) do
+        if f.kind == "camo" and isMe(f) and f.untilH > worldHours() then
+            f.untilH = 0
+            Net.toServer(p, "spec2CamoEnd", {})
+        end
+    end
+end)
+
+SpecClient.supChecked = false
 local function spec2Tick(p)
-    if #SpecClient.fx == 0 then return end
     local now = worldHours()
     local keep = {}
+    local suppressed = false
     for _, f in ipairs(SpecClient.fx) do
         if now < f.untilH then
             keep[#keep + 1] = f
             local stats = p:getStats()
             if f.calm then pcall(function() stats:set(CharacterStat.PANIC, 0) end) end
             if f.numb then pcall(function() stats:set(CharacterStat.PAIN, 0) end) end
+            if f.kind == "camo" then pcall(camoTick, f)
+            elseif f.kind == "flare" then pcall(flareTick, f)
+            elseif f.kind == "suppressor" and isMe(f) then suppressed = true
+            end
+        else
+            if f.kind == "flare" then pcall(flareTick, f, true) end
+            if f.kind == "reinforce" then pcall(plowEnd, p, f) end
         end
     end
     SpecClient.fx = keep
+    -- 소음기: 켜져 있으면 새로 주운 총도(가끔), 꺼졌으면 남은 표시를 되돌린다 (처음 한 번은 지난 접속의 것도)
+    SpecClient.supN = (SpecClient.supN or 0) + 1
+    local due = SpecClient.supN % 10 == 0
+    if (suppressed and due) or not SpecClient.supChecked or (SpecClient.supWas and not suppressed) then
+        pcall(SpecClient.suppress, p, suppressed)
+        SpecClient.supChecked = true
+    end
+    SpecClient.supWas = suppressed
 end
+
+-- 밀고 나가기는 매 틱 (속도는 순간마다 바뀐다)
+Events.OnTick.Add(function()
+    local p = getPlayer()
+    if not p then return end
+    for _, f in ipairs(SpecClient.fx) do
+        if f.kind == "reinforce" and f.untilH > worldHours() then
+            local ok, err = pcall(SpecClient.plowTick, p, f)
+            if not ok then log("plow tick error:", err) end
+        end
+    end
+end)
 
 -- ---------------------------------------------------------------- 틱
 
@@ -264,5 +462,58 @@ Events.OnTick.Add(function()
     ok, err = pcall(spec2Tick, p)
     if not ok then log("spec2 tick error:", err) end
 end)
+
+
+-- ---------------------------------------------------------------- 2차 특기: 지도 우클릭 (포격·대리 털이)
+
+-- 지금 쓸 수 있는 지도 2차 특기 (거점 목록 기준): { { fid, opt } }
+function SpecClient.mapOptions()
+    local out = {}
+    for _, n in ipairs((StoryEngine.Cache or {}).life or {}) do
+        local s2 = n.spec2
+        if s2 and s2.unlocked and s2.reason == nil and (s2.choice == "artillery" or s2.choice == "heist") then
+            out[#out + 1] = { fid = n.id, opt = s2.choice }
+        end
+    end
+    return out
+end
+
+function SpecClient.addMapOptions(context, wx, wy)
+    for _, e in ipairs(SpecClient.mapOptions()) do
+        context:addOption(getText("IGUI_StoryEngine_Spec2_Map_" .. e.opt), e, function(entry)
+            local p = getPlayer()
+            if p then Net.toServer(p, "spec2Use", { faction = entry.fid, x = math.floor(wx), y = math.floor(wy) }) end
+        end)
+    end
+end
+
+local function hookWorldMap()
+    if not ISWorldMap or ISWorldMap.seSpec2Hooked then return end
+    ISWorldMap.seSpec2Hooked = true
+    local orig = ISWorldMap.onRightMouseUp
+    function ISWorldMap:onRightMouseUp(x, y)
+        local entries = SpecClient.mapOptions()
+        if #entries == 0 then return orig(self, x, y) end
+        if self.symbolsUI and self.symbolsUI:onRightMouseUpMap(x, y) then return true end
+        local wx = self.mapAPI:uiToWorldX(x, y)
+        local wy = self.mapAPI:uiToWorldY(x, y)
+        -- 관리자·디버그 메뉴가 열리면 거기에 더하고, 아니면 우리 메뉴를 연다
+        local captured = nil
+        local realGet = ISContextMenu.get
+        ISContextMenu.get = function(...)
+            local c = realGet(...)
+            captured = c
+            return c
+        end
+        local ok, res = pcall(orig, self, x, y)
+        ISContextMenu.get = realGet
+        local context = captured or ISContextMenu.get(0, x + self:getAbsoluteX(), y + self:getAbsoluteY())
+        SpecClient.addMapOptions(context, wx, wy)
+        if ok and res ~= nil then return res end
+        return true
+    end
+end
+
+Events.OnGameStart.Add(function() pcall(hookWorldMap) end)
 
 return SpecClient
