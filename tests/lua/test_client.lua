@@ -307,6 +307,13 @@ function T.people_label_width_counts_wide_letters()
     H.ok(w >= 2 * 20 + 3, "two wide letters count as the font height each: " .. tostring(w))
 end
 
+-- 게임(Kahlua)에서는 string.byte 가 한글 한 글자의 코드값을 준다: "가족·곁의 사람"
+function T.people_label_width_counts_java_chars()
+    local wide, keep = StoryEnginePeoplePanel.splitWide({ 44032, 51313, 183, 44273, 51032, 32, 49324, 46988 })
+    H.eq(wide, 6, "six hangul letters")
+    H.eq(#keep, 2, "the dot and the space are narrow")
+end
+
 -- 인물 탭 "큰 이야기" (2026-10-07): 처음부터 지금까지, 이야기별로 묶은 장면
 function T.people_tab_main_story_box()
     local P = StoryEnginePeoplePanel
