@@ -480,12 +480,10 @@ function StoryEngineRadioPanel:refresh()
     for i, f in ipairs(rows) do
         local unread = Cache.unread[f.id] or 0
         local sub = f.open and getText("IGUI_StoryEngine_Radio_OpenSub") or getText("IGUI_StoryEngine_Radio_ListSub", f.freq)
-        -- 개인 모드: 주파수 옆에 내 신뢰·무리 신뢰, 툴팁으로 혜택은 내 신뢰라는 안내
-        local tip = nil
+        -- 개인 모드: 주파수 옆에 내 신뢰·무리 신뢰 (목록 툴팁은 계속 떠서 방해가 되어 2026-10-09 뺌)
         local pair = not f.open and UI.trustPairText(f.id, Cache.channels[f.id]) or nil
         if pair then
             sub = sub .. "  |  " .. pair
-            tip = getText("IGUI_StoryEngine_Trust_BenefitTip")
         end
         if unread > 0 then sub = sub .. "   " .. getText("IGUI_StoryEngine_Radio_Unread", StoryEngine.intToString(unread)) end
         local gone = Cache.channels[f.id] and Cache.channels[f.id].gone
@@ -496,7 +494,7 @@ function StoryEngineRadioPanel:refresh()
         end
         self.list:addItem(Factions.name(f.id), {
             title = Factions.name(f.id), sub = sub, value = f.id, color = color,
-        }, tip)
+        })
         if f.id == Cache.faction then selectedIndex = i end
     end
     self.list.selected = selectedIndex
@@ -1610,6 +1608,31 @@ StoryEnginePeoplePanel.LABELS = { "IGUI_StoryEngine_People_Age", "IGUI_StoryEngi
     "IGUI_StoryEngine_People_Home", "IGUI_StoryEngine_People_Job", "IGUI_StoryEngine_People_Radio",
     "IGUI_StoryEngine_People_Trust", "IGUI_StoryEngine_People_Project" }
 
+-- 이름 칸 너비: 잰 값과, 한글처럼 3바이트 이상인 글자를 글꼴 높이만큼으로 어림한 값 중 큰 쪽
+function StoryEnginePeoplePanel.labelWidth(text, font)
+    local tm = getTextManager()
+    local measured, h = 0, 16
+    local ok, w = pcall(function() return tm:MeasureStringX(font, text) end)
+    if ok and type(w) == "number" then measured = w end
+    local okH, fh = pcall(function() return tm:getFontHeight(font) end)
+    if okH and type(fh) == "number" and fh > 0 then h = fh end
+    local wide, narrow = 0, {}
+    local i, n = 1, #text
+    while i <= n do
+        local b = string.byte(text, i)
+        local len = (b >= 240 and 4) or (b >= 224 and 3) or (b >= 192 and 2) or 1
+        if len >= 3 then wide = wide + 1 else narrow[#narrow + 1] = string.sub(text, i, i + len - 1) end
+        i = i + len
+    end
+    local rest = 0
+    if #narrow > 0 then
+        local s = table.concat(narrow)
+        local ok2, w2 = pcall(function() return tm:MeasureStringX(font, s) end)
+        rest = (ok2 and type(w2) == "number") and w2 or #s * h * 0.5
+    end
+    return math.max(measured, wide * h + rest)
+end
+
 local function peopleOf(fid)
     for _, n in ipairs(Cache.people or {}) do
         if n.id == fid then return n end
@@ -1788,11 +1811,11 @@ function StoryEnginePeoplePanel:refresh()
     local who = n.voice or fid           -- 후임 목소리면 그 사람의 프로필 (IGUI_StoryEngine_Profile_<후임>_*)
     local parts = {}
     -- 이름 칸 너비 (가장 긴 이름 + 여백). 값은 그 자리부터 (색 바꿈 태그 옆 공백은 지워지므로 <SETX:>)
+    -- MeasureStringX 는 한글 폭을 작게 재서 (2026-10-09 "가족·곁의 사람"이 값과 겹침) labelWidth 로 어림한다
     local labelW = 0
-    local tm = getTextManager()
     for _, key in ipairs(StoryEnginePeoplePanel.LABELS) do
-        local ok, w = pcall(function() return tm:MeasureStringX(self.text.defaultFont or UIFont.NewSmall, getText(key)) end)
-        if ok and type(w) == "number" and w > labelW then labelW = w end
+        local w = StoryEnginePeoplePanel.labelWidth(getText(key), self.text.defaultFont or UIFont.NewSmall)
+        if w > labelW then labelW = w end
     end
     local valueX = StoryEngine.intToString(math.floor(labelW + 16))
     local function row(label, value)
@@ -2065,8 +2088,7 @@ function StoryEngineLifePanel:refresh()
         local sub = n.fate and getText("IGUI_StoryEngine_Fate_" .. tostring(n.fate)) or lifeSub(n)
         local color = low and COLOR_FAILED or nil
         if n.fate then color = COLOR_DECLINED end
-        local tip = (not n.fate and UI.trustPair(n.id, n)) and getText("IGUI_StoryEngine_Trust_BenefitTip") or nil
-        self.list:addItem(Factions.name(n.id), { title = Factions.name(n.id), sub = sub, value = n.id, color = color }, tip)
+        self.list:addItem(Factions.name(n.id), { title = Factions.name(n.id), sub = sub, value = n.id, color = color })
         if n.id == Cache.lifeFaction then selectedIndex = i end
     end
     self.list.selected = selectedIndex
@@ -2078,7 +2100,7 @@ function StoryEngineLifePanel:refresh()
     self.volunteerButton:setVisible(n ~= nil and n.volunteer ~= nil and not n.fate)
     if n and n.volunteer then
         local v = n.volunteer
-        local tip = getText("IGUI_StoryEngine_Volunteer_Tooltip", StoryEngine.intToString(v.tier or 1),
+        local tip = getText(n.personalMode and "IGUI_StoryEngine_Volunteer_Tooltip_Personal" or "IGUI_StoryEngine_Volunteer_Tooltip", StoryEngine.intToString(v.tier or 1),
             StoryEngine.intToString(v.gain or 0), StoryEngine.intToString(v.left or 0))
         if v.why then tip = getText("IGUI_StoryEngine_Volunteer_Why_" .. tostring(v.why)) .. " <LINE> " .. tip end
         self.volunteerButton.tooltip = tip
@@ -2092,13 +2114,13 @@ function StoryEngineLifePanel:refresh()
     local proj = n.project
     self.projectButton:setVisible(proj ~= nil and not proj.done and not n.fate)
     self.projectButton:setEnable((n.projectWait or 0) == 0)
-    self.projectButton.tooltip = getText("IGUI_StoryEngine_Project_Tooltip")
+    self.projectButton.tooltip = getText(n.personalMode and "IGUI_StoryEngine_Project_Tooltip_Personal" or "IGUI_StoryEngine_Project_Tooltip")
     if n.fate then
         self.donateButton:setVisible(false)
         self.specButton:setVisible(false)
     end
     self.donateButton:setEnable((n.donateWait or 0) == 0)
-    self.donateButton.tooltip = getText("IGUI_StoryEngine_Life_DonateTooltip")
+    self.donateButton.tooltip = getText(n.personalMode and "IGUI_StoryEngine_Life_DonateTooltip_Personal" or "IGUI_StoryEngine_Life_DonateTooltip")
     -- 특기: 구간 1~3, 막힌 이유는 툴팁으로
     local spec = n.spec or {}
     self.specButton:setVisible(n.spec ~= nil and not n.fate)

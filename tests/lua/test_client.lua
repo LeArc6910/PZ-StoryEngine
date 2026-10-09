@@ -293,6 +293,20 @@ function T.main_icon_counts_unread_npc_messages()
     H.ok(StoryEngineQuickDock.GRIP == StoryEngineFloatBar.GRIP, "the skills icon shares the bar")
 end
 
+-- 2026-10-09: MeasureStringX 가 한글 폭을 작게 재서 인물 탭 "가족·곁의 사람" 이 값과 겹쳤다
+function T.people_label_width_counts_wide_letters()
+    local real = getTextManager
+    getTextManager = function()
+        return {
+            MeasureStringX = function(_, _, s) return #s end,     -- 바이트 수 (한글은 3바이트라도 작게)
+            getFontHeight = function() return 20 end,
+        }
+    end
+    local w = StoryEnginePeoplePanel.labelWidth("\234\176\128\236\161\177 ab", UIFont.NewSmall)
+    getTextManager = real
+    H.ok(w >= 2 * 20 + 3, "two wide letters count as the font height each: " .. tostring(w))
+end
+
 -- 인물 탭 "큰 이야기" (2026-10-07): 처음부터 지금까지, 이야기별로 묶은 장면
 function T.people_tab_main_story_box()
     local P = StoryEnginePeoplePanel
