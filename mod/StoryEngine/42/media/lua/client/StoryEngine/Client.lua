@@ -334,8 +334,10 @@ end)
 function Client.handlers.projectDone(args)
     local player = getPlayer()
     if not player then return end
+    local nameKey = (args.phase == 2 and "IGUI_StoryEngine_Project2_Name_" or "IGUI_StoryEngine_Project_Name_")
+        .. tostring(args.faction)
     HaloTextHelper.addGoodText(player, getText("IGUI_StoryEngine_Project_DoneHalo", StoryEngine.Factions.name(args.faction),
-        getText("IGUI_StoryEngine_Project_Name_" .. tostring(args.faction))))
+        getText(nameKey)))
     Net.toServer(player, "lifeList", {})
 end
 
@@ -748,7 +750,7 @@ local function fillDebugMenu(context, worldobjects, playerNum)
     lsub:addOption(label("ContextMenu_StoryEngine_LifeClearWait"), worldobjects, life({ delta = 0, clearWait = true }))
     lsub:addOption(label("ContextMenu_StoryEngine_SpecClearWait"), worldobjects, life({ delta = 0, clearSpec = true }))
     lsub:addOption(label("ContextMenu_StoryEngine_ProjectAdd"), worldobjects, life({ delta = 0, project = 100 }))
-    lsub:addOption(label("ContextMenu_StoryEngine_ProjectDone"), worldobjects, life({ delta = 0, project = 1000 }))
+    lsub:addOption(label("ContextMenu_StoryEngine_ProjectDone"), worldobjects, life({ delta = 0, project = 5000 }))   -- 지금 채우는 프로젝트(1차, 끝났으면 2차)를 끝낸다
     lsub:addOption(label("ContextMenu_StoryEngine_NpcShare"), worldobjects, life({ delta = 0, npcEvent = "share" }))
     lsub:addOption(label("ContextMenu_StoryEngine_NpcClash"), worldobjects, life({ delta = 0, npcEvent = "clash" }))
     lsub:addOption(label("ContextMenu_StoryEngine_NpcRaid"), worldobjects, life({ delta = 0, npcEvent = "raid" }))

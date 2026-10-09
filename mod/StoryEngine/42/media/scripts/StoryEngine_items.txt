@@ -64,6 +64,28 @@ module StoryEngine
         WorldStaticModel = Paperwork1,
     }
 
+    item Food_RayStew
+    {
+        DisplayCategory = Food,
+        ItemType = base:food,
+        Weight = 1.5,
+        Icon = BowlFull,
+        EatType = 2handbowl,
+        ReplaceOnUse = Base.Bowl,
+        DaysFresh = 3,
+        DaysTotallyRotten = 6,
+        HungerChange = -200.0,
+        Calories = 1600.0,
+        Carbohydrates = 120.0,
+        Lipids = 40.0,
+        Proteins = 90.0,
+        UnhappyChange = -40,
+        BoredomChange = -40,
+        StressChange = -30,
+        StaticModel = BowlSoup_Ground,
+        WorldStaticModel = BowlSoup_Ground,
+    }
+
     item Food_Tteokguk
     {
         DisplayCategory = Food,

@@ -198,6 +198,53 @@ function Client.handlers.specialtyResult(args)
     HaloTextHelper.addBadText(p, text)
 end
 
+-- ---------------------------------------------------------------- 2차 특기 (Specialty2.lua)
+
+-- 결과 알림
+function Client.handlers.spec2Result(args)
+    local p = getPlayer()
+    if not p then return end
+    if args.ok then
+        if args.chosen then
+            HaloTextHelper.addGoodText(p, getText("IGUI_StoryEngine_Spec2_Chosen",
+                getText("IGUI_StoryEngine_Spec2_Name_" .. tostring(args.chosen))))
+        elseif args.used then
+            HaloTextHelper.addGoodText(p, getText("IGUI_StoryEngine_Spec_Sent", StoryEngine.Factions.name(args.faction)))
+        end
+        return
+    end
+    local key = "IGUI_StoryEngine_Spec2_Error_" .. tostring(args.error)
+    local text = getTextOrNull(key) and getText(key, StoryEngine.intToString(args.wait or 0))
+    if not text then
+        local key1 = "IGUI_StoryEngine_Spec_Error_" .. tostring(args.error)
+        text = getTextOrNull(key1) and getText(key1, StoryEngine.intToString(args.wait or 0))
+            or getText("IGUI_StoryEngine_Error", tostring(args.error))
+    end
+    HaloTextHelper.addBadText(p, text)
+end
+
+-- SOS·진통: 서버가 매분 정하지만, 그 사이에도 이 클라이언트가 공포·통증을 0으로 둔다 (위로의 공포 0 과 같은 방식)
+SpecClient.fx = {}
+function Client.handlers.spec2Fx(args)
+    local untilH = worldHours() + (tonumber(args.minutes) or 60) / 60
+    SpecClient.fx[#SpecClient.fx + 1] = { kind = args.kind, untilH = untilH, calm = args.calm, numb = args.numb }
+end
+
+local function spec2Tick(p)
+    if #SpecClient.fx == 0 then return end
+    local now = worldHours()
+    local keep = {}
+    for _, f in ipairs(SpecClient.fx) do
+        if now < f.untilH then
+            keep[#keep + 1] = f
+            local stats = p:getStats()
+            if f.calm then pcall(function() stats:set(CharacterStat.PANIC, 0) end) end
+            if f.numb then pcall(function() stats:set(CharacterStat.PAIN, 0) end) end
+        end
+    end
+    SpecClient.fx = keep
+end
+
 -- ---------------------------------------------------------------- 틱
 
 SpecClient.tickN = 0
@@ -214,6 +261,8 @@ Events.OnTick.Add(function()
     end
     ok, err = pcall(comfortTick, p)
     if not ok then log("comfort tick error:", err) end
+    ok, err = pcall(spec2Tick, p)
+    if not ok then log("spec2 tick error:", err) end
 end)
 
 return SpecClient
