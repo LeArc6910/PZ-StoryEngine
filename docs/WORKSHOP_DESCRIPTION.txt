@@ -15,7 +15,7 @@ Radio contacts you can talk to, an AI director that throws events at you, quests
 [*]Quests with deadlines and tiers, shared by everyone on the server; rewards in real containers, marked on the map
 [*]Power and water repair operations, multi-day events (helicopter crash, migration, fever, radio blackout), radio news on 105.4 MHz, letters, holidays, difficulty presets
 [*]A year of stories: five chapters per contact (some end in death), 60+ side stories (more written by the AI), successors, a county council finale
-[*][b]New:[/b] second long-term projects that unlock a second specialty each player picks (rain, artillery, heists, helicopter evac and more); optional per-player trust in multiplayer
+[*][b]New:[/b] second long-term projects unlock a second specialty each player picks (rain, artillery, heists, helicopter evac...); optional per-player trust
 [*]Survival journal written every in-game midnight from what you actually did; memoirs with remembrances from the living; read other players' journals
 [*]Characters standing together talk to each other (multiplayer); inner monologue when alone
 [*]Sorts items from other mods automatically (tested with VFE and MFS); optional Project A-Life [ALIFE NPCS] armed backup and raiders
@@ -59,7 +59,7 @@ Source: [url=https://github.com/LeArc6910/PZ-StoryEngine]mod[/url], [url=https:/
 [*]기한·등급이 있는 퀘스트(서버 전체 공유), 보상은 실제 보관함에 놓이고 지도에 표시
 [*]전기·수도 복구 작전, 여러 날 이어지는 사건(헬기 추락, 대이동, 열병, 통신 두절), 라디오 105.4 MHz 저녁 방송, 편지, 명절, 난이도 프리셋
 [*]다섯 장으로 이어지는 1년 이야기(죽음으로 끝나기도), 곁가지 60여 개(AI가 더 씀), 후임, 카운티 회의
-[*][b]새 기능:[/b] 2차 장기 프로젝트를 끝내면 각자 고르는 2차 특기(기우제, 포격, 대리 털이, 헬기 후송 등), 멀티용 개인 신뢰(선택)
+[*][b]새 기능:[/b] 2차 장기 프로젝트를 끝내면 각자 고르는 2차 특기(기우제, 포격, 대리 털이, 헬기 후송 등), 멀티 개인 신뢰
 [*]실제로 한 일로 매일 자정에 쓰는 생존 일지, 추모가 달리는 회고록, 다른 플레이어 일지 열람
 [*]함께 있는 캐릭터끼리 대화(멀티), 혼자일 때는 혼잣말
 [*]다른 모드 아이템 자동 분류(VFE, MFS 확인), Project A-Life [ALIFE NPCS] 선택 연동(무장 지원·습격)
