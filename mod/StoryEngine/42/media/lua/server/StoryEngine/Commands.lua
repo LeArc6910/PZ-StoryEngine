@@ -209,10 +209,16 @@ end
 -- 2차 특기 쓰기. 약 조제는 args.med·count
 function Commands.spec2Use(player, args)
     local fid = tostring(args.faction or "")
-    local ok, info, wait = StoryEngine.Specialty2.use(player, fid, { med = args.med, count = args.count })
+    local ok, info, wait = StoryEngine.Specialty2.use(player, fid, { med = args.med, count = args.count,
+                                                                     x = args.x, y = args.y })
     reply(player, "spec2Result", { ok = ok, faction = fid, used = ok or nil, error = (not ok) and tostring(info) or nil,
                                    wait = wait })
     reply(player, "lifeList", { npcs = StoryEngine.Life.list(StoryEngine.Store.playerKey(player)) })
+end
+
+-- 2차 특기 좀비 피 위장: 전력 질주·공격으로 풀렸다 (위장한 클라이언트가 알린다)
+function Commands.spec2CamoEnd(player, args)
+    StoryEngine.Specialty2.camoEnd(player)
 end
 
 -- 닥 치료: 클라이언트가 10초 동안 가만히 있었다
