@@ -94,15 +94,30 @@ function T.named_flow_spawn_slay_and_hand_over()
     local z = H.spawned[1]
     H.eq(z.outfit, "Farmer")
     H.eq(z:getModData().storyNamed, q.id)
-    H.eq(z:getInventory().items[1].fullType, person.item, "keepsake on the zombie")
-    H.eq(z:getInventory().items[1]:getModData().storyQuest, q.id)
+    H.eq(#z:getInventory().items, 0, "keepsake is not put on the zombie any more (MP sync failed)")
     -- 지도 표시가 좀비를 따라간다
     z.x, z.y = z.x + 30, z.y + 5
     Named.tick({}, StoryEngine.Sensor.now())
     H.eq(q.cx, math.floor(z.x))
     z.dead = true
+    -- 쓰러진 자리 칸이 불러져 있으면 바닥에 유품
+    local floor = {}
+    local sq = { objs = {} }
+    function sq:getDeadBodys() return H.list({}) end
+    function sq:getWorldObjects() return H.list({}) end
+    function sq:AddWorldInventoryItem(ft)
+        local it = H.newItem(ft)
+        floor[#floor + 1] = it
+        return it
+    end
+    local realGet = H.cell.getGridSquare
+    H.cell.getGridSquare = function(_, x, y) if x == math.floor(z.x) and y == math.floor(z.y) then return sq end return nil end
     Named.onZombieDead(z)
     H.ok(q.slain, "slain")
+    H.eq(floor[1] and floor[1]:getFullType(), person.item, "keepsake dropped where it fell")
+    H.eq(floor[1]:getModData().storyQuest, q.id)
+    H.ok(q.dropped)
+    H.cell.getGridSquare = realGet
     H.give(p, person.item, { questTag = q.id })
     H.ok(StoryEngine.Quests.submit(p, q.id))
     H.eq(q.state, "completed")

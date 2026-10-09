@@ -204,8 +204,8 @@ function Named.spawn(q, x, y)
         return false
     end
     z:getModData().storyNamed = q.id
-    local inv = z:getInventory()
-    for _, ft in ipairs(q.items or {}) do StoryEngine.Items.addTo(inv, ft, q.id) end
+    -- 유품은 좀비 몸에 넣지 않는다 (2026-10-10 인게임: 막 생긴 좀비의 칸이 아직 없어 sendAddItemToContainer 가
+    -- NullPointerException, 시체에 유품이 없었다). 쓰러지면 그 자리 바닥에 떨어뜨린다 (Named.dropKeepsake)
     if not q.spawned then
         local n = Quests.zombieCount(ZombRand(Named.ESCORTS[1], Named.ESCORTS[2] + 1))
         pcall(addZombiesInOutfitArea, x - 6, y - 6, x + 6, y + 6, 0, n, nil, nil)
@@ -220,6 +220,11 @@ end
 -- 게임 내 10분마다: 좀비를 찾아 표시를 옮기고, 오래 안 보이면 다시 놓는다
 function Named.tick(entries, now)
     for _, q in pairs(Store.data().quests) do
+        -- 쓰러뜨렸는데 유품이 아직 안 놓였으면 (칸이 안 불러졌었거나 예전 판에서 유품이 사라진 퀘스트)
+        if q.kind == "named" and q.slain and not q.dropped and Quests.isActive(q) then
+            local okD, err = pcall(Named.dropKeepsake, q)
+            if not okD then log("named keepsake error", q.id, tostring(err)) end
+        end
         if q.kind == "named" and q.spawned and not q.slain and Quests.isActive(q) then
             local z = tagged(q.id)
             if z then
@@ -243,6 +248,72 @@ function Named.tick(entries, now)
     end
 end
 
+-- 유품이 어딘가 있는가: 접속한 사람의 가방(안쪽 가방까지), 쓰러진 자리 둘레 3타일의 바닥·시체
+Named.DROP_SEARCH = 3
+local function tagged_item(item, id)
+    local mod = item and item:getModData()
+    return mod ~= nil and mod.storyQuest == id
+end
+
+local function containerHas(container, id, depth)
+    local items = container and container:getItems()
+    for i = 0, (items and items:size() or 0) - 1 do
+        local it = items:get(i)
+        if tagged_item(it, id) then return true end
+        if depth < 2 and it.getInventory and it:getInventory() and containerHas(it:getInventory(), id, depth + 1) then
+            return true
+        end
+    end
+    return false
+end
+
+function Named.keepsakeExists(q)
+    for _, p in ipairs(Sensor.players()) do
+        if containerHas(p:getInventory(), q.id, 0) then return true end
+    end
+    local cell = getCell()
+    for x = q.sx - Named.DROP_SEARCH, q.sx + Named.DROP_SEARCH do
+        for y = q.sy - Named.DROP_SEARCH, q.sy + Named.DROP_SEARCH do
+            local sq = cell:getGridSquare(x, y, 0)
+            if sq then
+                local bodies = sq:getDeadBodys()
+                for i = 0, (bodies and bodies:size() or 0) - 1 do
+                    local b = bodies:get(i)
+                    if b and b:getContainer() and containerHas(b:getContainer(), q.id, 0) then return true end
+                end
+                local wobs = sq:getWorldObjects()
+                for i = 0, (wobs and wobs:size() or 0) - 1 do
+                    local w = wobs:get(i)
+                    if w and tagged_item(w:getItem(), q.id) then return true end
+                end
+            end
+        end
+    end
+    return false
+end
+
+-- 쓰러진 자리 바닥에 유품을 놓는다 (칸이 불러져 있을 때, 이미 어딘가 있으면 놓지 않는다). 반환: 끝났는가
+function Named.dropKeepsake(q)
+    if q.dropped then return true end
+    local sq = getCell():getGridSquare(q.sx, q.sy, 0)
+    if not sq then return false end
+    if Named.keepsakeExists(q) then
+        q.dropped = true
+        log("named keepsake already there", q.id)
+        return true
+    end
+    for _, ft in ipairs(q.items or {}) do
+        local item = sq:AddWorldInventoryItem(ft, ZombRandFloat(0.3, 0.7), ZombRandFloat(0.3, 0.7), 0)
+        if item then
+            item:getModData().storyQuest = q.id   -- 퀘스트 보급 바닥 물건과 같은 방식 (Quests.spawnAt)
+        end
+    end
+    q.dropped = true
+    log("named keepsake dropped", q.id, "at", q.sx, q.sy)
+    Quests.notify(q)
+    return true
+end
+
 function Named.onZombieDead(zombie)
     local mod = zombie and zombie:getModData()
     local qid = mod and mod.storyNamed
@@ -253,6 +324,7 @@ function Named.onZombieDead(zombie)
     q.sx, q.sy = math.floor(zombie:getX()), math.floor(zombie:getY())
     q.cx, q.cy = q.sx, q.sy
     log("named slain", q.id, q.person)
+    pcall(Named.dropKeepsake, q)
     Quests.notify(q)
 end
 
