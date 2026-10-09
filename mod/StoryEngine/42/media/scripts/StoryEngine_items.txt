@@ -8,6 +8,7 @@ module StoryEngine
 
     item SealedDocuments
     {
+        DisplayName = Sealed Documents,
         DisplayCategory = Memento,
         ItemType = base:normal,
         Weight = 0.3,
@@ -18,6 +19,7 @@ module StoryEngine
 
     item SealedParcel
     {
+        DisplayName = Sealed Parcel,
         DisplayCategory = Memento,
         ItemType = base:normal,
         Weight = 1.0,
@@ -27,6 +29,7 @@ module StoryEngine
 
     item Letter
     {
+        DisplayName = Handwritten Letter,
         DisplayCategory = Memento,
         ItemType = base:normal,
         Weight = 0.05,
@@ -37,6 +40,7 @@ module StoryEngine
 
     item PhotoAlbum
     {
+        DisplayName = Someone's Photo Album,
         DisplayCategory = Memento,
         ItemType = base:normal,
         Weight = 0.5,
@@ -46,6 +50,7 @@ module StoryEngine
 
     item WaterManual
     {
+        DisplayName = Waterworks Operating Manual,
         DisplayCategory = Memento,
         ItemType = base:normal,
         Weight = 0.4,
@@ -56,6 +61,7 @@ module StoryEngine
 
     item GridSchematic
     {
+        DisplayName = County Grid Schematic,
         DisplayCategory = Memento,
         ItemType = base:normal,
         Weight = 0.3,
@@ -66,6 +72,7 @@ module StoryEngine
 
     item Food_RayStew
     {
+        DisplayName = Ray's Stew,
         DisplayCategory = Food,
         ItemType = base:food,
         Weight = 1.5,
@@ -88,6 +95,7 @@ module StoryEngine
 
     item Food_Tteokguk
     {
+        DisplayName = Rice Cake Soup,
         DisplayCategory = Food,
         ItemType = base:food,
         Weight = 1.0,
@@ -110,6 +118,7 @@ module StoryEngine
 
     item Food_Songpyeon
     {
+        DisplayName = Songpyeon,
         DisplayCategory = Food,
         ItemType = base:food,
         Weight = 0.2,
@@ -130,6 +139,7 @@ module StoryEngine
 
     item Food_Bureom
     {
+        DisplayName = Bureom Nuts,
         DisplayCategory = Food,
         ItemType = base:food,
         Weight = 0.2,
@@ -150,6 +160,7 @@ module StoryEngine
 
     item Food_Surichwitteok
     {
+        DisplayName = Surichwi Rice Cake,
         DisplayCategory = Food,
         ItemType = base:food,
         Weight = 0.2,
@@ -170,6 +181,7 @@ module StoryEngine
 
     item Food_Patjuk
     {
+        DisplayName = Red Bean Porridge,
         DisplayCategory = Food,
         ItemType = base:food,
         Weight = 1.0,
@@ -192,6 +204,7 @@ module StoryEngine
 
     item Food_ChristmasCake
     {
+        DisplayName = Christmas Cake,
         DisplayCategory = Food,
         ItemType = base:food,
         Weight = 0.2,
@@ -212,6 +225,7 @@ module StoryEngine
 
     item Food_NewYearCake
     {
+        DisplayName = New Year's Cake,
         DisplayCategory = Food,
         ItemType = base:food,
         Weight = 0.2,
@@ -232,6 +246,7 @@ module StoryEngine
 
     item Food_ApplePie
     {
+        DisplayName = Fourth of July Apple Pie,
         DisplayCategory = Food,
         ItemType = base:food,
         Weight = 0.5,
@@ -252,6 +267,7 @@ module StoryEngine
 
     item Food_HalloweenCandy
     {
+        DisplayName = Halloween Candy,
         DisplayCategory = Food,
         ItemType = base:food,
         Weight = 0.2,
@@ -272,6 +288,7 @@ module StoryEngine
 
     item Food_PumpkinPie
     {
+        DisplayName = Thanksgiving Pumpkin Pie,
         DisplayCategory = Food,
         ItemType = base:food,
         Weight = 0.5,
@@ -292,6 +309,7 @@ module StoryEngine
 
     item Food_ChristmasCookies
     {
+        DisplayName = Christmas Cookies,
         DisplayCategory = Food,
         ItemType = base:food,
         Weight = 0.1,

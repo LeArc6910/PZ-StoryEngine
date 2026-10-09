@@ -557,4 +557,25 @@ function T.specialty_refund_clears_only_that_player()
     H.eq(Sp.status("guard", ps2.key).wait, 0, "debug clears everyone")
 end
 
+-- A-Life 세력마다 등장 기간이 있다 (2026-10-09): 기간 밖 세력은 건너뛰고 다음 세력에서 고른다
+function T.alife_squad_skips_factions_out_of_their_window()
+    setup()
+    local function profile(id, faction) return { id = id, general = { faction = faction } } end
+    ProjectALife = {
+        Catalog = {
+            current = { npcOrder = { profile("r1", "alife_guard_remnants"), profile("i1", "alife_guard_infantry") } },
+            faction = function(id) return { id = id } end,
+        },
+        FactionSpawnRules = { inSeason = function(faction) return faction.id ~= "alife_guard_remnants" end },
+    }
+    local fid, ids = StoryEngine.ALife.pickSquad("guard", 1, 1)
+    H.eq(fid, "alife_guard_infantry", "remnants are out of their window, so the next group")
+    H.eq(ids[1], "i1")
+    ProjectALife.FactionSpawnRules.inSeason = function() return false end
+    local none, why = StoryEngine.ALife.pickSquad("guard", 1, 1)
+    H.eq(none, nil)
+    H.eq(why, "out_of_window")
+    ProjectALife = nil
+end
+
 return T

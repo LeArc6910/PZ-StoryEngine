@@ -136,22 +136,20 @@ end
 function T.shared_game_sends_weighted_meat()
     local p, ps = setup()
     ready(p, "hunter", "game")
+    local before = #p.items
     H.ok(S().use(p, "hunter", {}))
-    local found
     for _, q in pairs(StoryEngine.Store.data().quests) do
-        if q.kind == "supply_drop" and q.origin and q.origin.spec2 == "game" then found = q end
+        H.ok(not (q.origin and q.origin.spec2 == "game"), "no supply drop any more")
     end
-    H.ok(found, "a nearby supply drop")
-    -- 1차 프로젝트 완성 편지가 다음 보급에 같이 실릴 수 있다 (Letters)
+    -- 바로 인벤토리로
     local meat = 0
-    for _, it in ipairs(found.items) do
-        if it ~= "StoryEngine.Letter" then
-            meat = meat + 1
-            H.ok(string.find(it, "meat", 1, true) or string.find(it, "Chop", 1, true)
-                or it == "Base.Steak" or it == "Base.Venison" or it == "Base.Chicken", "meat " .. it)
-        end
+    for i = before + 1, #p.items do
+        local it = p.items[i]:getFullType()
+        meat = meat + 1
+        H.ok(string.find(it, "meat", 1, true) or string.find(it, "Chop", 1, true)
+            or it == "Base.Steak" or it == "Base.Venison" or it == "Base.Chicken", "meat " .. it)
     end
-    H.ok(meat >= 4 and meat <= 8, "4 to 8 pieces")
+    H.ok(meat >= 4 and meat <= 8, "4 to 8 pieces in the inventory")
 end
 
 function T.praise_raises_trust_next_morning_up_to_90()
@@ -225,11 +223,10 @@ function T.pharmacy_turns_herbs_into_medicine()
     local list = p:getInventory():getItems()
     for i = 0, list:size() - 1 do if list:get(i):getFullType() == "Base.Plantain" then left = left + 1 end end
     H.eq(left, 4, "6 herbs taken")
-    local found
-    for _, q in pairs(StoryEngine.Store.data().quests) do
-        if q.origin and q.origin.spec2 == "pharmacy" then found = q end
-    end
-    H.eq(found.items[1], "Base.Pills")
+    list = p:getInventory():getItems()
+    local pills = 0
+    for i = 0, list:size() - 1 do if list:get(i):getFullType() == "Base.Pills" then pills = pills + 1 end end
+    H.eq(pills, 1, "medicine in the inventory")
 end
 
 function T.illness_needs_a_sickness_and_keeps_it_away()

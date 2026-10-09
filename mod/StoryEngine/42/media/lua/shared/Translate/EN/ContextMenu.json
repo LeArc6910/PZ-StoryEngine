@@ -29,6 +29,8 @@
     "ContextMenu_StoryEngine_Life": "StoryEngine: set supplies (%1, contact selected in the bases tab)",
     "ContextMenu_StoryEngine_LifeBase": "reset to baseline",
     "ContextMenu_StoryEngine_LifeClearWait": "clear supply cooldown",
+    "ContextMenu_StoryEngine_MaxAll": "max out every NPC (trust and resources 100, both projects done, specialty waits cleared)",
+    "ContextMenu_StoryEngine_Spec2Rush": "run second-specialty jobs now (heist, tow, evac, artillery, rain)",
     "ContextMenu_StoryEngine_SpecClearWait": "clear specialty cooldown",
     "ContextMenu_StoryEngine_FateDoom": "worst story ending (next 10 min)",
     "ContextMenu_StoryEngine_FateDead": "dies now",

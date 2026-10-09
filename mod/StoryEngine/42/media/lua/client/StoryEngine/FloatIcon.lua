@@ -59,11 +59,19 @@ function B:onMouseUpOutside(x, y)
     if moved and self.saveName then UI.saveWindow(self.saveName, self) end
 end
 
--- 저장된 자리 (없으면 기본 자리)
+-- 너비를 바꿀 때 오른쪽 끝을 그대로 둔다 (2026-10-09 사용자 요청: 펼치면 왼쪽으로 늘어나게, 화면 오른쪽에 붙여 쓰기)
+function B:setBarWidth(w)
+    local right = self:getX() + self:getWidth()
+    self:setWidth(w)
+    self:setX(right - w)
+end
+
+-- 저장된 자리 (없으면 기본 자리). 오른쪽 끝을 기억한 자리에 맞춘다: 처음 너비가 B.START_W 이므로 x = 오른쪽 끝 - B.START_W
+B.START_W = 70
 function B.placeOf(saveName, defX, defY)
-    local x, y = UI.windowRect(saveName, 70, B.HEAD_H, 40, B.HEAD_H)
-    if not UI.windows or not UI.windows[saveName] then x, y = defX, defY end
-    return x, y
+    local x, y, w = UI.windowRect(saveName, B.START_W, B.HEAD_H, 40, B.HEAD_H)
+    if not UI.windows or not UI.windows[saveName] then return defX, defY end
+    return x + (w or B.START_W) - B.START_W, y
 end
 
 -- ---------------------------------------------------------------- 메인 창 아이콘
@@ -73,7 +81,7 @@ local M = StoryEngineMainIcon
 M.unread = 0
 
 function M:new(x, y)
-    return StoryEngineFloatBar.new(self, x, y, 70, B.HEAD_H, "mainIcon")
+    return StoryEngineFloatBar.new(self, x, y, B.START_W, B.HEAD_H, "mainIcon")
 end
 
 function M:createChildren()
@@ -112,7 +120,7 @@ function M:refresh()
     end
     local width = getTextManager():MeasureStringX(UIFont.Small, title) + 16
     self.head:setWidth(width)
-    self:setWidth(B.GRIP + width)
+    self:setBarWidth(B.GRIP + width)
 end
 
 -- 새 무전 (Client.handlers.radioMessage 가 새 메시지일 때 부른다). NPC 말만 센다

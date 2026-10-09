@@ -212,7 +212,7 @@ D.HEAD_H = StoryEngineFloatBar.HEAD_H
 D.ROW_H = 20
 
 function D:new(x, y)
-    local o = StoryEngineFloatBar.new(self, x, y, 70, D.HEAD_H, "quick")
+    local o = StoryEngineFloatBar.new(self, x, y, StoryEngineFloatBar.START_W, D.HEAD_H, "quick")
     o.expanded = false
     o.buttons = {}
     return o
@@ -301,7 +301,7 @@ function D:refresh()
             b.tooltipUI:removeFromUIManager()
         end
     end
-    self:setWidth(D.GRIP + width)
+    self:setBarWidth(D.GRIP + width)
     self:setHeight(D.HEAD_H + (shown > 0 and (shown * (D.ROW_H + 1) + 1) or 0))
 end
 
@@ -392,11 +392,13 @@ function Q.anyUnlocked(life)
     return false
 end
 
+-- 아이콘 인스턴스는 Q.dock2 에 둔다: D2.instance 로 두면 D2 에 없을 때 상속으로 특기 아이콘(D.instance)이 읽혀
+-- 2차 아이콘을 숨기면 특기 아이콘이 지워졌다 (2026-10-09 인게임)
 StoryEngineQuickDock2 = StoryEngineQuickDock:derive("StoryEngineQuickDock2")
 local D2 = StoryEngineQuickDock2
 
 function D2:new(x, y)
-    local o = StoryEngineFloatBar.new(self, x, y, 70, D.HEAD_H, "quick2")
+    local o = StoryEngineFloatBar.new(self, x, y, StoryEngineFloatBar.START_W, D.HEAD_H, "quick2")
     o.expanded = false
     o.buttons = {}
     o.titleKey = "IGUI_StoryEngine_Quick2_Dock"
@@ -411,9 +413,12 @@ end
 function D2:onRow(button)
     local row = button.row
     if not row or not row.usable then return end
+    local choice = row.n and row.n.spec2 and row.n.spec2.choice
     if row.menu and StoryEngineLifePanel and StoryEngineLifePanel.fillSpec2 then
         local menu = ISContextMenu.get(0, getMouseX(), getMouseY())
         StoryEngineLifePanel.fillSpec2(menu, row.n)
+    elseif (choice == "artillery" or choice == "heist") and StoryEngine.Aim then
+        StoryEngine.Aim.start(row.id, choice)
     else
         send("spec2Use", { faction = row.id })
     end
@@ -421,13 +426,13 @@ function D2:onRow(button)
 end
 
 function Q.showDock2()
-    local d = D2.instance
+    local d = Q.dock2
     if not d then
         local x, y = StoryEngineFloatBar.placeOf("quick2", getCore():getScreenWidth() - 130, 240)
         d = D2:new(x, y)
         d:initialise()
         d:addToUIManager()
-        D2.instance = d
+        Q.dock2 = d
     end
     d:setVisible(true)
     d:refresh()
@@ -436,16 +441,16 @@ function Q.showDock2()
 end
 
 function Q.hideDock2()
-    local d = D2.instance
+    local d = Q.dock2
     if not d then return end
     UI.saveWindow("quick2", d)
-    D2.instance = nil
+    Q.dock2 = nil
     d:removeFromUIManager()
     UI.setPref("quickDock2", "0")
 end
 
 function Q.dock2Shown()
-    return D2.instance ~= nil
+    return Q.dock2 ~= nil
 end
 
 -- 거점 목록이 왔다 (Client.handlers.lifeList)
@@ -453,14 +458,14 @@ function Q.onLifeList()
     if Q.pending then Q.show() end
     if D.instance then D.instance:refresh() end
     -- 2차 특기가 처음 열리면 아이콘을 저절로 띄운다 (우클릭으로 숨겼으면 그대로)
-    if not D2.instance and UI.pref("quickDock2") ~= "0" and Q.anyUnlocked(cache().life) then pcall(Q.showDock2) end
-    if D2.instance then D2.instance:refresh() end
+    if not Q.dock2 and UI.pref("quickDock2") ~= "0" and Q.anyUnlocked(cache().life) then pcall(Q.showDock2) end
+    if Q.dock2 then Q.dock2:refresh() end
 end
 
 -- 펼쳐 있으면 게임 10분마다, 접혀 있으면 1시간마다 상태를 새로 받는다
 Q.tick = 0
 Events.EveryTenMinutes.Add(function()
-    local d, d2 = D.instance, D2.instance
+    local d, d2 = D.instance, Q.dock2
     if (not d and not d2) or not getPlayer() then return end
     Q.tick = Q.tick + 1
     if (d and d.expanded) or (d2 and d2.expanded) or Q.tick % 6 == 0 then send("lifeList", {}) end

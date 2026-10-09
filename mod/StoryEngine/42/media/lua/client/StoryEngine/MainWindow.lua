@@ -2053,7 +2053,11 @@ function StoryEngineLifePanel.fillSpec2(menu, n)
     if s2.choice then
         local name = getText("IGUI_StoryEngine_Spec2_Name_" .. s2.choice)
         local use = menu:addOption(getText("IGUI_StoryEngine_Spec2_Use", name), fid, function(id)
-            request("spec2Use", { faction = id })
+            if (s2.choice == "artillery" or s2.choice == "heist") and StoryEngine.Aim then
+                StoryEngine.Aim.start(id, s2.choice)
+            else
+                request("spec2Use", { faction = id })
+            end
         end)
         local desc = getText("IGUI_StoryEngine_Spec2_Desc_" .. s2.choice)
         if s2.reason then
