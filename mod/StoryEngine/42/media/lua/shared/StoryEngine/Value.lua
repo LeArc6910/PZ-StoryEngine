@@ -416,7 +416,7 @@ function Value.moraleValue(fullType)
     if hit ~= nil then return hit or nil end
     local value = Value.MORALE_SPECIAL[fullType]
     if not value then
-        local ok, cat = pcall(function() return getScriptManager():getItem(fullType):getDisplayCategory() end)
+        local ok, cat = pcall(function() local sc = getScriptManager():getItem(fullType); return sc and sc:getDisplayCategory() or nil end)
         cat = ok and cat or nil
         local name = string.match(fullType, "%.(.+)$") or fullType
         if StoryEngine.ItemPool.categoryKind(cat) == "literature" then
@@ -597,7 +597,7 @@ function Value.vehicleValue(fullType)
     local value = Value.VEHICLE_VALUE[fullType]
     if not value and Value.VEHICLE_TOOLS[fullType] then value = math.max(2, Value.of(fullType)) end
     if not value then
-        local ok, cat = pcall(function() return getScriptManager():getItem(fullType):getDisplayCategory() end)
+        local ok, cat = pcall(function() local sc = getScriptManager():getItem(fullType); return sc and sc:getDisplayCategory() or nil end)
         if ok and StoryEngine.ItemPool.categoryKind(cat) == "vehicle" then
             local name = string.match(fullType, "%.(.+)$") or fullType
             value = Value.VEHICLE_DEFAULT

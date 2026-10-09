@@ -1616,21 +1616,39 @@ function StoryEnginePeoplePanel.labelWidth(text, font)
     if ok and type(w) == "number" then measured = w end
     local okH, fh = pcall(function() return tm:getFontHeight(font) end)
     if okH and type(fh) == "number" and fh > 0 then h = fh end
-    local wide, narrow = 0, {}
-    local i, n = 1, #text
-    while i <= n do
-        local b = string.byte(text, i)
-        local len = (b >= 240 and 4) or (b >= 224 and 3) or (b >= 192 and 2) or 1
-        if len >= 3 then wide = wide + 1 else narrow[#narrow + 1] = string.sub(text, i, i + len - 1) end
-        i = i + len
-    end
+    local codes = {}
+    for i = 1, #text do codes[i] = string.byte(text, i) end
+    local wide, keep = StoryEnginePeoplePanel.splitWide(codes)
+    local narrow = {}
+    for _, i in ipairs(keep) do narrow[#narrow + 1] = string.sub(text, i, i) end
     local rest = 0
     if #narrow > 0 then
         local s = table.concat(narrow)
         local ok2, w2 = pcall(function() return tm:MeasureStringX(font, s) end)
-        rest = (ok2 and type(w2) == "number") and w2 or #s * h * 0.5
+        rest = (ok2 and type(w2) == "number") and w2 or #narrow * h * 0.5
     end
     return math.max(measured, wide * h + rest)
+end
+
+-- 넓은 글자 수와 좁은 글자 자리. 게임(Kahlua)의 문자열은 Java 문자열이라 한 글자가 한 칸이고 string.byte 가 코드값
+-- (한글 44032~)을 준다. 표준 Lua(테스트)는 UTF-8 바이트라 3바이트 이상 묶음을 한 글자로 센다
+function StoryEnginePeoplePanel.splitWide(codes)
+    local wide, keep = 0, {}
+    local javaChars = false
+    for _, c in ipairs(codes) do if c > 255 then javaChars = true end end
+    local i, n = 1, #codes
+    while i <= n do
+        local c = codes[i]
+        if javaChars then
+            if c >= 4352 then wide = wide + 1 else keep[#keep + 1] = i end
+            i = i + 1
+        else
+            local len = (c >= 240 and 4) or (c >= 224 and 3) or (c >= 192 and 2) or 1
+            if len >= 3 then wide = wide + 1 else keep[#keep + 1] = i end
+            i = i + len
+        end
+    end
+    return wide, keep
 end
 
 local function peopleOf(fid)
