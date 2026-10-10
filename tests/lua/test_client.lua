@@ -438,6 +438,23 @@ function T.main_icon_counts_unread_npc_messages()
     H.ok(StoryEngineQuickDock.GRIP == StoryEngineFloatBar.GRIP, "the skills icon shares the bar")
 end
 
+-- 번역이 있는지 물을 때는 빈 인자를 채운다: 인자 없이 물으면 %1 이 든 문장마다 게임이 경고를 남겼다 (2026-10-10)
+function T.translation_checks_do_not_format_without_arguments()
+    local real = getTextOrNull
+    local bare = 0
+    getTextOrNull = function(key, ...)
+        if select("#", ...) == 0 then bare = bare + 1 end
+        return key ~= "IGUI_Missing" and key or nil
+    end
+    local UI = StoryEngine.UI
+    H.eq(UI.hasText("IGUI_Anything"), true)
+    H.eq(UI.hasText("IGUI_Missing"), false)
+    H.eq(UI.render({ key = "IGUI_Line", alt = "IGUI_Alt", args = { { t = "num", v = 3 } } }), "IGUI_Line|3")
+    H.eq(UI.render({ key = "IGUI_Missing", alt = "IGUI_Alt", args = { { t = "num", v = 3 } } }), "IGUI_Alt|3")
+    getTextOrNull = real
+    H.eq(bare, 0, "never asked without arguments")
+end
+
 -- 놓치면 NPC 를 잃을 수 있는 퀘스트가 열려 있으면 무전 아이콘에 "!" (2026-10-10)
 function T.main_icon_marks_critical_quests()
     H.addPlayer("tester", "Gerald", "Kar")

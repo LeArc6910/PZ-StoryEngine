@@ -1355,7 +1355,7 @@ questDetailBase = function(q)
     if origin.friend then fromKey = "IGUI_StoryEngine_Quest_From_friend" end
     if origin.source == "reward" and q.rewardKind then
         local byKind = fromKey .. "_" .. q.rewardKind
-        if getTextOrNull(byKind) then fromKey = byKind end
+        if StoryEngine.UI.hasText(byKind) then fromKey = byKind end
     end
     if not origin.faction then fromKey = "IGUI_StoryEngine_Quest_From_debug" end
     parts[#parts + 1] = " <LINE> <TEXT> " .. UI.escape(getText(fromKey, who,
@@ -2062,7 +2062,7 @@ end
 
 local function spec2ErrorText(reason, wait)
     local key = "IGUI_StoryEngine_Spec2_Error_" .. tostring(reason)
-    if getTextOrNull(key) then return getText(key, StoryEngine.intToString(wait or 0)) end
+    if StoryEngine.UI.hasText(key) then return getText(key, StoryEngine.intToString(wait or 0)) end
     return tostring(reason)
 end
 

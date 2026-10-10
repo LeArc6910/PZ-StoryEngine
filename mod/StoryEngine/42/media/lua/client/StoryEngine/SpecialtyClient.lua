@@ -193,7 +193,7 @@ function Client.handlers.specialtyResult(args)
         return
     end
     local key = "IGUI_StoryEngine_Spec_Error_" .. tostring(args.error)
-    local text = getTextOrNull(key) and getText(key, StoryEngine.intToString(args.wait or 0))
+    local text = StoryEngine.UI.hasText(key) and getText(key, StoryEngine.intToString(args.wait or 0))
         or getText("IGUI_StoryEngine_Error", tostring(args.error))
     HaloTextHelper.addBadText(p, text)
 end
@@ -214,10 +214,10 @@ function Client.handlers.spec2Result(args)
         return
     end
     local key = "IGUI_StoryEngine_Spec2_Error_" .. tostring(args.error)
-    local text = getTextOrNull(key) and getText(key, StoryEngine.intToString(args.wait or 0))
+    local text = StoryEngine.UI.hasText(key) and getText(key, StoryEngine.intToString(args.wait or 0))
     if not text then
         local key1 = "IGUI_StoryEngine_Spec_Error_" .. tostring(args.error)
-        text = getTextOrNull(key1) and getText(key1, StoryEngine.intToString(args.wait or 0))
+        text = StoryEngine.UI.hasText(key1) and getText(key1, StoryEngine.intToString(args.wait or 0))
             or getText("IGUI_StoryEngine_Error", tostring(args.error))
     end
     HaloTextHelper.addBadText(p, text)

@@ -375,7 +375,7 @@ function Q.rows2Of(life)
                 if s2.active then tip = getText("IGUI_StoryEngine_Spec2_Active", num(s2.active)) .. " <LINE> " .. tip end
                 if s2.reason then
                     local key = "IGUI_StoryEngine_Spec2_Error_" .. tostring(s2.reason)
-                    tip = (getTextOrNull(key) and getText(key, num(s2.wait)) or tostring(s2.reason)) .. " <LINE> " .. tip
+                    tip = (StoryEngine.UI.hasText(key) and getText(key, num(s2.wait)) or tostring(s2.reason)) .. " <LINE> " .. tip
                 end
                 row.tip = name .. " <LINE> " .. tip
             end
