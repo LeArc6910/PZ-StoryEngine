@@ -110,6 +110,7 @@ end
 
 function Client.handlers.questList(args)
     Cache.quests = args.quests or {}
+    if StoryEngineMainIcon then pcall(StoryEngineMainIcon.onQuests, Cache.quests) end
     StoryEngine.QuestMap.setQuests(Cache.quests)
     StoryEngineMainWindow.refreshIfOpen("quests")
     StoryEngineMainWindow.refreshIfOpen("radio")   -- 부탁 수락/거절 버튼

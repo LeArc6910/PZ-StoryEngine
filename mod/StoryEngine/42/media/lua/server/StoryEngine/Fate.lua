@@ -370,6 +370,90 @@ function Fate.tick()
     end
 end
 
+-- ---------------------------------------------------------------- 놓치면 NPC 를 잃을 수 있는 퀘스트
+-- (2026-10-10 사용자 요청: 퀘스트 탭에서 강조한다. Quests.listFor 가 item.risk 로 넘긴다)
+
+-- next/win/lose 명세가 갈 수 있는 모든 장면
+local function targetsOf(spec)
+    local out = {}
+    if spec == nil then return out end
+    if type(spec) ~= "table" then return { spec } end
+    if spec.default then out[#out + 1] = spec.default end
+    for _, pair in ipairs(spec.list or {}) do out[#out + 1] = pair[2] end
+    for _, id in pairs(spec.flags or {}) do out[#out + 1] = id end
+    for _, w in ipairs(spec.when or {}) do out[#out + 1] = w.go end
+    return out
+end
+
+-- 그 장면들 가운데 죽음·떠남 결말이 있으면 그 종류 (죽음 먼저)
+local function fateAmong(fid, spec)
+    local kind = nil
+    for _, id in ipairs(targetsOf(spec)) do
+        local node = Stories.node(fid, id)
+        if node and node.fate then
+            if node.fate.kind == "dead" then return "dead" end
+            kind = node.fate.kind
+        end
+    end
+    return kind
+end
+
+-- 반환 nil | { why = "fail"(실패·외면하면) | "outcome"(선택·결과에 따라) | "starve"(자원 고갈) | "fever"(열병),
+--             kind = "dead" | "gone", faction, days (고갈: 떠나기까지 남은 날) }
+function Fate.questRisk(q)
+    if not q or not Fate.enabled() then return nil end
+    local Quests, Social = StoryEngine.Quests, StoryEngine.Social
+    if q.state ~= "proposed" and not (Quests and Quests.isActive(q)) then return nil end
+    local o = q.origin or {}
+    local fid = o.faction
+    -- 큰 사건 열병: 약을 절반도 못 모으면 누군가 죽을 수 있다 (Saga.lua)
+    if o.sagaKind == "epidemic" and q.kind == "collect" then return { why = "fever", kind = "dead" } end
+    if not Social then return nil end
+    local tag = o.story
+    -- 위기 선택·위기 뒤 부탁: 그 위기를 기다리는 이야기 장면의 다음 갈래에 죽음·떠남이 있는가
+    local crisis = (q.kind == "choice" and q.crisis) or (tag and tag.crisis) or nil
+    if crisis and Fate.causeOn("story") then
+        for _, f in ipairs(Factions.list) do
+            if not Fate.isGone(f.id) then
+                local node = Stories.node(f.id, Social.story(f.id).node)
+                local kind = node and node.crisis == crisis and fateAmong(f.id, node.next) or nil
+                if kind then return { why = "outcome", kind = kind, faction = f.id } end
+            end
+        end
+    end
+    if not fid or Fate.isGone(fid) then return nil end
+    -- 이야기 부탁
+    if tag and tag.node and Fate.causeOn("story") then
+        local who = tag.faction or fid
+        local st = Social.story(who)
+        local node = Stories.node(who, tag.node)
+        if node and st.node == tag.node then
+            local lose = fateAmong(who, node.lose)
+            if lose then return { why = "fail", kind = lose, faction = who } end
+            local win = fateAmong(who, node.win)
+            if win then return { why = "outcome", kind = win, faction = who } end
+            -- 첫 이야기: 한 번도 돕지 못한 채 이번까지 놓치면 최악 결말 (Fate.onStoryFinal)
+            if not node.chapter and Fate.DOOM[who] and (st.wins or 0) == 0
+                and (st.losses or 0) + 1 >= Fate.STORY_LOSSES then
+                return { why = "fail", kind = Fate.DOOM[who].kind, faction = who }
+            end
+        end
+    end
+    -- 고갈: 네 자원이 모두 바닥이면 며칠 뒤 떠난다. 그 NPC 가 청한 물건 부탁이 살릴 기회다
+    if Fate.causeOn("starve") and q.kind == "deliver" and o.initiator == "npc" then
+        local n = Life.npc(fid)
+        local all = true
+        for _, r in ipairs(Life.RESOURCES) do
+            if (n.res[r] or 0) >= Fate.STARVE_ALL then all = false end
+        end
+        if all or (n.starve or 0) > 0 then
+            return { why = "starve", kind = "gone", faction = fid,
+                     days = math.max(1, Fate.STARVE_DAYS - (n.starve or 0)) }
+        end
+    end
+    return nil
+end
+
 function Fate.statusText()
     local parts = {}
     for _, f in ipairs(Factions.list) do

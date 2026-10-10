@@ -233,4 +233,62 @@ function T.crises_with_a_gone_npc_are_skipped()
     H.eq(why, "no_crisis", "the fever crisis needs doc")
 end
 
+-- 놓치면 NPC 를 잃을 수 있는 퀘스트 (2026-10-10 사용자 요청: 퀘스트 탭에서 강조)
+function T.quests_that_can_cost_a_contact_are_flagged()
+    local p, ps = setup()
+    local Fate, Social, Life = StoryEngine.Fate, StoryEngine.Social, StoryEngine.Life
+    local function story(fid, node, state)
+        return { kind = "deliver", state = state or "accepted",
+                 origin = { faction = fid, initiator = "npc", story = { faction = fid, node = node } } }
+    end
+    -- 첫 이야기: 한 번도 돕지 못했고 이번에 놓치면 두 번째 실패
+    local st = Social.story("pike")
+    st.node = "pike_4"
+    H.eq(Fate.questRisk(story("pike", "pike_4")), nil, "the first miss is not the end")
+    st.losses = 1
+    local r = Fate.questRisk(story("pike", "pike_4"))
+    H.ok(r and r.why == "fail" and r.kind == "dead" and r.faction == "pike", "one more miss and Pike dies")
+    H.ok(Fate.questRisk(story("pike", "pike_4", "proposed")), "also while it waits for an answer")
+    H.eq(Fate.questRisk(story("pike", "pike_4", "completed")), nil, "not once it is over")
+    st.wins = 1
+    H.eq(Fate.questRisk(story("pike", "pike_4")), nil, "one earlier success is enough")
+    st.wins = nil
+    H.eq(Fate.questRisk(story("pike", "pike_2")), nil, "not the scene the story is on")
+    -- 뒤 이야기: 실패한 갈래가 떠나는 결말
+    Social.story("guard").node = "guard2a_5"
+    Social.story("guard").wins = 3
+    r = Fate.questRisk(story("guard", "guard2a_5"))
+    H.ok(r and r.why == "fail" and r.kind == "gone", "losing this one ends with Whitaker pulling out")
+    -- 위기: 고르기에 따라 떠난다
+    Social.story("guard").node = "guard4_3"
+    r = Fate.questRisk({ kind = "choice", state = "proposed", crisis = "knox", origin = { faction = "guard" } })
+    H.ok(r and r.why == "outcome" and r.kind == "gone" and r.faction == "guard", "the Knox call can take Whitaker away")
+    H.eq(Fate.questRisk({ kind = "choice", state = "proposed", crisis = "truck", origin = { faction = "ray" } }), nil)
+    -- 고갈: 네 자원이 모두 바닥
+    local n = Life.npc("dewey")
+    for _, res in ipairs(Life.RESOURCES) do n.res[res] = 5 end
+    local ask = { kind = "deliver", state = "accepted", origin = { faction = "dewey", initiator = "npc" } }
+    r = Fate.questRisk(ask)
+    H.ok(r and r.why == "starve" and r.days == Fate.STARVE_DAYS, "three days left")
+    n.starve = 2
+    H.eq(Fate.questRisk(ask).days, 1)
+    H.eq(Fate.questRisk({ kind = "trade", state = "accepted", origin = { faction = "dewey", initiator = "player" } }), nil,
+        "a trade is not a rescue")
+    -- 열병 약품 모금
+    r = Fate.questRisk({ kind = "collect", state = "accepted", origin = { sagaKind = "epidemic" } })
+    H.ok(r and r.why == "fever" and r.kind == "dead")
+    -- 퀘스트 목록에 실려 간다
+    local q = StoryEngine.Quests.propose(p, ps, "dewey", 1, StoryEngine.Sensor.now())
+    H.ok(q, "dewey asks for something")
+    local found
+    for _, item in ipairs(StoryEngine.Quests.listFor(ps.key, StoryEngine.Sensor.now())) do
+        if item.id == q.id then found = item end
+    end
+    H.ok(found and found.risk and found.risk.why == "starve", "the quest tab is told")
+    -- 죽음·떠남을 끈 서버에서는 표시하지 않는다
+    SandboxVars.StoryEngine.NpcFate = false
+    H.eq(Fate.questRisk(ask), nil)
+    SandboxVars.StoryEngine.NpcFate = nil
+end
+
 return T
