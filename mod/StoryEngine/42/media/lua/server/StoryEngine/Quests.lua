@@ -2462,6 +2462,11 @@ function Quests.listFor(psKey, now)
             end
             if q.origin and q.origin.story then item.story = q.origin.story.crisis and "crisis" or "story" end
             item.urgent = q.urgent
+            -- 놓치면 그 NPC 를 잃을 수 있는 퀘스트 (퀘스트 탭에서 강조, Fate.questRisk)
+            if StoryEngine.Fate and StoryEngine.Fate.questRisk then
+                local okR, risk = pcall(StoryEngine.Fate.questRisk, q)
+                if okR then item.risk = risk else log("quest risk error:", tostring(risk)) end
+            end
             if ACTIVE[state] then item.waiveGain = Quests.waiveTier(q) end
             item.waived = q.waived
             if ACTIVE[state] or state == "proposed" then active[#active + 1] = item else done[#done + 1] = item end

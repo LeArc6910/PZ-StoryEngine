@@ -438,6 +438,41 @@ function T.main_icon_counts_unread_npc_messages()
     H.ok(StoryEngineQuickDock.GRIP == StoryEngineFloatBar.GRIP, "the skills icon shares the bar")
 end
 
+-- 놓치면 NPC 를 잃을 수 있는 퀘스트가 열려 있으면 무전 아이콘에 "!" (2026-10-10)
+function T.main_icon_marks_critical_quests()
+    H.addPlayer("tester", "Gerald", "Kar")
+    local M = StoryEngineMainIcon
+    local saved = StoryEngineMainWindow.instance
+    StoryEngineMainWindow.instance = nil
+    M.unread, M.critical, M.criticalSeen = 0, 0, 0
+    local head = { setTitle = function(self, t) self.title = t end, setWidth = function() end }
+    local icon = { head = head, refresh = M.refresh, setBarWidth = function() end }
+    M.instance = icon
+    local h = StoryEngine.Client.handlers
+    local function quest(id, risk)
+        return { id = id, kind = "deliver", state = "accepted", need = {}, origin = { faction = "dewey" }, risk = risk }
+    end
+    h.questList({ quests = { quest("Q1"), quest("Q2", { why = "fail", kind = "gone", faction = "dewey" }) } })
+    H.eq(M.critical, 1)
+    H.ok(string.find(head.title, "!", 1, true), "marked: " .. tostring(head.title))
+    H.ok(string.find(head.tooltip, "IGUI_StoryEngine_Float_MainRiskTip|1", 1, true), "the tooltip says why")
+    -- 새로 생긴 것이면 누를 때 퀘스트 탭부터, 본 뒤로는 평소처럼 교신 탭
+    local opened = {}
+    local realOpen = StoryEngineMainWindow.open
+    StoryEngineMainWindow.open = function(key) opened[#opened + 1] = key end
+    M.onHead(icon)
+    M.onHead(icon)
+    H.eq(opened[1], "quests")
+    H.eq(opened[2], "radio")
+    StoryEngineMainWindow.open = realOpen
+    -- 끝나면 사라진다
+    h.questList({ quests = { quest("Q1") } })
+    H.eq(M.critical, 0)
+    H.ok(not string.find(head.title, "!", 1, true), "cleared")
+    M.instance = nil
+    StoryEngineMainWindow.instance = saved
+end
+
 -- 2026-10-09: MeasureStringX 가 한글 폭을 작게 재서 인물 탭 "가족·곁의 사람" 이 값과 겹쳤다
 function T.people_label_width_counts_wide_letters()
     local real = getTextManager

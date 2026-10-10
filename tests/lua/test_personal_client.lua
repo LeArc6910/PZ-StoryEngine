@@ -50,6 +50,26 @@ local function request(extra)
     return q
 end
 
+-- 놓치면 NPC 를 잃을 수 있는 퀘스트는 꼬리표와 경고 문장이 붙는다 (2026-10-10)
+function T.critical_quests_stand_out()
+    H.addPlayer("tester", "Gerald", "Kar")
+    local P = StoryEngineQuestPanel
+    local plain = request()
+    hasnt(P.questSub(plain), "IGUI_StoryEngine_Quest_RiskTag")
+    hasnt(P.questDetail(plain), "IGUI_StoryEngine_Quest_Risk")
+    local fail = request({ story = "story", risk = { why = "fail", kind = "gone", faction = "ray" } })
+    has(P.questSub(fail), "IGUI_StoryEngine_Quest_RiskTag")
+    has(P.questDetail(fail), "IGUI_StoryEngine_Quest_Risk_fail_gone|")
+    has(P.questDetail(fail), "IGUI_StoryEngine_Faction_ray")
+    local starve = request({ risk = { why = "starve", kind = "gone", faction = "dewey", days = 2 } })
+    has(P.riskText(starve), "IGUI_StoryEngine_Quest_Risk_starve|")
+    has(P.riskText(starve), "|2")
+    local fever = request({ kind = "collect", risk = { why = "fever", kind = "dead" } })
+    has(P.riskText(fever), "IGUI_StoryEngine_Quest_Risk_fever")
+    local choice = request({ risk = { why = "outcome", kind = "dead", faction = "rats" } })
+    has(P.riskText(choice), "IGUI_StoryEngine_Quest_Risk_outcome_dead|")
+end
+
 function T.quest_detail_for_someone_elses_request()
     H.addPlayer("tester", "Gerald", "Kar")
     local P = StoryEngineQuestPanel

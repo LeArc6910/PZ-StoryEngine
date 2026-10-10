@@ -45,6 +45,7 @@ local COLOR_FAILED = { r = 0.95, g = 0.4, b = 0.35 }
 local COLOR_PROPOSED = { r = 1.0, g = 0.85, b = 0.45 }
 local COLOR_DECLINED = { r = 0.6, g = 0.6, b = 0.6 }
 local COLOR_MEMOIR = { r = 0.85, g = 0.75, b = 0.95 }
+local COLOR_RISK = { r = 1.0, g = 0.5, b = 0.3 }       -- 놓치면 NPC 를 잃을 수 있는 퀘스트
 local SMALL_W = 80
 local SUPPORT_W = 120
 local TRADE_W = 110
@@ -154,8 +155,14 @@ local function drawTwoLine(self, y, item, alt)
     local data = item.item
     local c = data.color or COLOR_DEFAULT
     local w = self:getWidth() - 28
+    -- 중요한 퀘스트: 왼쪽에 굵은 띠, 둘째 줄도 같은 색
+    if data.risk then self:drawRect(1, y + 1, 4, h - 3, 1, COLOR_RISK.r, COLOR_RISK.g, COLOR_RISK.b) end
     self:drawText(fit(data.title, w), 10, y + 5, c.r, c.g, c.b, 1, UIFont.Small)
-    self:drawText(fit(data.sub, w), 10, y + 5 + LINE_H, 0.6, 0.6, 0.6, 1, UIFont.Small)
+    if data.risk then
+        self:drawText(fit(data.sub, w), 10, y + 5 + LINE_H, COLOR_RISK.r, COLOR_RISK.g, COLOR_RISK.b, 0.85, UIFont.Small)
+    else
+        self:drawText(fit(data.sub, w), 10, y + 5 + LINE_H, 0.6, 0.6, 0.6, 1, UIFont.Small)
+    end
     return y + h
 end
 
@@ -812,6 +819,7 @@ local function questTitle(q)
 end
 
 local function questColor(q)
+    if q.risk then return COLOR_RISK end
     if q.state == "completed" then return COLOR_DONE end
     if q.state == "failed" then return COLOR_FAILED end
     if q.state == "proposed" then return COLOR_PROPOSED end
@@ -845,7 +853,27 @@ local function questSub(q)
     if q.favorCall then sub = getText("IGUI_StoryEngine_Work_FavorTag") .. " " .. sub end
     -- 다른 사람이 받은 퀘스트는 누가 받았는지 붙인다 (퀘스트는 서버 전체가 함께 본다)
     if q.owner and not q.mine then sub = sub .. "  -  " .. tostring(q.owner) end
+    if q.risk then sub = getText("IGUI_StoryEngine_Quest_RiskTag") .. " " .. sub end
     return sub
+end
+
+-- 놓치면 그 NPC 를 잃을 수 있는 퀘스트의 경고 문장 (서버 Fate.questRisk -> q.risk)
+local function riskText(q)
+    local r = q.risk
+    if not r then return nil end
+    local who = r.faction and Factions.byId[r.faction] and Factions.name(r.faction) or ""
+    if r.why == "starve" then
+        return getText("IGUI_StoryEngine_Quest_Risk_starve", who, StoryEngine.intToString(r.days or 1))
+    elseif r.why == "fever" then
+        return getText("IGUI_StoryEngine_Quest_Risk_fever")
+    end
+    return getText("IGUI_StoryEngine_Quest_Risk_" .. tostring(r.why) .. "_" .. tostring(r.kind), who)
+end
+
+local function riskLine(q)
+    local text = riskText(q)
+    if not text then return "" end
+    return " <RGB:1,0.5,0.3> " .. UI.escape(getText("IGUI_StoryEngine_Quest_RiskTag") .. " " .. text) .. " <LINE> "
 end
 
 local function deliverDetail(q)
@@ -1112,12 +1140,14 @@ local function personalLines(q)
 end
 
 local function questDetail(q)
-    return questDetailBase(q) .. personalLines(q) .. ownerLine(q) .. fightLine(q) .. helpersLine(q)
+    return riskLine(q) .. questDetailBase(q) .. personalLines(q) .. ownerLine(q) .. fightLine(q) .. helpersLine(q)
 end
 
 -- 테스트용
 StoryEngineQuestPanel.questDetail = function(q) return questDetail(q) end
 StoryEngineQuestPanel.questGroup = function(q) return questGroup(q) end
+StoryEngineQuestPanel.questSub = function(q) return questSub(q) end
+StoryEngineQuestPanel.riskText = function(q) return riskText(q) end
 StoryEngineQuestPanel.canRespond = function(q) return canRespond(q) end
 StoryEngineRadioPanel.pendingProposal = function(fid) return pendingProposal(fid) end
 
@@ -1374,11 +1404,12 @@ end
 function StoryEngineQuestPanel:refresh()
     self.list:clear()
     -- 묶음별 개수. 처음 열면 진행 중 > 보상 > 수락 대기 > 완료 > 실패 순으로 퀘스트가 있는 묶음
-    local counts = {}
+    local counts, risky = {}, {}
     local personalMode = false
     for _, q in ipairs(Cache.quests) do
         local g = questGroup(q)
         counts[g] = (counts[g] or 0) + 1
+        if q.risk then risky[g] = true end
         if q.personalMode then personalMode = true end
     end
     -- "다른 사람 부탁" 묶음은 개인 모드에서만 (싱글·공유는 지금 그대로)
@@ -1394,20 +1425,27 @@ function StoryEngineQuestPanel:refresh()
             b:setVisible(personalMode)
             b.tooltip = getText("IGUI_StoryEngine_QGroup_others_tip")
         end
-        b:setTitle(getText("IGUI_StoryEngine_QGroup_" .. g, StoryEngine.intToString(counts[g] or 0)))
+        -- 중요한 퀘스트가 든 묶음은 "!" 와 글자색으로 알린다
+        b:setTitle(getText("IGUI_StoryEngine_QGroup_" .. g, StoryEngine.intToString(counts[g] or 0)) .. (risky[g] and " !" or ""))
+        b.textColor = risky[g] and { r = COLOR_RISK.r, g = COLOR_RISK.g, b = COLOR_RISK.b, a = 1 } or { r = 1, g = 1, b = 1, a = 1 }
         if g == Cache.questGroup then
             b.backgroundColor = { r = 0.25, g = 0.4, b = 0.25, a = 1 }
         else
             b.backgroundColor = { r = 0, g = 0, b = 0, a = 1 }
         end
     end
+    -- 중요한 퀘스트를 맨 위로 (나머지 순서는 그대로)
     local shown = {}
     for _, q in ipairs(Cache.quests) do
-        if questGroup(q) == Cache.questGroup then shown[#shown + 1] = q end
+        if q.risk and questGroup(q) == Cache.questGroup then shown[#shown + 1] = q end
+    end
+    for _, q in ipairs(Cache.quests) do
+        if not q.risk and questGroup(q) == Cache.questGroup then shown[#shown + 1] = q end
     end
     local selected, selectedIndex = nil, nil
     for i, q in ipairs(shown) do
-        self.list:addItem(questTitle(q), { title = questTitle(q), sub = questSub(q), color = questColor(q), value = q })
+        self.list:addItem(questTitle(q), { title = questTitle(q), sub = questSub(q), color = questColor(q), value = q,
+                                           risk = q.risk and true or nil })
         if q.id == Cache.questId then selected, selectedIndex = q, i end
     end
     if not selected and #shown > 0 then
