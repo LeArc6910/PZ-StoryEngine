@@ -219,12 +219,23 @@ end
 -- 2차 특기 좀비 피 위장: 전력 질주·공격으로 풀렸다 (위장한 클라이언트가 알린다)
 -- 조준 창: 지도에서 고른 자리의 형편 (포격·대리 털이)
 function Commands.spec2Scan(player, args)
-    local ok, info = pcall(StoryEngine.Specialty2.scan, player, tostring(args.faction or ""), args.x, args.y)
+    local ok, info = pcall(StoryEngine.Specialty2.scan, player, tostring(args.faction or ""), args.x, args.y,
+        args.again == true)
     if not ok then
         StoryEngine.log("specialty2 scan error", tostring(info))
         info = { faction = args.faction, x = args.x, y = args.y, reason = "bad_target" }
     end
     reply(player, "spec2ScanResult", info)
+end
+
+-- 레이더 지도: 내 둘레의 좀비·사람 점 (조준 창이 2~3초마다 묻는다)
+function Commands.spec2Radar(player, args)
+    local ok, info = pcall(StoryEngine.Specialty2.radar, player, tostring(args.faction or ""), args.r)
+    if not ok then
+        StoryEngine.log("specialty2 radar error", tostring(info))
+        return
+    end
+    reply(player, "spec2RadarResult", info)
 end
 
 function Commands.spec2CamoEnd(player, args)

@@ -163,6 +163,7 @@ function T.praise_raises_trust_next_morning_up_to_90()
     H.fire("EveryOneMinute")
     H.eq(StoryEngine.Radio.channel("ray").trust, 52, "+2 the next morning")
     H.eq(StoryEngine.Radio.channel("doc").trust, 95, "90 or more stays")
+    H.ok(H.logHas("specialty2 say casey praise_done"), "Casey says how the show landed")
 end
 
 function T.sos_sends_five_kinds_of_help_and_skips_who_left()
@@ -187,9 +188,10 @@ function T.sos_sends_five_kinds_of_help_and_skips_who_left()
     values.PANIC = 80
     H.fire("EveryOneMinute")
     H.eq(values.PANIC, 80, "an hour only")
+    H.ok(H.logHas("specialty2 say casey sos_done"), "Casey says when the hour is up")
 end
 
-function T.temporary_power_blocks_others_and_ends_quietly()
+function T.temporary_power_blocks_others_and_says_when_it_ends()
     local p, ps = setup()
     local q = H.addPlayer("other", "Ann", "Lee")
     finish("casey")
@@ -209,6 +211,22 @@ function T.temporary_power_blocks_others_and_ends_quietly()
     H.eq(restored[2], 3)
     H.eq(restored[3], "casey_temp")
     H.eq(S().status("casey", StoryEngine.Store.player(q)).reason, "world_active", "no stacking by another player")
+    -- 끊기기 몇 시간 전에 미리, 끊기면 다시 알린다 (2026-10-10)
+    local w = S().state().world.power
+    H.ok(w.untilDay, "knows the day the grid really drops")
+    H.fire("EveryOneMinute")
+    H.ok(not H.logHas("specialty2 say casey power_soon"), "not yet")
+    local realToday = StoryEngine.Grid.today
+    StoryEngine.Grid.today = function() return w.untilDay - 0.2 end
+    H.fire("EveryOneMinute")
+    H.fire("EveryOneMinute")
+    StoryEngine.Grid.today = realToday
+    local warned = 0
+    for _, l in ipairs(H.logs) do if string.find(l, "specialty2 say casey power_soon", 1, true) then warned = warned + 1 end end
+    H.eq(warned, 1, "warned once")
+    S().onTempPowerEnd()
+    H.ok(H.logHas("specialty2 say casey power_end"))
+    H.eq(S().state().world.power, nil)
 end
 
 function T.pharmacy_turns_herbs_into_medicine()

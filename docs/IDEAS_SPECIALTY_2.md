@@ -39,12 +39,32 @@
 ### 인게임 테스트 뒤 수정 (2026-10-09, 사용자 요청)
 - 받는 물건은 보급 퀘스트가 아니라 바로 인벤토리 (`deliver` -> `Items.addTo`, 로그 `specialty2 given`): 레이 스튜, 행크 사냥감, 빅 대리 털이, 닥 약 조제
 - 레이 가축: 닭(암탉 3 + 수탉 1) 80%, 암퇘지(`sow`/`landrace`) 10%, 젖소 10% (`ANIMAL_KITS` weight), 무전 대체 문장 `RadioSay_spec2_livestock_<hens|pig|cow>` (처리기가 `info.say` 를 주면 키 꼬리)
-- 빅 몫: 누진 `HEIST_BRACKETS` 가치 20까지 30%, 50까지 50%, 100까지 70%, 그 위 85% (`cutOf`), 빅은 비싼 것부터 (몫에 더 가까운 두 고르기 중 하나), 로그 `heist done ... value V vic took C`
+- 빅 몫: 누진 `HEIST_BRACKETS` 가치 20까지 30%, 50까지 50%, 100까지 70%, 그 위 85% (`cutOf`), 빅이 가져가는 물건은 무작위(2026-10-10 사용자 결정, 예전엔 비싼 것부터라 남는 게 너무 적었음: 섞은 순서로 보며 집었을 때 몫에 더 가까워지는 것만 집고 적어도 하나는 남김, `takeCut`), 로그 `heist done ... value V vic took C`
 - 조준 창 (`client/StoryEngine/Spec2Aim.lua`): 포격·대리 털이를 특기 아이콘·거점 탭에서 고르면 지도 + 창, 지도 우클릭 "여기 조준" -> `spec2Scan` -> 서버 `Specialty2.scan`(반경 10타일 좀비 수 = 칸이 불러졌을 때, 밀집도 `Danger.levelAt` 지역 순위 3단계, 가장 가까운 사람, 쓸 수 있는지·이유, 털이는 방 수) -> [요청] = `spec2Use {x, y}`
 - 공병: 바리케이드 + `repairAround`(집 건물 둘레 12타일·1~2층, `IsoThumpable`·`IsoDoor` 체력 최대, 깨진 `IsoWindow` 유리, 창·문은 `syncIsoObject(false, 0, nil, nil)`로 알림(`sendObjectChange(STATE)`로는 화면에 안 보였음, 인게임 확인), 벽·울타리는 `IsoThumpable.setHealth`가 스스로 알림, 최대 60개), 바리케이드할 곳이 없어도 고친 게 있으면 성공
 - 임시 보강: 차 무게를 바꾸지 않음 (`setMass` 2.5배면 서스펜션이 다 눌려 차가 가라앉았음), 남은 무거운 차는 `updateTotalMass`
 - 헬기 후송: 세이프하우스 사각형(없으면 집 둘레 12타일) 안 빈 바닥 칸(`isFree(false)`, 방 안 먼저)에 칸이 불러진 뒤 다시 놓음
 - 진단 로그: 피난민 `refugees tick home`, SOS `specialty2 sos ... guard= decoy= snipe=`, 세례 `baptism endurance`, 바리케이드 `barricade building ... +B/-B`, 디버그 "2차 특기 예약 바로 실행"(`debugRushJobs`)
+
+### 조준 레이더 (2026-10-10 사용자 결정)
+- 실시간 화면은 안 됨: `IsoDummyCameraCharacter` 는 멀티 클라이언트에서 갱신되면 `getNetworkCharacterAI()` nil 로 게임이 튕기고, 갱신 목록에서 빼면 `IsoCamera.updateAll` 이 매 프레임 카메라를 내 캐릭터로 되돌려 효과가 없다. 화면을 밀어도 시야 밖 좀비는 그려지지 않는다
+- 대신 레이더 지도 창 (`client/StoryEngine/Spec2Aim.lua`, 바닐라 지도는 안 엶): 건물 = 클라이언트 `getMetaGrid():getBuildingsIntersecting`, 좀비·사람 = 서버 `Specialty2.radar`(명령 `spec2Radar` -> `spec2RadarResult`, 2.5초마다, 좀비 최대 400점 솎음, 불러진 칸 16x16 표 `grid`), 지도를 누르면 `spec2Scan` 으로 그 자리 형편, 보기 60/120/240타일
+- 포격 사거리 240타일(예전 120). 서버가 불러 두지 않은 곳은 좀비가 실제로 없어(가상 개체군) 폭발·처치 없이 소리만
+- 포성: `spec2Boom` 을 모두에게 -> 클라이언트가 거리별 소리(35타일 안은 실제 폭발음이라 생략, 110타일까지 `PipeBombExplode`, 그 밖 `RumbleThunder`)를 포탄 수만큼
+
+### 전·후 멘트 (2026-10-10 사용자 요청, 추천안 전부)
+- 무전으로 남는 말 `follow(fid, key, stage, topic, english, args)`: `Radio.react` event(AI, 안 되면 준비된 문장 `IGUI_StoryEngine_RadioSay_spec2_<stage>`) + 그 사람 머리 위, 로그 `specialty2 say <npc> <stage>`. 접속자가 없으면 안 함
+  - 포격: 탄착 `artillery_done` / 표적 옆에 사람이 있어 취소 `artillery_off`(대기 환불은 원래대로)
+  - 헬기 후송: 내려 준 뒤 `evac_done`
+  - 대리 털이: 받을 때 문장을 "애들 보낸다"로 바꿈, 돌아오면 `heist_done`(넘긴 개수·빅 몫 퍼센트) 또는 빈손 `heist_empty`
+  - 견인: 트럭 도착 `tow_here`(차에 걸고 열쇠는 주머니) / `tow_here_loose`(직접 걸기) / `tow_here_away`(자리에 없음: 열쇠는 글러브 박스), 사흘 동안 차를 못 찾으면 `tow_off` + 대기 환불(`towGiveUp`), 회수 6시간 전 `tow_soon`(`TOW_WARN_HOURS`, 빌려준 트럭 기록에 `key`), 가져간 뒤 `tow_back`
+  - 기우제: 비가 시작될 때 `rain_start`, 그칠 때 `rain_stop`
+  - 칭찬 방송: 다음 날 아침 신뢰가 오를 때 `praise_done`
+  - 임시 송전: 끊기기 6시간 전 `power_soon`(`POWER_WARN_HOURS`, 실제로 끊기는 날 `world.power.untilDay` = Grid 의 날짜 경계, `powerTick`), 끊기면 `power_end`(`onTempPowerEnd`)
+  - SOS: 한 시간이 끝나면 `sos_done` (달래 줄 사람이 없어도 끝을 알리려고 효과 기록은 늘 둠)
+- 머리 위에만 뜨는 짧은 알림 `note(fid, key, stage, args)`(AI 없음, 무전 기록·일지에 안 남음, 로그 `specialty2 note`), 지속 효과가 끝날 때 `Specialty2.FX_END`: 닥 `illness_end`·`pain_end`, 파이크 `baptism_end`·`refugees_end`(치운 시신 수, 없으면 `refugees_end_none`), 듀이 `reinforce_end`, 빅 `bodyguard_end`(A-Life 없는 보디가드만)·`camo_end`(시간이 다 됨)/`camo_broken`(뛰거나 공격해서 풀림, `f.broken`), 행크 `suppressor_end`·`flare_end`. 레이 스튜는 없음
+- 내용: 공병 문장은 실제 수(막은 창문·수리·새 문, `info.args` -> `lt.args`), 화해 중재는 누구와 화해했는지(`npc` 인자)
+- 후임 목소리용 문장은 아직 없음(앞 사람 문장), 브릿지 변경 없음
 
 ### 확인된 제약 (jar·바닐라)
 - 이동·공격 속도는 게임이 매 틱·매 공격 다시 계산하고 멀티 속도 안티치트에 걸려 직접 올릴 수 없음 → 세례는 지구력 감소 1/3

@@ -419,6 +419,40 @@ local function plowEnd(p, f)
     if v then restoreMass(v) end
 end
 
+-- 포성 (2026-10-10 사용자 요청: 멀리 있어도 들리게). 가까우면 실제 폭발음이 나므로 조용히,
+-- 그보다 멀면 폭발음, 아주 멀면 먼 천둥 같은 울림. 포탄 수만큼 조금씩 간격을 두고
+SpecClient.BOOM_NEAR = 35
+SpecClient.BOOM_FAR = 110
+SpecClient.BOOM_GAP_MS = 450
+SpecClient.booms = {}
+function Client.handlers.spec2Boom(args)
+    local p = getPlayer()
+    if not p then return end
+    local dx, dy = (tonumber(args.x) or 0) - p:getX(), (tonumber(args.y) or 0) - p:getY()
+    local d = math.sqrt(dx * dx + dy * dy)
+    if d < SpecClient.BOOM_NEAR then return end
+    local sound = d < SpecClient.BOOM_FAR and "PipeBombExplode" or "RumbleThunder"
+    local now = StoryEngine.nowMs()
+    for i = 1, math.max(1, math.min(6, tonumber(args.shells) or 3)) do
+        SpecClient.booms[#SpecClient.booms + 1] = { at = now + (i - 1) * SpecClient.BOOM_GAP_MS, sound = sound }
+    end
+    log("artillery heard from", math.floor(d), "tiles:", sound)
+end
+
+Events.OnTick.Add(function()
+    if #SpecClient.booms == 0 then return end
+    local now = StoryEngine.nowMs()
+    local keep = {}
+    for _, b in ipairs(SpecClient.booms) do
+        if now >= b.at then
+            pcall(function() getSoundManager():playUISound(b.sound) end)
+        else
+            keep[#keep + 1] = b
+        end
+    end
+    SpecClient.booms = keep
+end)
+
 -- 포격: 이 클라이언트가 보는 좀비 중 반경 안의 것을 쓰러뜨린다 (A-Life NPC 제외)
 function Client.handlers.spec2Strike(args)
     local list = getCell() and getCell():getZombieList()
@@ -603,23 +637,7 @@ function SpecClient.mapOptions()
     return out
 end
 
-local function debugCamera()
-    return StoryEngine.CameraView ~= nil and Client.showDebugMenu ~= nil and Client.showDebugMenu()
-end
-
 function SpecClient.addMapOptions(context, wx, wy)
-    -- 디버그: 카메라만 그 자리로 (실시간 보기 시험)
-    if debugCamera() then
-        context:addOption(getText("IGUI_StoryEngine_Camera_Here"), nil, function()
-            StoryEngine.CameraView.start(math.floor(wx), math.floor(wy), 0)
-        end)
-    end
-    -- 조준 창이 열려 있으면 "여기 조준" 하나만
-    local Aim = StoryEngine.Aim
-    if Aim and Aim.active() then
-        context:addOption(getText("IGUI_StoryEngine_Aim_Here"), nil, function() Aim.pick(wx, wy) end)
-        return
-    end
     for _, e in ipairs(SpecClient.mapOptions()) do
         context:addOption(getText("IGUI_StoryEngine_Spec2_Map_" .. e.opt), e, function(entry)
             local p = getPlayer()
@@ -634,8 +652,7 @@ local function hookWorldMap()
     local orig = ISWorldMap.onRightMouseUp
     function ISWorldMap:onRightMouseUp(x, y)
         local entries = SpecClient.mapOptions()
-        local aiming = StoryEngine.Aim and StoryEngine.Aim.active()
-        if #entries == 0 and not aiming and not debugCamera() then return orig(self, x, y) end
+        if #entries == 0 then return orig(self, x, y) end
         if self.symbolsUI and self.symbolsUI:onRightMouseUpMap(x, y) then return true end
         local wx = self.mapAPI:uiToWorldX(x, y)
         local wy = self.mapAPI:uiToWorldY(x, y)
