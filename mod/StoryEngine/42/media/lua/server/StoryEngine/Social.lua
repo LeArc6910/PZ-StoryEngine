@@ -609,6 +609,20 @@ function Social.news(fid, text)
     s.news[fid] = list
 end
 
+-- 소문을 거둔다 (되살리기: 죽었다·떠났다는 소식). pred(text) 가 참인 것을 지우고 지운 수를 돌려준다
+function Social.dropNews(pred)
+    local s = state()
+    local n = 0
+    for fid, list in pairs(s.news) do
+        local kept = {}
+        for _, item in ipairs(list) do
+            if pred(item.text) then n = n + 1 else kept[#kept + 1] = item end
+        end
+        s.news[fid] = kept
+    end
+    return n
+end
+
 local function freshNews(fid, now)
     local s = state()
     local kept = {}

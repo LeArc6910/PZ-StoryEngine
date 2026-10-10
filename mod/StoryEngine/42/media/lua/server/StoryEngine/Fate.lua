@@ -249,7 +249,7 @@ function Fate.apply(fid, kind, reason)
     -- 떠나는 사람의 마지막 편지는 다음 보급에 실려 온다 (Letters.lua)
     if kind == "gone" and StoryEngine.Letters then StoryEngine.Letters.queue(fid, "farewell", text) end
     local n = Life.npc(fid)
-    n.fate = { kind = kind, reason = reason, day = Store.dayIndex(now.dayKey), t = now.t }
+    n.fate = { kind = kind, reason = reason, day = Store.dayIndex(now.dayKey), t = now.t, text = text }
     Radio.queue[fid], Radio.again[fid] = nil, nil      -- 남은 말이 나중에 다른 목소리로 나오지 않게 (점검 D6)
     if StoryEngine.Chronicle then StoryEngine.Chronicle.add(fid, { k = "fate", kind = kind }) end
     pending()[fid] = nil
@@ -291,24 +291,76 @@ function Fate.apply(fid, kind, reason)
     end
 end
 
+-- 그 NPC 가 죽었다·떠났다고 퍼진 소식을 거둔다 (되살리기): 다른 NPC 가 들은 소문, 저녁 방송 재료, 모든 캐릭터의
+-- 다음 일기 메모. 이미 되살린 뒤(n.fate 가 없음)에도 찾을 수 있게 나올 수 있는 문장을 모두 댄다
+Fate.NEWS_PREFIX = "Word on the radio: "
+local function forgetNews(fid, said)
+    local heads = {}
+    local function add(t)
+        if t then heads[#heads + 1] = string.sub(Fate.NEWS_PREFIX .. t, 1, 100) end
+    end
+    add(said)
+    add(Fate.DOOM[fid] and Fate.DOOM[fid].text)
+    add(fateText(fid, "dead", "fever"))
+    add(fateText(fid, "gone", "starve"))
+    for _, node in ipairs(Stories.ARCS[fid] or {}) do
+        if node.fate then add(node.fate.text) end
+    end
+    local function pred(text)
+        text = tostring(text or "")
+        for _, h in ipairs(heads) do
+            if string.sub(text, 1, #h) == h then return true end
+        end
+        return false
+    end
+    local news, facts, notes = 0, 0, 0
+    if StoryEngine.Social and StoryEngine.Social.dropNews then news = StoryEngine.Social.dropNews(pred) end
+    if StoryEngine.Broadcast and StoryEngine.Broadcast.dropNotes then facts = StoryEngine.Broadcast.dropNotes(pred) end
+    for _, ps in pairs(Store.data().players) do
+        local kept = {}
+        for _, note in ipairs(ps.notes or {}) do
+            if note.faction == fid and (note.kind == "npc_dead" or note.kind == "npc_gone") then
+                notes = notes + 1
+            else
+                kept[#kept + 1] = note
+            end
+        end
+        if ps.notes then ps.notes = kept end
+    end
+    if news + facts + notes > 0 then log("fate news withdrawn", fid, "rumours", news, "broadcast", facts, "diary notes", notes) end
+end
+
 -- 디버그: 되살린다 (자원은 기준값, 고갈 날수와 이야기 성적도 초기화)
 function Fate.revive(fid)
     local n = Life.npc(fid)
-    n.fate, n.starve = nil, nil
-    if StoryEngine.Chronicle then StoryEngine.Chronicle.add(fid, { k = "revived" }) end
-    pending()[fid] = nil
-    for _, r in ipairs(Life.RESOURCES) do n.res[r] = Life.base(fid, r) end
-    if StoryEngine.Social then
-        local st = StoryEngine.Social.story(fid)
-        st.wins, st.losses = nil, nil
-        st.questId, st.crisisAsked = nil, nil      -- 죽을 때 거둔 부탁에 매이지 않게 (점검 D6)
+    local said = n.fate and n.fate.text or nil
+    -- 떠나지도, 떠나기로 정해지지도 않은 NPC 는 건드리지 않는다 (2026-10-10 인게임: 다른 NPC 를 고른 채 눌러
+    -- 멀쩡한 레이의 자원·이야기 성적이 지워졌음). 아래 남은 예약 거두기만 한다
+    local wasGone = n.fate ~= nil or pending()[fid] ~= nil
+    if wasGone then
+        n.fate, n.starve = nil, nil
+        if StoryEngine.Chronicle then StoryEngine.Chronicle.add(fid, { k = "revived" }) end
+        pending()[fid] = nil
+        for _, r in ipairs(Life.RESOURCES) do n.res[r] = Life.base(fid, r) end
+        if StoryEngine.Social then
+            local st = StoryEngine.Social.story(fid)
+            st.wins, st.losses = nil, nil
+            st.questId, st.crisisAsked = nil, nil      -- 죽을 때 거둔 부탁에 매이지 않게 (점검 D6)
+        end
     end
     -- 떠나면서 남긴 것도 거둔다 (2026-10-10 인게임: 예약된 후임과 작별 편지가 남아 있었음)
     if StoryEngine.Voices and StoryEngine.Voices.cancel then pcall(StoryEngine.Voices.cancel, fid) end
     if StoryEngine.Letters and StoryEngine.Letters.drop then pcall(StoryEngine.Letters.drop, fid, "farewell") end
+    local okN, errN = pcall(forgetNews, fid, said)
+    if not okN then log("fate news error:", tostring(errN)) end
+    if not wasGone then
+        log("fate revive: not gone, only leftovers cleared", fid)
+        return false
+    end
     Radio.push(fid, { from = "system", fate = "revived", clock = Sensor.now().clock })
     pcall(Net.toAll, "npcFate", { faction = fid, kind = "revived" })      -- 모든 접속자의 교신·거점 목록을 새로
     log("fate revived", fid)
+    return true
 end
 
 function Fate.tick()

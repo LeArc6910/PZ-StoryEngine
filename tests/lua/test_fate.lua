@@ -172,13 +172,46 @@ function T.revive_and_debug_commands()
     local farewell = 0
     for _, l in ipairs(d.letters and d.letters.pending or {}) do if l.fid == "hunter" then farewell = farewell + 1 end end
     H.eq(farewell, 1, "a farewell letter was waiting")
+    -- 떠났다는 소문·방송 재료·일기 메모도 퍼져 있다
+    local function count()
+        local news, facts, notes = 0, 0, 0
+        for _, list in pairs(d.social.news) do
+            for _, item in ipairs(list) do if string.find(item.text, "Hank", 1, true) then news = news + 1 end end
+        end
+        for _, f in ipairs(d.broadcast and d.broadcast.facts or {}) do
+            if string.find(f.text, "Hank", 1, true) then facts = facts + 1 end
+        end
+        for _, ps in pairs(d.players) do
+            for _, note in ipairs(ps.notes or {}) do
+                if note.kind == "npc_gone" and note.faction == "hunter" then notes = notes + 1 end
+            end
+        end
+        return news, facts, notes
+    end
+    local news, facts, notes = count()
+    H.ok(news > 0 and facts > 0 and notes > 0, "word got around: " .. news .. " " .. facts .. " " .. notes)
+    StoryEngine.Social.news("ray", "Someone saw smoke over the river.")
     C.debugLife(p, { faction = "hunter", delta = 0, fate = "revive" })
     H.ok(not gone("hunter"))
     H.eq(res("hunter", "food"), 70, "back to baseline")
     H.eq(d.voices.pending.hunter, nil, "no successor is coming any more")
+    news, facts, notes = count()
+    H.eq(news + facts + notes, 0, "rumours, broadcast material and diary notes are withdrawn")
+    H.eq(#d.social.news.ray, 1, "other news stays")
+    H.ok(H.logHas("fate news withdrawn hunter"))
     for _, l in ipairs(d.letters.pending) do H.ok(l.fid ~= "hunter", "the farewell letter is withdrawn") end
     local told = H.sentOf("npcFate")
     H.eq(told[#told].kind, "revived", "everyone's lists refresh")
+    -- 멀쩡한 NPC 에게 누르면 자원·이야기 성적은 그대로, 남은 예약만 거둔다 (2026-10-10 인게임)
+    local Life = StoryEngine.Life
+    Life.npc("ray").res.food = 33
+    StoryEngine.Social.story("ray").wins = 1
+    d.voices.pending.ray = { dueT = 999999 }
+    C.debugLife(p, { faction = "ray", delta = 0, fate = "revive" })
+    H.eq(res("ray", "food"), 33, "a living contact keeps what they have")
+    H.eq(StoryEngine.Social.story("ray").wins, 1)
+    H.eq(d.voices.pending.ray, nil, "leftovers are still cleared")
+    H.eq(#H.sentOf("npcFate"), #told, "no announcement")
     C.debugLife(p, { faction = "rats", delta = 0, fate = "doom" })
     H.advance(10)
     H.fire("EveryTenMinutes")
