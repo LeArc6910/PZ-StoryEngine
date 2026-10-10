@@ -212,6 +212,18 @@ option StoryEngine.GiftChance
 	page = StoryEngineBalance, translation = StoryEngine_GiftChance,
 }
 
+option StoryEngine.Stage4Day
+{
+	type = integer, min = 4, max = 1460, default = 181,
+	page = StoryEngineBalance, translation = StoryEngine_Stage4Day,
+}
+
+option StoryEngine.Stage5Day
+{
+	type = integer, min = 5, max = 1460, default = 271,
+	page = StoryEngineBalance, translation = StoryEngine_Stage5Day,
+}
+
 option StoryEngine.NightJobs
 {
 	type = boolean, default = true,
@@ -266,6 +278,12 @@ option StoryEngine.SafehouseRadius
 {
 	type = integer, min = 0, max = 200, default = 30,
 	page = StoryEngineDanger, translation = StoryEngine_SafehouseRadius,
+}
+
+option StoryEngine.CouncilSiege
+{
+	type = integer, min = 100, max = 5000, default = 1000,
+	page = StoryEngineDanger, translation = StoryEngine_CouncilSiege,
 }
 
 option StoryEngine.HuntSizeMult

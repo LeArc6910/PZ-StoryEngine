@@ -255,7 +255,7 @@ local function questRunner(kind, done, picker)
         local fid
         if picker then fid = picker(ctx) else fid = Director.pickFaction() end
         if not fid then return false end
-        intensity = math.min(intensity, Director.tierCap(entry.ps, fid))
+        intensity = Director.askTier(intensity, entry.ps, fid)
         local q, why = Quests.create(kind, entry.player, entry.ps, intensity, ctx.now,
             { source = "director", faction = fid })
         if not q then
@@ -286,7 +286,7 @@ Director.events.npc_request = {
         -- 물건 부탁 60%, 좀비 무리 소탕 부탁 40% (둘 다 NPC 의 부탁이라 빈도 제한을 같이 쓴다)
         local fid = Director.pickAsker(ctx)
         if not fid then return false end
-        intensity = math.min(intensity, Director.tierCap(entry.ps, fid))
+        intensity = Director.askTier(intensity, entry.ps, fid)
         local q, why
         if ctx.forceKind == "horde" or (not ctx.forceKind and ZombRand(100) < Director.HORDE_SHARE) then
             q, why = Quests.proposeHorde(entry.player, entry.ps, fid, intensity, ctx.now)
@@ -314,7 +314,7 @@ Director.events.npc_emergency = {
         local NE = StoryEngine.NpcEvents
         local fid, res = NE.emergency()
         if not fid then return false end
-        intensity = math.min(intensity, Director.tierCap(entry.ps, fid))
+        intensity = Director.askTier(intensity, entry.ps, fid)
         local q, why = Quests.propose(entry.player, entry.ps, fid, intensity, ctx.now, { prefer = res, urgent = true })
         if not q then
             log("npc_emergency failed:", why)
@@ -448,7 +448,7 @@ Director.events.rescue_signal = {
     run = function(ctx, entry, intensity)
         local fid = Director.pickAsker(ctx)
         if not fid then return false end
-        intensity = math.min(intensity, Director.tierCap(entry.ps, fid))
+        intensity = Director.askTier(intensity, entry.ps, fid)
         local q, why = Quests.create("supply_drop", entry.player, entry.ps, intensity, ctx.now,
             { source = "rescue", faction = fid, initiator = "gift" }, StoryEngine.Loot.roll(intensity))
         if not q then
@@ -535,7 +535,7 @@ Director.events.extortion = {
         local fid = threatFaction(Director.openAskers(ctx), entry.ps.key)
         if not fid and ctx.forced then fid = threatFaction(nil, entry.ps.key) end
         if not fid then return false end
-        local q, why = Quests.demand(entry.player, entry.ps, fid, math.min(intensity, Director.tierCap(entry.ps)), ctx.now)
+        local q, why = Quests.demand(entry.player, entry.ps, fid, Director.askTier(intensity, entry.ps), ctx.now)
         if not q then
             log("extortion failed:", why)
             return false
@@ -583,7 +583,7 @@ local function playerSummary(e)
         out.town = Places.describe(s.x, s.y).town
     end
     out.activeQuest = Quests.activeFor(ps.key) ~= nil
-    out.stage = Store.stage(ps)
+    out.stage = math.min(3, Store.stage(ps))       -- 브릿지는 세 단계만 안다 (4·5단계도 "후반"으로)
     out.maxIntensity = Director.tierCap(ps)
     local weeks = ps.weeks or {}
     if #weeks > 0 then out.lastWeek = string.sub(weeks[#weeks].text or "", 1, 400) end
@@ -635,11 +635,28 @@ function Director.validate(ctx, allowed, json)
     return { event = json.event, intensity = intensity, entry = entry, reason = reason }
 end
 
--- 규칙 기반 선택에서 쓰는 강도: 높을수록 드물게 (1: 35%, 2: 30%, 3: 20%, 4: 10%, 5: 5%)
+-- 규칙 기반 선택에서 쓰는 강도: 높을수록 드물게 (1: 35%, 2: 30%, 3: 20%, 4: 10%, 5: 5%).
+-- 2026-10-10 사용자 결정: 진행 단계가 오를수록 낮은 등급이 줄고 높은 등급이 는다 (상한은 Director.tierCap 그대로)
 Director.INTENSITY_WEIGHTS = { 35, 30, 20, 10, 5 }
+Director.INTENSITY_BY_STAGE = {
+    { 35, 30, 20, 10, 5 },
+    { 25, 30, 25, 15, 5 },
+    { 15, 25, 30, 20, 10 },
+    { 10, 20, 30, 25, 15 },
+    { 5, 15, 30, 30, 20 },
+}
+-- NPC 가 청하는 일·협박·구조 신호의 최소 등급 (AI 가 낮게 골라도 이만큼은. 상한이 더 낮으면 상한)
+Director.INTENSITY_FLOOR = { 1, 1, 2, 2, 3 }
+
+function Director.askTier(intensity, ps, fid)
+    local floor = Director.INTENSITY_FLOOR[Store.stage(ps)] or 1
+    return math.min(math.max(intensity or 1, floor), Director.tierCap(ps, fid))
+end
+
 function Director.randomIntensity()
+    local weights = Director.INTENSITY_BY_STAGE[Store.stage()] or Director.INTENSITY_WEIGHTS
     local roll = ZombRand(100)
-    for i, w in ipairs(Director.INTENSITY_WEIGHTS) do
+    for i, w in ipairs(weights) do
         if roll < w then return i end
         roll = roll - w
     end
@@ -832,7 +849,7 @@ function Director.personalAsk(player, ps, now, force, forceKind)
     end
     local fid = personalAsker(ps, now)
     if not fid then return nil, "no_npc" end
-    local tier = math.min(Director.randomIntensity(), Director.tierCap(ps, fid))
+    local tier = Director.askTier(Director.randomIntensity(), ps, fid)
     local kind = forceKind or pickKind()
     local q, why
     -- 건물을 못 찾는 등으로 안 되면 물건 부탁으로 (오류도 막는다)

@@ -16,7 +16,7 @@ Tuning.DEFAULTS = {
     Difficulty = 1,
     TrustStart = 0, TrustGainMult = 1, TrustLossMult = 1, SuspiciousRequests = 3, Spillover = true,
     RequestGapDays = 4, RequestServerGapDays = 2, QuestTimeMult = 1, RewardMult = 1,
-    StageMidDay = 31, StageLateDay = 91, PriceMult = 1, GiftChance = 35,
+    StageMidDay = 31, StageLateDay = 91, Stage4Day = 181, Stage5Day = 271, PriceMult = 1, GiftChance = 35,
     RequestItemMode = 1, RequestPointsMult = 1.5, RequestMinTier = 3,
     -- 특기 대기 (2026-10-05): 범위 1 서버 전체 / 2 개인별 / 3 둘 다, 일수
     SpecialtyScope_ray = 1, SpecialtyScope_casey = 2, SpecialtyScope_doc = 2, SpecialtyScope_pike = 2,
@@ -32,6 +32,7 @@ Tuning.DEFAULTS = {
     -- 야간 작전 (2026-10-10): 소탕·경비·정찰·배달을 밤에 하면 보상 배율, 고를 수 있는 최소 등급, 이야기 소탕이 밤 전용일 확률
     NightJobs = true, NightRewardMult = 1.5, NightMinTier = 3, NightStoryChance = 50,
     StoryRamp = true,       -- 뒤 장으로 갈수록 이야기 부탁 등급이 오른다 (Social.tierAdd)
+    CouncilSiege = 1000,    -- 카운티 회의 날 교회로 몰려오는 망자 수 (Council.lua, x ZombieMult)
     -- 개인 신뢰 (2026-10-09, docs/DESIGN_PER_PLAYER_TRUST.md): 1 서버 공유 / 2 개인 (멀티에서만)
     TrustBenefits = 1, TrustIntro = 25, HelperTrustShare = 0.5, GroupHelperTrust = 0.5,
     PersonalAskMinDays = 2, PersonalAskMaxDays = 5,
@@ -111,7 +112,9 @@ function Tuning.apply()
     if S.Store then
         local mid = math.max(2, math.floor(Tuning.num("StageMidDay")))
         local late = math.max(mid + 1, math.floor(Tuning.num("StageLateDay")))
-        S.Store.STAGE_DAYS = { mid, late }
+        local s4 = math.max(late + 1, math.floor(Tuning.num("Stage4Day")))
+        local s5 = math.max(s4 + 1, math.floor(Tuning.num("Stage5Day")))
+        S.Store.STAGE_DAYS = { mid, late, s4, s5 }
     end
     if S.Hunt then
         BASE.huntSize = BASE.huntSize or copy(S.Hunt.SIZE_BY_STAGE)

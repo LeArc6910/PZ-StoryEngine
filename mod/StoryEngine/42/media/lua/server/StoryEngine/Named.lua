@@ -207,7 +207,7 @@ function Named.spawn(q, x, y)
     -- 유품은 좀비 몸에 넣지 않는다 (2026-10-10 인게임: 막 생긴 좀비의 칸이 아직 없어 sendAddItemToContainer 가
     -- NullPointerException, 시체에 유품이 없었다). 쓰러지면 그 자리 바닥에 떨어뜨린다 (Named.dropKeepsake)
     if not q.spawned then
-        local n = Quests.zombieCount(ZombRand(Named.ESCORTS[1], Named.ESCORTS[2] + 1))
+        local n = Quests.zombieCount(ZombRand(Named.ESCORTS[1], Named.ESCORTS[2] + 1) * Store.stagePack())
         pcall(addZombiesInOutfitArea, x - 6, y - 6, x + 6, y + 6, 0, n, nil, nil)
     end
     q.spawned = true

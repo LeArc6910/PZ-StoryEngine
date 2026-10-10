@@ -438,7 +438,7 @@ function T.the_county_council_brings_the_year_together()
     H.eq(s.prep, 1)
     H.eq(Social.story("casey").node, "casey5_3")
     local hq = StoryEngine.Store.data().quests[s.hordeId]
-    H.ok(hq and hq.kind == "horde", "the dead at the church")
+    H.ok(hq and hq.kind == "defend" and hq.siege, "the church has to be held")
     hq.state = "completed"
     Council.tick(now())
     H.eq(s.result, "formed")
@@ -449,6 +449,80 @@ function T.the_county_council_brings_the_year_together()
     at("pike", "pike5_1")
     Council.tick(now())
     H.eq(Social.story("pike").node, "pike5_9a")
+end
+
+-- 회의 날 교회 사수 (2026-10-10 사용자 결정): 망자가 천 단위로, 신뢰가 두터운 NPC 가 모두 돕는다
+function T.the_council_siege_comes_in_packs_and_friends_thin_them()
+    local p = setup()
+    mockAnyBuilding()
+    local Council, Radio = StoryEngine.Council, StoryEngine.Radio
+    at("pike", "pike5_1")
+    Council.start(now())
+    local s = Council.state()
+    StoryEngine.Store.data().quests[s.collectId].state = "completed"
+    Council.tick(now())
+    local hq = StoryEngine.Store.data().quests[s.hordeId]
+    H.eq(hq.kind, "defend")
+    H.eq(hq.tier, 5)
+    H.eq(hq.needMin, 360, "six hours at the church")
+    H.eq(hq.siege.total, 1000, "a thousand of the dead")
+    H.eq(hq.siege.waves, 12)
+    H.eq(hq.siege.wave, 84)
+    -- 관계가 없으면 아무도 안 온다
+    for _, f in ipairs(StoryEngine.Factions.list) do Radio.channel(f.id).trust = 10 end
+    H.eq(#Council.helpers(), 0)
+    H.eq(Council.thinning(), 0)
+    -- 신뢰가 두터운 사람들이 길목에서 막는다 (80 이상이면 더)
+    Radio.channel("guard").trust = 85
+    Radio.channel("hunter").trust = 60
+    Radio.channel("ray").trust = 70
+    H.eq(#Council.helpers(), 3)
+    H.near(Council.thinning(), 0.20 * 1.25 + 0.10, 0.0001)
+    for _, f in ipairs(StoryEngine.Factions.list) do Radio.channel(f.id).trust = 90 end
+    H.near(Council.thinning(), 0.6875, 0.0001, "everyone at their best")
+    Radio.channel("rats").trust, Radio.channel("dewey").trust, Radio.channel("casey").trust = 10, 10, 10
+    Radio.channel("hunter").trust = 60
+    -- 아무도 없으면 무리가 오지 않는다
+    p.x, p.y = hq.cx + 500, hq.cy
+    Council.siegeTick({}, now())
+    H.eq(hq.waves or 0, 0, "nobody at the church")
+    -- 교회에 있으면: 처음에 다 오고, 30분마다 한 무리
+    p.x, p.y = hq.cx, hq.cy
+    local before = #p.items
+    Council.siegeTick({}, now())
+    H.eq(hq.waves, 1)
+    local held = math.floor(84 * (0.25 + 0.10) + 0.5)
+    H.eq(hq.siege.held, held, "Whitaker and Hank stopped some on the roads")
+    H.eq(hq.siege.sent, 84 - held)
+    H.ok(H.logHas("council siege opened"))
+    H.ok(#p.items > before, "Ray's stew for everyone holding the church")
+    local wave, heldNote = 0, 0
+    for _, o in ipairs(H.sentOf("radioOverhead")) do
+        if o.lt and o.lt.key == "IGUI_StoryEngine_Council_Siege_Wave" then wave = wave + 1 end
+        if o.lt and o.lt.key == "IGUI_StoryEngine_Council_Siege_Held" then heldNote = heldNote + 1 end
+    end
+    H.eq(wave, 1)
+    H.eq(heldNote, 1)
+    Council.siegeTick({}, now())
+    H.eq(hq.waves, 1, "not before half an hour")
+    for _ = 1, 20 do
+        H.advance(30)
+        Council.siegeTick({}, now())
+    end
+    H.eq(hq.waves, 12, "twelve packs and no more")
+    H.eq(hq.siege.sent + hq.siege.held, 12 * 84)
+    -- 목록에 실려 간다
+    local item
+    for _, it in ipairs(StoryEngine.Quests.listFor(StoryEngine.Store.player(p).key, now())) do
+        if it.id == hq.id then item = it end
+    end
+    H.ok(item and item.siege and item.siege.total == 1000, "the quest tab shows the siege")
+    H.eq(#item.siegeHelpers, 5, "Ray, June, Pike, Whitaker and Hank are coming")
+    -- 샌드박스
+    SandboxVars.StoryEngine.CouncilSiege = 2000
+    SandboxVars.StoryEngine.ZombieMult = 1.5
+    H.eq(Council.siegeTotal(), 3000)
+    SandboxVars.StoryEngine.CouncilSiege, SandboxVars.StoryEngine.ZombieMult = nil, nil
 end
 
 function T.a_council_without_help_falls_apart()

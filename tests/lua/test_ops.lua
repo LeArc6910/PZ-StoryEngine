@@ -138,7 +138,9 @@ function T.water_operation_full_run_restores_for_sixty_days()
     H.give(p, "Base.Pipe")
     H.ok(Quests.submit(p, q2.id))
     H.eq(q2.got["Base.Pipe"], 2)
-    H.eq(Quests.collectLeft(q2, "Base.Pipe"), 2)
+    -- 모금 물량은 진행 단계를 따른다 (2026-10-10): 이 작전은 중반이라 파이프 4 x 1.25 = 5
+    H.eq(StoryEngine.Store.stage(), 2)
+    H.eq(Quests.collectLeft(q2, "Base.Pipe"), 3)
     local ok, why = Quests.submit(p, q2.id)
     H.ok(not ok and why == "missing_items")
     for _, n in ipairs(q2.need) do

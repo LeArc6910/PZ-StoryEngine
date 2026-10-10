@@ -602,7 +602,7 @@ local function spawnAt(q, sq, container)
     q.spawned = true
     if q.origin and q.origin.source == "rescue" and q.bx1 then
         local ok, zeds = pcall(addZombiesInOutfitArea, q.bx1, q.by1, q.bx2, q.by2, q.z or 0,
-            Quests.zombieCount(((q.tier or 1) + 1) * Quests.RESCUE_ZOMBIES), nil, nil)
+            Quests.zombieCount(((q.tier or 1) + 1) * Quests.RESCUE_ZOMBIES * Store.stagePack()), nil, nil)
         log("rescue zombies", q.id, ok and zeds and zeds:size() or tostring(zeds))
     end
     log("quest spawned", q.id, q.kind, #placed, "items in", q.containerType or "floor", q.containerSprite or "",
@@ -1261,8 +1261,10 @@ end
 function Quests.createCollect(ps, need, now, origin, deadlineT)
     local d = Store.data()
     d.questSeq = d.questSeq + 1
+    -- 모금 물량은 진행 단계를 따라 는다 (Store.STAGE_NEED, 2026-10-10)
+    local mult = Store.stageNeed()
     local items = {}
-    for i, n in ipairs(need) do items[i] = { n[1], n[2] } end
+    for i, n in ipairs(need) do items[i] = { n[1], math.max(1, math.ceil(n[2] * mult - 0.001)) } end
     origin.day = Store.dayIndex(now.dayKey)
     origin.date = now.date
     origin.clock = now.clock
@@ -2563,6 +2565,10 @@ function Quests.listFor(psKey, now)
             if q.kind == "named" then item.person, item.slain = q.person, q.slain end
             if q.origin and q.origin.holiday then item.holiday = q.origin.holiday end
             if q.origin and q.origin.council then item.council = true end
+            if q.siege then
+                item.siege = { total = q.siege.total, sent = q.siege.sent, held = q.siege.held, waves = q.siege.waves }
+                item.siegeHelpers = StoryEngine.Council and StoryEngine.Council.helpers() or nil
+            end
             if q.kind == "horde" then
                 item.size, item.killed, item.killsNeeded = q.size, q.killed or 0, q.killsNeeded
             end
