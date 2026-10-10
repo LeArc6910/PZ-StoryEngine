@@ -127,6 +127,17 @@ function Broadcast.note(text)
     Store.push(state().facts, { t = Sensor.now().t, text = clip(text, 300) }, Broadcast.FACTS_MAX * 2)
 end
 
+-- 방송 재료를 거둔다 (되살리기). pred(text) 가 참인 것을 지우고 지운 수를 돌려준다
+function Broadcast.dropNotes(pred)
+    local s = state()
+    local kept, n = {}, 0
+    for _, f in ipairs(s.facts) do
+        if pred(f.text) then n = n + 1 else kept[#kept + 1] = f end
+    end
+    s.facts = kept
+    return n
+end
+
 local function aliveHost()
     for _, fid in ipairs(Broadcast.HOSTS) do
         if Factions.byId[fid] and not Factions.isGone(fid) then return fid end
