@@ -4822,7 +4822,7 @@
     "IGUI_StoryEngine_RadioSay_spec2_rain_start": "Rain's falling. Hope your barrels are out.",
     "IGUI_StoryEngine_RadioSay_spec2_rain_stop": "Rain's passed. Hope it filled your barrels.",
     "IGUI_StoryEngine_Spec2_Name_stew": "Home cooking",
-    "IGUI_StoryEngine_Spec2_Desc_stew": "Ray puts a pot of his stew straight into your inventory (very filling, lifts mood) and for 24 hours your unhappiness does not rise. Wait 7 days.",
+    "IGUI_StoryEngine_Spec2_Desc_stew": "Ray puts a pot of his stew straight into your inventory (very filling, quenches thirst, lifts mood) and for 24 hours your unhappiness does not rise. Wait 7 days.",
     "IGUI_StoryEngine_RadioSay_spec2_stew": "Packed you a pot of stew. Eat it warm.",
     "IGUI_StoryEngine_Spec2_Name_praise": "Praise broadcast",
     "IGUI_StoryEngine_Spec2_Desc_praise": "Tonight's broadcast praises you. Next morning every contact's trust +2 (not above 90). Wait 7 days.",

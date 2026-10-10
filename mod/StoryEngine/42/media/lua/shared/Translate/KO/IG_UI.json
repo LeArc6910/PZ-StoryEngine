@@ -4822,7 +4822,7 @@
     "IGUI_StoryEngine_RadioSay_spec2_rain_start": "비가 오기 시작했네. 통은 내놨겠지?",
     "IGUI_StoryEngine_RadioSay_spec2_rain_stop": "비가 그쳤네. 통이 좀 찼기를 바라네.",
     "IGUI_StoryEngine_Spec2_Name_stew": "가정식 초대",
-    "IGUI_StoryEngine_Spec2_Desc_stew": "레이네 스튜(배고픔 크게 해소, 불행·지루함·스트레스 감소)를 바로 인벤토리에 넣어 주고, 24시간 동안 불행이 오르지 않는다. 대기 7일.",
+    "IGUI_StoryEngine_Spec2_Desc_stew": "레이네 스튜(배고픔과 갈증 크게 해소, 불행·지루함·스트레스 감소)를 바로 인벤토리에 넣어 주고, 24시간 동안 불행이 오르지 않는다. 대기 7일.",
     "IGUI_StoryEngine_RadioSay_spec2_stew": "스튜 한 냄비 챙겨 줬네. 따뜻할 때 들게.",
     "IGUI_StoryEngine_Spec2_Name_praise": "칭찬 방송",
     "IGUI_StoryEngine_Spec2_Desc_praise": "오늘 저녁 방송에서 내 활약을 소개한다. 다음 날 아침 모든 NPC 의 신뢰 +2 (90 이상은 그대로). 대기 7일.",
