@@ -84,6 +84,74 @@ function T.flags_split_a_chapter()
     H.eq(st.node, "pike3_6b", "no feast: the simple wedding")
 end
 
+-- 뒤 장으로 갈수록 이야기 부탁 등급이 오른다 (2026-10-10 사용자 요청, 샌드박스 StoryRamp)
+function T.later_chapters_ask_for_more()
+    local p = setup()
+    local Social, Stories = StoryEngine.Social, StoryEngine.Stories
+    H.eq(Social.rampTier(2, 0, 5), 2)
+    H.eq(Social.rampTier(3, 2, 4), 4, "capped")
+    H.eq(Social.rampTier(4, 1, 3), 4, "a cap never lowers what the story wrote")
+    -- 장마다: 물건 부탁 장면 하나씩 골라 본다
+    local function questNode(fid, chapter)
+        for _, n in ipairs(Stories.ARCS[fid]) do
+            if n.chapter == chapter and n.quest and n.quest.items and not n.quest.kind then return n end
+        end
+    end
+    local want = { [2] = 0, [3] = 1, [4] = 2, [5] = 2 }
+    for chapter, add in pairs(want) do
+        local node = questNode("ray", chapter)
+        H.ok(node, "ray has an item request in chapter " .. chapter)
+        local cap = chapter == 4 and 4 or 5
+        H.eq(Social.storyTier("ray", node), math.max(node.quest.tier, math.min(cap, node.quest.tier + add)),
+            "chapter " .. chapter)
+    end
+    local first = nil
+    for _, n in ipairs(Stories.ARCS.ray) do
+        if not n.chapter and n.quest and not first then first = n end
+    end
+    H.eq(Social.storyTier("ray", first), first.quest.tier, "the first story is as written")
+    -- 실제 부탁에 반영된다
+    local node = questNode("ray", 5)
+    local st = at("ray", node.id)
+    Social.forceAsk = true
+    Social.advance("ray", now())
+    Social.forceAsk = nil
+    local q = StoryEngine.Store.data().quests[st.questId]
+    H.ok(q, "the request went out")
+    H.eq(q.tier, math.min(5, node.quest.tier + 2), "chapter five asks two tiers more")
+    H.ok(H.logHas("story tier ray " .. node.id))
+    -- 곁가지: 그 NPC 의 큰 이야기가 몇 장인지에 따라, 최고 4등급
+    local ep = { chapter = "ep", quest = { tier = 1 } }
+    H.eq(Social.mainChapter("ray"), 5)
+    H.eq(Social.storyTier("ray", ep), 3, "chapter five: side stories +2")
+    H.eq(Social.storyTier("ray", { chapter = "ep", quest = { tier = 3 } }), 4, "side stories stop at tier 4")
+    H.eq(Social.storyTier("ray", { chapter = "ep", ai = true, quest = { tier = 1 } }), 1, "AI side stories keep their own tier")
+    H.eq(Social.mainChapter("casey"), 1)
+    H.eq(Social.storyTier("casey", ep), 1, "first story: side stories as written")
+    -- 끄면 그대로
+    SandboxVars.StoryEngine.StoryRamp = false
+    H.eq(Social.storyTier("ray", node), node.quest.tier)
+    SandboxVars.StoryEngine.StoryRamp = nil
+end
+
+-- 뒤 장의 이야기가 여는 위기도 선택지 등급이 오른다
+function T.later_crises_ask_for_more()
+    local p = setup()
+    local ps = StoryEngine.Store.player(p)
+    local Quests, Stories = StoryEngine.Quests, StoryEngine.Stories
+    local crisis = Stories.crisis("knox")
+    H.ok(crisis, "the Knox crisis")
+    local plain = Quests.proposeChoice(p, ps, crisis, now())
+    local raised = Quests.proposeChoice(p, ps, crisis, now(), 2, 4)
+    for i, o in ipairs(plain.options) do
+        H.eq(raised.options[i].tier, math.max(o.tier, math.min(4, o.tier + 2)), "option " .. i)
+    end
+    H.ok(raised.tier >= plain.tier)
+    local add, cap = StoryEngine.Social.tierAdd("guard", Stories.node("guard", "guard4_3"))
+    H.eq(add, 2)
+    H.eq(cap, 4, "chapter four stops at tier 4")
+end
+
 function T.a_crisis_that_cannot_open_takes_the_default()
     setup()
     local Social = StoryEngine.Social

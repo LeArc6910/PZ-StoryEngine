@@ -29,6 +29,9 @@ Tuning.DEFAULTS = {
     SpecialtyCooldownMult = 1, SpecialtyTrustOffset = 0, AutoSupportTrust = 70, AutoSupportDays = 7,
     AISaver = false, ContactHours = 5, SceneHours = 6, BanterHours = 3, LetterChance = 30,
     BroadcastHour = 19, BroadcastRerun = true,
+    -- 야간 작전 (2026-10-10): 소탕·경비·정찰·배달을 밤에 하면 보상 배율, 고를 수 있는 최소 등급, 이야기 소탕이 밤 전용일 확률
+    NightJobs = true, NightRewardMult = 1.5, NightMinTier = 3, NightStoryChance = 50,
+    StoryRamp = true,       -- 뒤 장으로 갈수록 이야기 부탁 등급이 오른다 (Social.tierAdd)
     -- 개인 신뢰 (2026-10-09, docs/DESIGN_PER_PLAYER_TRUST.md): 1 서버 공유 / 2 개인 (멀티에서만)
     TrustBenefits = 1, TrustIntro = 25, HelperTrustShare = 0.5, GroupHelperTrust = 0.5,
     PersonalAskMinDays = 2, PersonalAskMaxDays = 5,

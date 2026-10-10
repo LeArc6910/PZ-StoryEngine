@@ -625,6 +625,13 @@ local function trySpawn(q)
         return
     end
     if now - Quests.seen[q.id] < Quests.SETTLE_MS then return end
+    -- 야간 작전: 소탕 무리·배달 꾸러미는 밤에만 나타난다 (낮에 와 있으면 하루 한 번 알린다)
+    if q.night and (q.kind == "horde" or q.kind == "fetch") and not Quests.isNight() then
+        q.waitNight = true
+        Quests.nightSay(q, "night_wait", "Nothing here until dark. Come back at night.")
+        return
+    end
+    q.waitNight = nil
     if q.kind == "horde" then
         Quests.spawnHorde(q)
         return
@@ -664,6 +671,7 @@ function Quests.spawnHorde(q)
         q.size, nil, nil)
     q.spawned = true
     q.sx, q.sy = q.cx, q.cy
+    if q.night then q.topUpNight = Quests.nightId(Sensor.now()) end
     log("horde spawned", q.id, list and list:size() or 0, "zombies around", q.cx, q.cy)
     notifyTarget(q)
 end
@@ -843,6 +851,11 @@ function Quests.react(q, outcome)
     local fight = outcome == "completed" and Quests.fightText(q) or nil
     if fight then topic = topic .. " On the way " .. fight .. "." end
     if outcome == "completed" then topic = topic .. Quests.creditText(q) end
+    if q.night and outcome == "completed" then
+        topic = topic .. " They did it at night, the hard way, and you are paying more for that. Say so."
+    elseif q.night and outcome == "accepted" then
+        topic = topic .. " They will do it at night (the hard way, for more pay)."
+    end
     -- 나눠 내다 기한을 넘겼다 (2026-10-08): 받은 만큼은 알고 있다
     local share = outcome == "failed" and Quests.paidShare(q) or 0
     if share > 0 then
@@ -1182,6 +1195,7 @@ function Quests.createSite(kind, ps, site, now, origin, opts)
         target = ps and ps.key or nil, targetName = ps and ps.name or nil,
         state = (kind == "fetch" or kind == "supply_drop") and "offered" or "accepted", createdT = now.t,
         deadlineT = opts.deadlineT or (now.t + 3 * 24 * 60), spawned = false,
+        night = opts.night or nil,          -- 야간 작전 (2026-10-10): 밤에만 진행, 기한은 만드는 쪽이 늘린다
     }
     origin.day = Store.dayIndex(now.dayKey)
     origin.date = now.date
@@ -1221,14 +1235,13 @@ function Quests.createSite(kind, ps, site, now, origin, opts)
         q.spawned = true
         q.sx, q.sy = q.cx, q.cy
     elseif kind == "scout" then
-        -- 정찰 (Work.lua): 지점마다 좀비가 있는 건물에 들어가 정해진 시간 머문다. 3등급부터 밤에만 시간이 흐른다
+        -- 정찰 (Work.lua): 지점마다 좀비가 있는 건물에 들어가 정해진 시간 머문다. 야간으로 골랐으면 밤에만 시간이 흐른다
         q.points = { scoutPoint(found) }
         for _, extra in ipairs(opts.more or {}) do
             local f = siteBuilding(extra, opts)
             if f then q.points[#q.points + 1] = scoutPoint(f) end
         end
         q.stayMin = opts.stayMin or 20
-        q.night = opts.night or nil
         q.zombies = opts.zombies or 0
         q.radius = opts.radius or 10
         d.quests[q.id] = q
@@ -1381,13 +1394,18 @@ function Quests.proposeCustom(player, ps, fid, spec, now, extra)
 end
 
 -- 위기: 여러 세력이 동시에 부탁하고 플레이어가 하나를 고른다 (Social.startCrisis)
-function Quests.proposeChoice(player, ps, crisis, now)
+-- tierAdd, tierCap: 뒤 장의 이야기가 여는 위기는 선택지 등급이 오른다 (Social.tierAdd, 현장 물건으로 채우는 plain 은 그대로)
+function Quests.proposeChoice(player, ps, crisis, now, tierAdd, tierCap)
     local d = Store.data()
     d.questSeq = d.questSeq + 1
     local options, top = {}, 1
     for i, o in ipairs(crisis.options) do
-        options[i] = { faction = o.faction, ask = o.ask, tier = o.tier, items = Quests.pointsNeed(o.items, o.tier, crisis.plain) }
-        top = math.max(top, o.tier or 1)
+        local tier = o.tier or 1
+        if tierAdd and tierAdd > 0 and not crisis.plain then
+            tier = math.max(tier, math.min(tierCap or Quests.MAX_TIER, tier + tierAdd))
+        end
+        options[i] = { faction = o.faction, ask = o.ask, tier = tier, items = Quests.pointsNeed(o.items, tier, crisis.plain) }
+        top = math.max(top, tier)
     end
     local q = {
         id = "Q" .. StoryEngine.intToString(d.questSeq),
@@ -1706,6 +1724,10 @@ function Quests.proposeHorde(player, ps, fid, tier, now, opts)
         state = "proposed", createdT = now.t, respondBy = now.t + Quests.RESPOND_MIN,
         spawned = false,
     }
+    -- 이야기·곁가지 소탕은 등급이 되면 일부가 밤에만 할 수 있는 일로 나온다 (2026-10-10 사용자 결정, 나머지는 고르기)
+    if opts.story and Quests.nightAllowed(tier) and ZombRand(100) < Quests.nightStoryChance() then
+        q.night, q.nightForced = true, true
+    end
     d.quests[q.id] = q
     note(ps, "horde_proposed", q, now, nil)
     log("horde proposed", q.id, fid, size, "at", cx, cy, place.town, "dist", q.distance)
@@ -1718,6 +1740,8 @@ function Quests.proposeHorde(player, ps, fid, tier, now, opts)
         .. spot .. ". It is about " .. StoryEngine.intToString(distance) .. " tiles to the " .. dirEn .. " of the players (measured from them, "
         .. "not from you). Ask them to clear it out. Payment: a " .. tierWord .. " supply cache left near the spot. "
         .. "Use the town name as given."
+        .. (q.nightForced and " It has to be done after dark: the dead only gather there at night (21:00 to 05:00). "
+            .. "You will pay more than usual for night work. Say so." or "")
         .. (opts.why and (" This is part of what is going on in your life right now: " .. opts.why .. ".") or ""),
         StoryEngine.Lines.fallback(fid, "horde", "About " .. StoryEngine.intToString(size)
             .. " dead are gathered around a building near " .. place.town .. ", about " .. StoryEngine.intToString(distance)
@@ -1844,12 +1868,17 @@ function Quests.onZombieDead(zombie)
     for _, q in pairs(all()) do
         if q.kind == "horde" and q.state == "accepted" and q.spawned
             and zx >= q.bx1 - area and zx <= q.bx2 + area and zy >= q.by1 - area and zy <= q.by2 + area then
-            q.killed = (q.killed or 0) + 1
-            if q.killed >= q.killsNeeded then
-                Quests.completeHorde(q)
+            if q.night and not Quests.isNight() then
+                -- 야간 소탕: 낮에 잡은 것은 세지 않는다 (모자라면 다음 밤에 채운다, Quests.topUpHorde)
+                Quests.nightSay(q, "night_daykill", "Kills by day do not count for this one.")
             else
-                if q.killed % 3 == 0 then notifyTarget(q) end
-                Quests.onProgress(q, "kill")
+                q.killed = (q.killed or 0) + 1
+                if q.killed >= q.killsNeeded then
+                    Quests.completeHorde(q)
+                else
+                    if q.killed % 3 == 0 then notifyTarget(q) end
+                    Quests.onProgress(q, "kill")
+                end
             end
         end
     end
@@ -1866,7 +1895,8 @@ function Quests.completeHorde(q)
     local ps = best and Store.player(best) or Store.data().players[q.target]
     if best and not Quests.isManaged(q) then
         Quests.create("supply_drop", best, ps, 1, now,
-            { source = "reward", faction = q.origin and q.origin.faction, rewardFor = q.id, rewardKind = q.kind }, StoryEngine.Loot.roll(q.tier, q.origin and q.origin.faction))
+            { source = "reward", faction = q.origin and q.origin.faction, rewardFor = q.id, rewardKind = q.kind },
+            StoryEngine.Loot.roll(q.tier, q.origin and q.origin.faction, q.night and Quests.nightMult() or nil))
     end
     setState(q, "completed", now, ps and { ps = ps } or nil)
 end
@@ -1888,7 +1918,8 @@ function Quests.completeTrade(player, q)
 end
 
 -- 부탁·거래 제안에 대한 수락/거절. 멀티에서는 답한 사람이 대상이 된다.
-function Quests.respond(player, qid, accept)
+-- night = 야간으로 받는다 (소탕, 등급이 되고 샌드박스가 켜져 있을 때만. 밤에만 할 수 있는 부탁은 늘 야간). 고른 뒤에는 못 바꾼다
+function Quests.respond(player, qid, accept, night)
     local q = all()[qid]
     if not q or (q.kind ~= "deliver" and q.kind ~= "trade" and q.kind ~= "horde" and q.kind ~= "named") then
         return false, "no_quest"
@@ -1906,8 +1937,12 @@ function Quests.respond(player, qid, accept)
     end
     q.target, q.targetName = ps.key, ps.name
     if accept then
+        if q.kind == "horde" and not q.nightForced then
+            q.night = (night == true and Quests.nightAllowed(q.tier)) or nil
+        end
         q.deadlineT = now.t + ((q.kind == "horde" or q.kind == "named") and Quests.deadlineMinutes(q.distance or 0)
             or (q.urgent and 24 * 60) or Quests.deliverMinutes(q.tier))
+            + (q.night and Quests.NIGHT_HOURS * 60 or 0)
         setState(q, "accepted", now, { ps = ps })
     else
         setState(q, "declined", now, { ps = ps }, "declined")
@@ -2127,10 +2162,96 @@ function Quests.isNight()
     return h >= Quests.NIGHT_FROM or h < Quests.NIGHT_TO
 end
 
+-- ---------------------------------------------------------------- 야간 작전 (2026-10-10 사용자 결정)
+-- 소탕·경비·정찰·배달은 등급이 NightMinTier(3) 이상이면 주간·야간을 고른다 (샌드박스 NightJobs). 야간은 밤에만
+-- 진행되고 기한 +NIGHT_HOURS, 보상(물건·덤·신뢰도·NPC 자원) x NightRewardMult(1.5). 고른 뒤에는 못 바꾼다.
+-- 이야기·곁가지 소탕은 NightStoryChance(50) 퍼센트가 밤에만 할 수 있는 일로 나온다 (q.nightForced).
+-- 복구 작전·큰 사건·회의의 소탕·방어는 대상이 아니다.
+Quests.NIGHT_HOURS = 24
+
+function Quests.nightOn()
+    return StoryEngine.option("NightJobs", true) == true
+end
+
+function Quests.nightMult()
+    local m = StoryEngine.Tuning and StoryEngine.Tuning.num("NightRewardMult") or 1.5
+    return math.max(1, m)
+end
+
+function Quests.nightStoryChance()
+    return StoryEngine.Tuning and StoryEngine.Tuning.num("NightStoryChance") or 50
+end
+
+function Quests.nightAllowed(tier)
+    local min = StoryEngine.Tuning and StoryEngine.Tuning.num("NightMinTier") or 3
+    return Quests.nightOn() and (tier or 1) >= min
+end
+
+-- 그 밤의 번호 (자정을 넘겨도 같은 밤)
+function Quests.nightId(now)
+    local day = Store.dayIndex(now.dayKey)
+    if getGameTime():getHour() < Quests.NIGHT_TO then day = day - 1 end
+    return day
+end
+
+-- 머리 위 알림 (AI 없음, 같은 말은 하루 한 번): 일 퀘스트는 거래한 사람·도운 사람, 그 밖은 받은 사람·도운 사람
+function Quests.nightSay(q, key, english, args)
+    local day = Store.dayIndex(Sensor.now().dayKey)
+    q.nightSaid = q.nightSaid or {}
+    if q.nightSaid[key] == day then return end
+    q.nightSaid[key] = day
+    if Quests.isWork(q) and StoryEngine.Work then
+        pcall(StoryEngine.Work.say, q, key, args or {}, english)
+        return
+    end
+    local keys = {}
+    if q.target then keys[q.target] = true end
+    for k in pairs(q.helpers or {}) do keys[k] = true end
+    local fid = q.origin and q.origin.faction
+    for _, p in ipairs(Sensor.players()) do
+        local ps = Store.player(p)
+        if keys[ps.key] then
+            Radio.overhead(ps.key, fid, english or "", { key = "IGUI_StoryEngine_WorkNote_" .. key, args = args or {} })
+        end
+    end
+    log("night note", q.id, key)
+end
+
 local function nearRect(q, x, y, r)
     local dx = math.max((q.bx1 or q.cx) - x, 0, x - (q.bx2 or q.cx))
     local dy = math.max((q.by1 or q.cy) - y, 0, y - (q.by2 or q.cy))
     return math.sqrt(dx * dx + dy * dy) <= r
+end
+
+-- 야간 소탕: 밤에 잡은 것만 세므로, 낮에 잡아 좀비가 모자라면 다음 밤에 모자란 만큼 다시 모인다
+-- (그 밤에 한 번, 누가 현장 둘레에 있을 때. 좀비에 표시를 하지 않으므로 구역 안 좀비 수로 판단한다)
+function Quests.topUpHorde(q, entries, now)
+    if not (q.night and q.spawned and q.state == "accepted") or not Quests.isNight() then return end
+    local id = Quests.nightId(now)
+    if q.topUpNight == id then return end
+    local area = Quests.HORDE_AREA
+    local near = false
+    for _, e in ipairs(entries) do
+        if nearRect(q, e.s.x, e.s.y, area) then near = true end
+    end
+    if not near then return end
+    q.topUpNight = id
+    local need = (q.killsNeeded or 0) - (q.killed or 0)
+    local alive = 0
+    local list = getCell() and getCell():getZombieList()
+    for i = 0, (list and list:size() or 0) - 1 do
+        local z = list:get(i)
+        if z and not z:isDead() then
+            local x, y = z:getX(), z:getY()
+            if x >= q.bx1 - area and x <= q.bx2 + area and y >= q.by1 - area and y <= q.by2 + area then alive = alive + 1 end
+        end
+    end
+    if alive >= need then return end
+    local spread = Quests.HORDE_SPREAD
+    local ok, made = pcall(addZombiesInOutfitArea, q.bx1 - spread, q.by1 - spread, q.bx2 + spread, q.by2 + spread, 0,
+        need - alive, nil, nil)
+    log("night horde topped up", q.id, "alive", alive, "need", need, "added", ok and made and made:size() or 0)
+    Quests.nightSay(q, "night_topup", "They have gathered again after dark.")
 end
 
 -- 정찰: 지금 지점의 건물에 한 번 들어가고, 건물 둘레(반경)에 정해진 시간 머물면 다음 지점으로
@@ -2189,6 +2310,13 @@ function Quests.trackSite(q, entries, now)
     q.present = #here
     if q.kind == "visit" then
         if #here > 0 and q.carry then
+            -- 야간 배달: 밤에만 건넬 수 있다
+            if q.night and not Quests.isNight() then
+                q.waitNight = true
+                Quests.nightSay(q, "night_wait", "Nobody here until dark. Come back at night.")
+                return
+            end
+            q.waitNight = nil
             -- 배달 대행 (Work.lua): 꾸러미를 가진 사람이 와야 끝난다. 꾸러미는 건네준다
             for _, e in ipairs(here) do
                 local held = e.player and findInInventory(e.player, { items = q.carry.items, id = q.carry.qid }) or {}
@@ -2205,6 +2333,14 @@ function Quests.trackSite(q, entries, now)
     end
     local step = math.min(Quests.DEFEND_STEP_MAX, math.max(0, now.t - (q.lastSiteT or now.t)))
     q.lastSiteT = now.t
+    if #here > 0 and q.night and not Quests.isNight() then
+        q.waitNight = true
+        Quests.nightSay(q, "night_wait", "The watch only counts after dark.")
+        return
+    end
+    -- 밤을 기다리다 막 시작한 샘플은 세지 않는다 (낮에 서 있던 시간이 들어가지 않게)
+    if q.waitNight then step = 0 end
+    q.waitNight = nil
     if #here > 0 then
         local before = math.floor((q.progress or 0) * 4 / q.needMin)
         q.progress = (q.progress or 0) + step
@@ -2275,6 +2411,10 @@ function Quests.track(entries, now)
                 end
             end
             if q.kind == "defend" or q.kind == "visit" or q.kind == "scout" then Quests.trackSite(q, entries, now) end
+            if q.kind == "horde" and q.night then
+                local okT, errT = pcall(Quests.topUpHorde, q, entries, now)
+                if not okT then log("night top-up error:", tostring(errT)) end
+            end
             local left = (q.kind ~= "horde" and q.kind ~= "defend" and q.kind ~= "visit" and q.kind ~= "named"
                 and q.kind ~= "scout")
                 and atSpot(q, false) or nil
@@ -2434,8 +2574,16 @@ function Quests.listFor(psKey, now)
             if q.kind == "defend" or q.kind == "visit" or q.kind == "scout" then item.radius = q.radius end
             if q.kind == "scout" then
                 item.point, item.points, item.progress, item.needMin = q.point or 1, #(q.points or {}), q.progress or 0, q.stayMin
-                item.entered, item.night, item.waitNight, item.present = q.entered, q.night, q.waitNight, q.present
+                item.entered, item.present = q.entered, q.present
             end
+            -- 야간 작전: 밤에만 진행 (night), 밤을 기다리는 중 (waitNight), 수락할 때 고를 수 있음 (nightChoice),
+            -- 밤에만 할 수 있는 부탁 (nightForced), 거래·일거리를 야간 일로 갚는 중 (nightWork)
+            item.night, item.waitNight, item.nightForced, item.nightWork = q.night, q.waitNight, q.nightForced, q.nightWork
+            if state == "proposed" and q.kind == "horde" and not q.nightForced and Quests.nightAllowed(q.tier) then
+                item.nightChoice = true
+            end
+            if q.kind == "trade" and item.workOptions and Quests.nightAllowed(q.tier) then item.workNight = true end
+            if item.night or item.nightChoice or item.nightWork or item.workNight then item.nightMult = Quests.nightMult() end
             if q.carry then item.parcel = q.parcel end
             item.cancelled = q.cancelled
             if Quests.isOp(q) then

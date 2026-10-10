@@ -138,7 +138,7 @@ end
 
 -- 샌드박스 보상 배율: 음식·물·의약품·전문 묶음의 개수 (총·도구·근접 무기는 그대로)
 local function scaled(n)
-    local m = StoryEngine.Tuning and StoryEngine.Tuning.num("RewardMult") or 1
+    local m = (StoryEngine.Tuning and StoryEngine.Tuning.num("RewardMult") or 1) * (Loot.extra or 1)
     if m == 1 or not n or n <= 0 then return n end
     local v = n * m
     local whole = math.floor(v)
@@ -227,7 +227,7 @@ Loot.SPECIALTY_CAT = { ray = "food", casey = "tools", doc = "medical", pike = "f
 Loot.SPECIALTY_SHARE = 0.5
 
 local function rewardMult()
-    return StoryEngine.Tuning and StoryEngine.Tuning.num("RewardMult") or 1
+    return (StoryEngine.Tuning and StoryEngine.Tuning.num("RewardMult") or 1) * (Loot.extra or 1)
 end
 
 -- 생성기로 한 품목 (실패하면 nil)
@@ -245,7 +245,17 @@ local function append(out, list)
 end
 
 -- 등급(1~5)에 맞는 보상 목록 (전체 타입 이름 배열). fid 를 주면 그 세력의 전문 보상을 더한다.
-function Loot.roll(tier, fid)
+-- mult: 이번 보상에만 더 곱하는 배율 (야간 작전 x1.5, Quests.nightMult)
+local rollPlain
+function Loot.roll(tier, fid, mult)
+    Loot.extra = tonumber(mult) or 1
+    local ok, out = pcall(rollPlain, tier, fid)
+    Loot.extra = 1
+    if not ok then error(out, 0) end
+    return out
+end
+
+function rollPlain(tier, fid)
     tier = math.max(1, math.min(Loot.MAX_TIER, math.floor(tier or 1)))
     local out = Loot.rollBase(tier)
     local cat = fid and Loot.SPECIALTY_CAT[fid]

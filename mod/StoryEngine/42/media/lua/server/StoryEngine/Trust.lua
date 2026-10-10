@@ -290,6 +290,10 @@ function Trust.forQuest(q, outcome)
     if not row then return 0 end
     local tier = math.max(1, math.min(#row, math.floor(q.tier or 1)))
     local delta = row[tier]
+    -- 야간 작전을 해냈다: 보상 배율만큼 더 (올림, Quests.nightMult)
+    if delta > 0 and outcome == "completed" and q.night and StoryEngine.Quests.nightMult then
+        delta = math.ceil(delta * StoryEngine.Quests.nightMult() - 0.001)
+    end
     if delta < 0 then
         -- 진행 단계: 초반 x0.5(반올림, 최소 1), 중반 그대로, 후반은 등급이 높을수록 큰 Trust.LATE 표
         local Store = StoryEngine.Store
