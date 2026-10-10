@@ -344,6 +344,38 @@ local function deliver(player, ps, fid, opt, items)
     return given
 end
 
+-- ---------------------------------------------------------------- 뒤따르는 말 (2026-10-10 사용자 요청: 특기마다 전·후 멘트)
+
+local SAY = "IGUI_StoryEngine_RadioSay_spec2_"
+
+local function psOf(key)
+    local players = Store.data().players
+    return key and players and players[key] or nil
+end
+
+local function nameOf(key)
+    local ps = psOf(key)
+    return tostring(ps and ps.name or "the survivor")
+end
+
+-- 무전으로 남는 말: AI 가 쓰고(안 되면 준비된 문장 SAY .. stage) 그 사람 머리 위에도 뜬다.
+-- 예약한 일이 벌어졌을 때·끝났을 때 (포격 탄착, 트럭 도착, 비가 그침 ...)
+local function follow(fid, key, stage, topic, english, args)
+    if Factions.isGone(fid) or #Sensor.players() == 0 then return end
+    local ok, err = pcall(Radio.react, fid, "event", topic .. " Keep it short and in character.",
+        { text = english, lt = { key = SAY .. stage, args = args } }, psOf(key), { overhead = true })
+    if not ok then log("specialty2 say error", stage, tostring(err)) return end
+    log("specialty2 say", fid, stage)
+end
+
+-- 머리 위에만 뜨는 짧은 알림 (AI 없음, 무전 기록·일지에 안 남는다): 지속 효과가 끝났을 때
+local function note(fid, key, stage, args)
+    if not key or Factions.isGone(fid) then return end
+    pcall(Radio.overhead, key, fid, "", { key = SAY .. stage, args = args or {} })
+    log("specialty2 note", fid, stage)
+end
+Specialty2.follow, Specialty2.note = follow, note
+
 -- ---------------------------------------------------------------- 레이
 
 local function freeOutdoor(x, y, z)
@@ -433,6 +465,9 @@ local function praiseTick(now)
                 end
             end
             log("specialty2 praise applied", p.name, count)
+            follow("casey", key, "praise_done", "Last night's broadcast praising " .. tostring(p.name)
+                .. " went out across the county and this morning people are talking about it. Tell them how it landed.",
+                "Everyone heard last night's show. People are talking about you.")
         end
     end
 end
@@ -484,6 +519,9 @@ local function sos(player, ps, fid)
         Net.toClient(player, "spec2Fx", { kind = "sos", minutes = Specialty2.SOS_MIN, calm = calm, numb = numb })
         if calm then parts[#parts + 1] = "Pastor Pike talking them calm" end
         if numb then parts[#parts + 1] = "June's advice to fight through the pain" end
+    elseif #parts > 0 then
+        -- 달래 줄 사람이 없어도 한 시간 뒤 끝났다는 말은 한다 (FX_END.sos)
+        addFx({ kind = "sos", key = ps.key, untilT = now.t + Specialty2.SOS_MIN })
     end
     report[#report + 1] = "snipe=" .. StoryEngine.intToString(snipeCount)
     report[#report + 1] = "calm=" .. tostring(calm) .. " numb=" .. tostring(numb)
@@ -498,15 +536,33 @@ local function power(player, ps, fid)
     if not Grid then return false, "no_grid" end
     local now = Sensor.now()
     Grid.restore("power", Specialty2.POWER_DAYS, "casey_temp")
-    state().world.power = { untilT = now.t + Specialty2.POWER_DAYS * 24 * 60, key = ps.key }
+    -- 실제로 끊기는 때는 Grid 의 날짜 경계 (untilDay), 그 몇 시간 전에 미리 알린다 (powerTick)
+    local okD, today = pcall(Grid.today)
+    state().world.power = { untilT = now.t + Specialty2.POWER_DAYS * 24 * 60, key = ps.key,
+                            untilDay = okD and type(today) == "number" and (math.floor(today) + Specialty2.POWER_DAYS) or nil }
     return true, { topic = "You patched the dead power grid together with what you had. Power is back for about "
         .. StoryEngine.intToString(Specialty2.POWER_DAYS) .. " days, no longer. Tell " .. tostring(ps.name) .. " to use it." }
 end
 
 -- 임시 송전이 끝났다 (Grid.ensure): 작전 날짜를 건드리지 않고 조용히 알린다
 function Specialty2.onTempPowerEnd()
+    local w = state().world.power
     state().world.power = nil
     log("specialty2 temp power ended")
+    follow("casey", w and w.key, "power_end", "The temporary patch you put on the power grid just gave out and the "
+        .. "power is off again. Tell " .. nameOf(w and w.key) .. ", a little apologetic.", "Power's out again. The patch gave up.")
+end
+
+Specialty2.POWER_WARN_HOURS = 6
+local function powerTick()
+    local w = state().world.power
+    local Grid = StoryEngine.Grid
+    if not w or w.warned or not w.untilDay or not Grid then return end
+    if Grid.today() >= w.untilDay - Specialty2.POWER_WARN_HOURS / 24 then
+        w.warned = true
+        follow("casey", w.key, "power_soon", "The temporary patch on the power grid will give out within a few hours. "
+            .. "Warn " .. nameOf(w.key) .. " to use the power while it lasts.", "The patch won't hold much longer. Use the power now.")
+    end
 end
 
 -- ---------------------------------------------------------------- 닥
@@ -652,7 +708,7 @@ local function reconcile(player, ps, fid)
     local n = Life.npc(worst)
     n.counts = n.counts or {}
     n.counts.crisis_snubbed, n.counts.broken = 0, 0
-    return true, { item = worst, topic = "You went to " .. tostring(StoryEngine.Stories.NAMES[worst] or worst)
+    return true, { item = worst, args = { { t = "npc", v = worst } }, topic = "You went to " .. tostring(StoryEngine.Stories.NAMES[worst] or worst)
         .. " and made peace between them and " .. tostring(ps.name) .. ". Old grudges are set down. Say so gently." }
 end
 
@@ -744,7 +800,7 @@ Specialty2.VEHICLE_RADIUS = 10
 Specialty2.REINFORCE_HOURS = 6
 -- 임시 보강 엔진 출력 배율 (2026-10-09 사용자 결정 A: 좀비에 부딪혀 느려져도 금방 다시 속도가 붙게). 끝나면 원래대로
 Specialty2.REINFORCE_POWER = 1.5
-Specialty2.ARTY_RANGE = 120
+Specialty2.ARTY_RANGE = 240               -- 2026-10-10 사용자 결정 (예전 120)
 Specialty2.ARTY_SAFE = 15                -- 요청할 때 모든 플레이어가 이만큼 떨어져 있어야
 Specialty2.ARTY_ABORT = 12               -- 떨어질 때 이 안에 플레이어가 있으면 미룬다
 Specialty2.ARTY_DELAY = 10
@@ -951,9 +1007,19 @@ local function giveKey(player, truck)
     end
 end
 
+-- 사흘 기다려도 차를 못 찾았다: 알리고 대기를 돌려준다
+local function towGiveUp(job, now)
+    if now.t < job.giveUpT then return false end
+    log("specialty2 tow gave up", job.key)
+    Specialty2.clearWait("dewey", job.key)
+    follow("dewey", job.key, "tow_off", "Your driver could not find " .. nameOf(job.key) .. "'s car and turned the tow "
+        .. "truck around. Tell them to call again when they are standing by the car.", "Couldn't find your car. Call me again.")
+    return true
+end
+
 local function runTow(job, now)
     local car = findVehicle(job)
-    if not car then return now.t >= job.giveUpT end      -- 차가 로드될 때까지 (3일)
+    if not car then return towGiveUp(job, now) end       -- 차가 로드될 때까지 (3일)
     local spot = nil
     for i = 0, 15 do
         local angle = (i % 8) * math.pi / 4
@@ -961,7 +1027,7 @@ local function runTow(job, now)
         spot = freeOutdoor(math.floor(car:getX() + math.cos(angle) * d), math.floor(car:getY() + math.sin(angle) * d), 0)
         if spot then break end
     end
-    if not spot then return now.t >= job.giveUpT end
+    if not spot then return towGiveUp(job, now) end
     local truck = addVehicleDebug(Specialty2.TOW_TRUCK, IsoDirections.N, nil, spot)
     if not truck then
         log("specialty2 tow: truck spawn failed")
@@ -976,21 +1042,34 @@ local function runTow(job, now)
     end)
     local player = playerByKey(job.key)
     pcall(giveKey, player, truck)
+    local hooked = false
     if player then
         local ok, err = pcall(function() truck:addPointConstraint(player, car, "trailer", "trailerfront") end)
         log("specialty2 tow attach", ok and "ok" or tostring(err))
+        hooked = ok
     end
     state().lent[#state().lent + 1] = { vid = truck:getId(), untilT = now.t + Specialty2.TOW_LEND_HOURS * 60,
-                                        x = spot:getX(), y = spot:getY() }
+                                        x = spot:getX(), y = spot:getY(), key = job.key }
     log("specialty2 tow truck arrived", truck:getId())
+    follow("dewey", job.key, "tow_here" .. ((not player and "_away") or (not hooked and "_loose") or ""),
+        "Your tow truck just reached " .. nameOf(job.key) .. "'s stuck car. "
+        .. (hooked and "It is already hooked to the car" or "They have to hook the car up themselves")
+        .. (player and ", and the key is in their pocket" or ", and the key is in the glove box")
+        .. ". Remind them you want the truck back in two days.", "Truck's there. I want her back in two days.")
     return true
 end
 
 -- 빌려준 트럭: 기한이 지나고 아무도 타지 않았으며 30타일 안에 아무도 없으면 가져간다
+Specialty2.TOW_WARN_HOURS = 6
 local function lentTick(now)
     local keep = {}
     for _, l in ipairs(state().lent or {}) do
         local done = false
+        if l.key and not l.warned and now.t >= l.untilT - Specialty2.TOW_WARN_HOURS * 60 then
+            l.warned = true
+            follow("dewey", l.key, "tow_soon", "You are coming to take your tow truck back from " .. nameOf(l.key)
+                .. " within a few hours. Tell them to get their things out of it.", "Coming for the truck soon. Get your stuff out.")
+        end
         if now.t >= l.untilT then
             local v = getVehicleById and getVehicleById(l.vid)
             if v then
@@ -1000,6 +1079,10 @@ local function lentTick(now)
                     pcall(function() v:permanentlyRemove() end)
                     log("specialty2 tow truck returned", l.vid)
                     done = true
+                    if l.key then
+                        follow("dewey", l.key, "tow_back", "You just took your tow truck back from " .. nameOf(l.key)
+                            .. ". A short word about it.", "Got my truck back.")
+                    end
                 end
             end
         end
@@ -1105,7 +1188,57 @@ end
 -- 조준 창 (2026-10-09 사용자 요청): 지도에서 고른 자리의 형편. 쓰지는 않는다.
 -- 반환 { opt, x, y, ok, reason, dist, zombies (서버가 아는 좀비, 칸이 불러졌을 때만), loaded, density, nearest, rooms }
 Specialty2.SCAN_RADIUS = 10
-function Specialty2.scan(player, fid, x, y)
+-- 레이더 지도 (2026-10-10 사용자 결정, 실시간 화면 대신): 요청한 사람 둘레 r 타일의 좀비·사람 위치를 그 사람 자리
+-- 기준 상대 좌표로 보낸다 (zx/zy, px/py 는 나란한 배열, 좀비가 RADAR_MAX 보다 많으면 고르게 솎는다).
+-- 서버가 불러 둔 칸의 좀비만 안다: grid = n x n 칸마다 그 가운데 칸이 불러졌는지 ("1"/"0", 북서부터 줄 단위)
+Specialty2.RADAR_MAX_R = 240
+Specialty2.RADAR_MAX = 400
+Specialty2.RADAR_GRID = 16
+function Specialty2.radar(player, fid, r)
+    local ps = Store.player(player)
+    local opt = select(1, Specialty2.choiceOf(ps, fid))
+    r = math.max(30, math.min(Specialty2.RADAR_MAX_R, math.floor(tonumber(r) or Specialty2.RADAR_MAX_R)))
+    local cx, cy = math.floor(player:getX()), math.floor(player:getY())
+    local out = { faction = fid, opt = opt, cx = cx, cy = cy, r = r,
+                  range = opt == "artillery" and Specialty2.ARTY_RANGE or nil }
+    local all = {}
+    local list = getCell() and getCell():getZombieList()
+    for i = 0, (list and list:size() or 0) - 1 do
+        local z = list:get(i)
+        if z and not z:isDead() and not (StoryEngine.isALifeNpc and StoryEngine.isALifeNpc(z)) then
+            local dx, dy = math.floor(z:getX()) - cx, math.floor(z:getY()) - cy
+            if math.abs(dx) <= r and math.abs(dy) <= r then all[#all + 1] = { dx, dy } end
+        end
+    end
+    local step = math.max(1, math.ceil(#all / Specialty2.RADAR_MAX))
+    local zx, zy = {}, {}
+    for i = 1, #all, step do
+        zx[#zx + 1], zy[#zy + 1] = all[i][1], all[i][2]
+    end
+    out.zx, out.zy, out.total = zx, zy, #all
+    local px, py = {}, {}
+    for _, p in ipairs(Sensor.players()) do
+        if p ~= player and not p:isDead() then
+            local dx, dy = math.floor(p:getX()) - cx, math.floor(p:getY()) - cy
+            if math.abs(dx) <= r and math.abs(dy) <= r then px[#px + 1], py[#py + 1] = dx, dy end
+        end
+    end
+    out.px, out.py = px, py
+    local n = Specialty2.RADAR_GRID
+    local cells = {}
+    local cell = getCell()
+    for gy = 0, n - 1 do
+        for gx = 0, n - 1 do
+            local wx = cx - r + math.floor((gx + 0.5) * 2 * r / n)
+            local wy = cy - r + math.floor((gy + 0.5) * 2 * r / n)
+            cells[#cells + 1] = (cell and cell:getGridSquare(wx, wy, 0)) and "1" or "0"
+        end
+    end
+    out.grid, out.n = table.concat(cells), n
+    return out
+end
+
+function Specialty2.scan(player, fid, x, y, again)
     local ps = Store.player(player)
     local st = Specialty2.status(fid, ps)
     local opt = st.choice
@@ -1151,6 +1284,7 @@ function Specialty2.scan(player, fid, x, y)
         end
     end
     out.ok = out.reason == nil
+    if again then return out end      -- 레이더 갱신은 로그를 남기지 않는다
     log("specialty2 scan", fid, tostring(opt), x, y, "zombies", tostring(out.zombies), "density", tostring(out.density),
         "nearest", tostring(out.nearest), "reason", tostring(out.reason))
     return out
@@ -1172,12 +1306,17 @@ local function runArtillery(job, now)
         if job.tries > Specialty2.ARTY_TRIES then
             log("specialty2 artillery called off (players too close)")
             Specialty2.clearWait("guard", job.key)
+            follow("guard", job.key, "artillery_off", "You had to call off " .. nameOf(job.key) .. "'s fire mission "
+                .. "because people were too close to the target. Tell them it is cancelled and they can request it again.",
+                "Friendlies too close. Mission scrubbed. Call it in again.")
             return true
         end
         job.dueT = now.t + 2
         return false
     end
     Net.toAll("spec2Strike", { x = job.x, y = job.y, radius = Specialty2.ARTY_RADIUS })
+    -- 멀리 있는 사람도 포성을 듣는다 (클라이언트가 거리에 맞는 소리를 낸다, 2026-10-10 사용자 요청)
+    Net.toAll("spec2Boom", { x = job.x, y = job.y, shells = Specialty2.ARTY_SHELLS })
     pcall(addSound, nil, job.x, job.y, 0, Specialty2.ARTY_NOISE, Specialty2.ARTY_NOISE)
     for i = 1, Specialty2.ARTY_SHELLS do
         local sq = getCell():getGridSquare(job.x + ZombRand(7) - 3, job.y + ZombRand(7) - 3, 0)
@@ -1187,6 +1326,9 @@ local function runArtillery(job, now)
         end
     end
     log("specialty2 artillery fired", job.x, job.y)
+    follow("guard", job.key, "artillery_done", "The three shells " .. nameOf(job.key) .. " called in just landed on "
+        .. "the marked spot. Confirm impact and end of mission like a sergeant, and warn that the noise carries.",
+        "Splash confirmed. Fire mission complete.")
     return true
 end
 
@@ -1221,6 +1363,8 @@ local function runEvac(job, now)
     pcall(addSound, nil, math.floor(p:getX()), math.floor(p:getY()), 0, Specialty2.EVAC_NOISE, Specialty2.EVAC_NOISE)
     Net.toClient(p, "spec2Teleport", { x = job.x, y = job.y, z = job.z, rect = job.rect })
     log("specialty2 evac", job.key, job.x, job.y)
+    follow("guard", job.key, "evac_done", "The helicopter just set " .. nameOf(job.key) .. " down at home and is "
+        .. "heading back. Confirm it like a sergeant.", "Touchdown confirmed. Bird is heading home.")
     return true
 end
 
@@ -1455,10 +1599,13 @@ local function barricade(player, ps, fid)
     if not okD then log("specialty2 doors error", tostring(doors)) doors = 0 end
     fixed = fixed + doors
     if made == 0 and fixed == 0 then return false, "no_openings" end
-    return true, { count = made, fixed = fixed,
+    local repaired = fixed - doors
+    return true, { count = made, fixed = fixed, doors = doors,
+                   args = { { t = "num", v = made }, { t = "num", v = repaired }, { t = "num", v = doors } },
                    topic = "Your engineers just bolted metal sheets over " .. StoryEngine.intToString(made)
-        .. " windows (not the doors, so nobody gets locked in) at " .. tostring(ps.name) .. "'s home and patched up " .. StoryEngine.intToString(fixed)
-        .. " damaged walls, fences, doors and windows around it. Report it like a sergeant." }
+        .. " windows (not the doors, so nobody gets locked in) at " .. tostring(ps.name) .. "'s home, patched up "
+        .. StoryEngine.intToString(repaired) .. " damaged walls, fences, doors and windows around it and hung "
+        .. StoryEngine.intToString(doors) .. " new wooden doors in empty outer door frames. Report those numbers like a sergeant." }
 end
 
 -- ---- 빅: 대리 털이
@@ -1508,7 +1655,7 @@ local function heist(player, ps, fid, args)
     list[#list + 1] = { kind = "heist", key = ps.key, dueT = Sensor.now().t + rand(Specialty2.HEIST_DELAY),
                         rooms = names, rect = rect }
     return true, { topic = "Your crew is going to clean out the building " .. tostring(ps.name) .. " marked on the map. "
-        .. "Give it most of the night; you keep a cut, that is how it works." }
+        .. "They have not gone yet: give it most of the night; you keep a cut, that is how it works." }
 end
 
 local function fullType(name)
@@ -1616,35 +1763,22 @@ function Specialty2.takeCut(items)
         total = total + vals[i]
     end
     local target = Specialty2.cutOf(total)
+    -- 무작위 순서로 집는다 (2026-10-10 사용자 결정: 비싼 것부터 가져가면 건물 값에 비해 남는 게 너무 적었다).
+    -- 하나를 집었을 때 몫에 더 가까워지면(넘치는 값이 모자란 값보다 작으면) 집고, 아니면 지나친다.
     local idx = {}
     for i = 1, #items do idx[i] = i end
-    table.sort(idx, function(a, b) return vals[a] > vals[b] end)
-    local function greedy(drop, taken)
-        for _, i in ipairs(idx) do
-            if not drop[i] and taken + vals[i] <= target then
-                drop[i] = true
-                taken = taken + vals[i]
-            end
-        end
-        return drop, taken
+    for i = #idx, 2, -1 do
+        local j = ZombRand(i) + 1
+        idx[i], idx[j] = idx[j], idx[i]
     end
-    local dropA, takenA = greedy({}, 0)
-    if takenA < target then
-        local left = target - takenA
-        for k = #idx, 1, -1 do
-            local i = idx[k]
-            if not dropA[i] and vals[i] >= left and vals[i] <= left * 2 then
-                dropA[i] = true
-                takenA = takenA + vals[i]
-                break
-            end
+    local drop, taken, left = {}, 0, #items
+    for _, i in ipairs(idx) do
+        if taken >= target or left <= 1 then break end      -- 적어도 하나는 남긴다
+        if vals[i] <= (target - taken) * 2 then
+            drop[i] = true
+            taken = taken + vals[i]
+            left = left - 1
         end
-    end
-    local drop, taken = dropA, takenA
-    if #idx > 0 and target > 0 then
-        local dropB, takenB = greedy({ [idx[1]] = true }, vals[idx[1]])
-        local dA, dB = math.abs(takenA - target), math.abs(takenB - target)
-        if dB < dA or (dB == dA and takenB > takenA) then drop, taken = dropB, takenB end
     end
     local kept = {}
     for i, ft in ipairs(items) do
@@ -1653,7 +1787,6 @@ function Specialty2.takeCut(items)
     return kept, total, taken
 end
 
--- 그 건물 보관함을 비우고 다시 루팅이 생기지 않게 (지금 로드된 칸, 그리고 나중에 로드될 때)
 local function emptyContainers(sq, id)
     local objs = sq:getObjects()
     for i = 0, objs:size() - 1 do
@@ -1721,9 +1854,20 @@ local function runHeist(job, now)
     local h = { id = s.heistSeq, x1 = job.rect.x1, y1 = job.rect.y1, x2 = job.rect.x2, y2 = job.rect.y2, t = now.t }
     s.heists[#s.heists + 1] = h
     emptyRect(h)
+    local given = nil
     if #items > 0 then
         local ps = Store.player(player)
-        deliver(player, ps, "rats", "heist", items)
+        given = deliver(player, ps, "rats", "heist", items)
+    end
+    if given then
+        local pct = (total or 0) > 0 and math.floor((taken or 0) / total * 100 + 0.5) or 0
+        follow("rats", job.key, "heist_done", "Your crew is back from the building " .. nameOf(job.key) .. " marked. You "
+            .. "handed over " .. StoryEngine.intToString(given) .. " things and kept about " .. StoryEngine.intToString(pct)
+            .. " percent of the haul's worth as your cut. Say so plainly, no apology.", "Job's done. I took my cut.",
+            { { t = "num", v = given }, { t = "num", v = pct } })
+    else
+        follow("rats", job.key, "heist_empty", "Your crew is back from the building " .. nameOf(job.key) .. " marked "
+            .. "and found nothing worth carrying. Tell them, annoyed.", "Nothing worth carrying in there.")
     end
     log("specialty2 heist done", job.key, #items, "rolled", rolled, "loot remover", removed,
         "value", string.format("%.1f", total or 0), "vic took", string.format("%.1f", taken or 0))
@@ -1744,6 +1888,7 @@ function Specialty2.camoEnd(player)
     local f = fxOf("camo", key, Sensor.now().t)
     if not f then return end
     f.untilT = Sensor.now().t
+    f.broken = true                                 -- 끝나는 말이 달라진다 (FX_END.camo)
     Net.toAll("spec2Fx", { kind = "camo", minutes = 0, target = onlineTarget(player) })
     log("specialty2 camo broken", key)
 end
@@ -1762,8 +1907,18 @@ end
 
 -- 일거리 (예약)
 local JOB_RUN = {
-    rain_start = function() rainStart() return true end,
-    rain_stop = function() rainStop() return true end,
+    rain_start = function(job)
+        rainStart()
+        follow("ray", job.key, "rain_start", "The rain you and " .. nameOf(job.key) .. " prayed for started falling this "
+            .. "morning. Sound quietly pleased.", "Rain's falling. Hope the barrels are out.")
+        return true
+    end,
+    rain_stop = function(job)
+        rainStop()
+        follow("ray", job.key, "rain_stop", "The rain has passed after about half a day. Tell " .. nameOf(job.key)
+            .. " you hope it filled their barrels and fields.", "Rain's passed. Hope it filled the barrels.")
+        return true
+    end,
     tow = runTow, artillery = runArtillery, evac = runEvac, heist = runHeist,
 }
 
@@ -1867,7 +2022,7 @@ function Specialty2.use(player, fid, args)
                         item = info.item })
     if info.topic then
         Radio.react(fid, "event", info.topic .. " Keep it short and in character.",
-            { text = "On it.", lt = { key = "IGUI_StoryEngine_RadioSay_spec2_" .. opt .. (info.say and ("_" .. info.say) or "") } },
+            { text = "On it.", lt = { key = SAY .. opt .. (info.say and ("_" .. info.say) or ""), args = info.args } },
             ps, { overhead = true })
     end
     log("specialty2", fid, opt, "for", ps.name)
@@ -1878,7 +2033,25 @@ end
 
 -- 효과가 끝날 때 (플레이어가 접속해 있지 않아도)
 Specialty2.FX_END = {
-    reinforce = function(f) reinforceEnd(f) end,
+    reinforce = function(f)
+        reinforceEnd(f)
+        note("dewey", f.key, "reinforce_end")
+    end,
+    sos = function(f)
+        follow("casey", f.key, "sos_done", "The hour of help after " .. nameOf(f.key) .. "'s SOS is up and everyone "
+            .. "who came is pulling back now. Check that they made it.", "That's the hour. Everyone's pulling back.")
+    end,
+    illness = function(f) note("doc", f.key, "illness_end") end,
+    pain = function(f) note("doc", f.key, "pain_end") end,
+    baptism = function(f) note("pike", f.key, "baptism_end") end,
+    refugees = function(f)
+        local n = f.removed or 0
+        note("pike", f.key, n > 0 and "refugees_end" or "refugees_end_none", { { t = "num", v = n } })
+    end,
+    bodyguard = function(f) note("rats", f.key, "bodyguard_end") end,
+    camo = function(f) note("rats", f.key, f.broken and "camo_broken" or "camo_end") end,
+    suppressor = function(f) note("hunter", f.key, "suppressor_end") end,
+    flare = function(f) note("hunter", f.key, "flare_end") end,
 }
 
 local function fxTick(now)
@@ -1978,7 +2151,7 @@ Specialty2.FX = {
 for k, fn in pairs(Specialty2.STAGE2_FX) do Specialty2.FX[k] = fn end
 
 function Specialty2.tick(now)
-    for _, fn in ipairs({ fxTick, praiseTick, jobTick, resendTick }) do
+    for _, fn in ipairs({ fxTick, praiseTick, powerTick, jobTick, resendTick }) do
         local ok, err = pcall(fn, now)
         if not ok then log("specialty2 tick error:", err) end
     end

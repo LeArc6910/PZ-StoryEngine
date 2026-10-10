@@ -517,6 +517,8 @@ function T.aim_panel_scans_then_fires_at_the_picked_spot()
     H.toServer = {}
     Aim.start("guard", "artillery")
     H.ok(Aim.active())
+    H.eq(H.toServer[#H.toServer].command, "spec2Radar", "asks for the radar as soon as it opens")
+    H.eq(H.toServer[#H.toServer].args.r, 240)
     H.ok(string.find(Aim.body(Aim.state), "IGUI_StoryEngine_Aim_Hint", 1, true), "hint before a spot is picked")
     Aim.pick(10060.4, 10000.7)
     local scan = H.toServer[#H.toServer]
@@ -535,42 +537,40 @@ function T.aim_panel_scans_then_fires_at_the_picked_spot()
     H.ok(not Aim.active(), "closed after firing")
 end
 
-
-function T.debug_camera_view_moves_only_the_camera()
-    local p = H.addPlayer("tester", "Gerald", "Kar")
-    function p:getHealth() return 100 end
-    function p:getBodyDamage() return { getNumPartsBleeding = function() return 0 end } end
-    local Cam = StoryEngine.CameraView
-    for _, m in ipairs({ "initialise", "addToUIManager", "setAlwaysOnTop", "setVisible", "removeFromUIManager" }) do
-        StoryEngineCameraPanel[m] = function() end
+function T.radar_map_coordinates_and_click()
+    H.addPlayer("tester", "Gerald", "Kar")
+    local Aim = StoryEngine.Aim
+    for _, m in ipairs({ "initialise", "addToUIManager", "setVisible", "removeFromUIManager", "refresh" }) do
+        StoryEngineAimWindow[m] = function() end
     end
-    local target
-    IsoCamera = { setCameraCharacter = function(c) target = c end }
-    IsoDummyCameraCharacter = { new = function(x, y, z)
-        local d = { x = x, y = y, z = z }
-        function d:getX() return self.x end
-        function d:getY() return self.y end
-        function d:getZ() return self.z end
-        function d:setX(v) self.x = v end
-        function d:setY(v) self.y = v end
-        function d:setLx() end
-        function d:setLy() end
-        function d:removeFromWorld() self.removed = true end
-        return d
-    end }
-    Cam.start(10040, 10000, 0)
-    local d = Cam.dummy
-    H.ok(d and target == d, "camera follows the dummy")
-    H.eq(p.x, 10000, "the character stays put")
-    Cam.move(10, 0)
-    H.near(d:getX(), 10050.5, 0.01)
-    H.ok(H.logHas("camera view start"))
-    -- 다치면 바로 돌아온다
-    function p:getHealth() return 80 end
-    H.fire("OnTick")
-    H.eq(Cam.dummy, nil)
-    H.eq(target, p, "camera back on the character")
-    H.ok(d.removed)
+    H.toServer = {}
+    Aim.start("guard", "artillery")
+    local st = Aim.state
+    -- 서버가 본 내 자리가 지도 가운데 (북쪽 위, 동쪽 오른쪽)
+    StoryEngine.Client.handlers.spec2RadarResult({ faction = "guard", cx = 10000, cy = 10000, r = 240, range = 240,
+        zx = { 100 }, zy = { -50 }, px = {}, py = {}, total = 1, grid = string.rep("1", 256), n = 16 })
+    H.eq(st.range, 240)
+    local x, y = Aim.toMap(st, 10000, 10000)
+    H.eq(x, Aim.MAP / 2)
+    H.eq(y, Aim.MAP / 2)
+    x, y = Aim.toMap(st, 10240, 9760)
+    H.eq(x, Aim.MAP, "east edge")
+    H.eq(y, 0, "north edge")
+    -- 지도를 누르면 그 자리를 고른다
+    local wx, wy = Aim.toWorld(st, Aim.MAP / 2 + 115, Aim.MAP / 2)
+    H.near(wx, 10120, 0.5)
+    StoryEngineRadarMap.onMouseDown({ state = st }, Aim.MAP / 2 + 115, Aim.MAP / 2 - 115)
+    local scan = H.toServer[#H.toServer]
+    H.eq(scan.command, "spec2Scan")
+    H.eq(scan.args.x, 10120)
+    H.eq(scan.args.y, 9880)
+    -- 가까이 보기
+    Aim.setView(60)
+    H.eq(H.toServer[#H.toServer].command, "spec2Radar")
+    H.eq(H.toServer[#H.toServer].args.r, 60)
+    x = Aim.toMap(st, 10060, 10000)
+    H.eq(x, Aim.MAP, "60 tiles is the edge now")
+    StoryEngineAimWindow.instance:close()
 end
 
 

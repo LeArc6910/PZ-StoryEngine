@@ -117,6 +117,8 @@ function T.rain_starts_next_morning_and_blocks_others()
     H.ok(not admin[3], "not raining yet")
     tick(36 * 60)
     H.eq(admin[3], false, "rained and stopped within a day and a half")
+    H.ok(H.logHas("specialty2 say ray rain_start"), "Ray says when it starts")
+    H.ok(H.logHas("specialty2 say ray rain_stop"), "and when it stops")
     H.eq(#S().state().jobs, 0)
     getClimateManager = realCM
 end
@@ -162,9 +164,13 @@ function T.tow_sends_a_truck_and_takes_it_back()
     tick(130)
     H.eq(truck.script, "Base.PickUpTruck", "truck arrived")
     H.ok(truck.towing and truck.towing[1] == car and truck.towing[2] == "trailer", "hooked to the car")
+    H.ok(H.logHas("specialty2 say dewey tow_here"), "Dewey says the truck is there")
+    H.ok(not H.logHas("tow_here_"), "hooked and key handed over")
     p.x, p.y = 20000, 20000                        -- 멀리 떠남
     tick(48 * 60)
     H.ok(truck.removed, "taken back after two days")
+    H.ok(H.logHas("specialty2 say dewey tow_soon"), "warned a few hours before")
+    H.ok(H.logHas("specialty2 say dewey tow_back"))
 end
 
 function T.reinforce_holds_part_condition()
@@ -335,11 +341,27 @@ function T.rolling_a_room_uses_vanilla_tables()
     H.eq(taken, 56)
     H.eq(#kept2, 22)
     H.eq(S().cutOf(200), 6 + 15 + 35 + 85)
-    -- 비싼 것이 있으면 빅이 먼저 챙긴다
+    -- 비싼 것부터가 아니라 무작위로 집는다 (2026-10-10): 순서에 따라 산탄총이 남기도 한다
     H.defineItem("Base.Shotgun", "firearm", 60)
-    local kept3 = S().takeCut({ "Base.Shotgun", "Base.Pot", "Base.Pot", "Base.Pot", "Base.Pot", "Base.Pot",
-                                "Base.Pot", "Base.Pot", "Base.Pot", "Base.Pot", "Base.Pot" })
-    for _, ft in ipairs(kept3) do H.ok(ft ~= "Base.Shotgun", "Vic took the shotgun") end
+    local haul = { "Base.Shotgun", "Base.Pot", "Base.Pot", "Base.Pot", "Base.Pot", "Base.Pot",
+                   "Base.Pot", "Base.Pot", "Base.Pot", "Base.Pot", "Base.Pot" }
+    H.rolls = { 0, 9, 8, 7, 6, 5, 4, 3, 2, 1 }           -- 섞은 순서: 산탄총이 맨 뒤
+    local kept3, _, taken3 = S().takeCut(haul)
+    H.eq(#kept3, 1, "something is always left")
+    H.eq(kept3[1], "Base.Shotgun", "the shotgun stayed with the player")
+    H.eq(taken3, 20)
+    H.rolls = { 10, 9, 8, 7, 6, 5, 4, 3, 2, 1 }          -- 섞은 순서 그대로: 산탄총이 맨 앞
+    local kept4, _, taken4 = S().takeCut(haul)
+    H.eq(#kept4, 10, "this time Vic picked the shotgun and nothing else")
+    H.eq(taken4, 60)
+    -- 여러 번 굴리면 산탄총이 남는 때도, 가져가는 때도 있다
+    local left, gone = 0, 0
+    for _ = 1, 60 do
+        local has = false
+        for _, ft in ipairs(S().takeCut(haul)) do if ft == "Base.Shotgun" then has = true end end
+        if has then left = left + 1 else gone = gone + 1 end
+    end
+    H.ok(left > 5 and gone > 5, "random either way: left " .. left .. " gone " .. gone)
 end
 
 function T.camo_suppressor_and_flare_are_client_effects()
@@ -387,7 +409,8 @@ function T.scan_reports_the_spot_before_firing()
     local p, ps = setup()
     ready(p, "guard", "artillery")
     local info = S().scan(p, "guard", 10500, 10000)
-    H.eq(info.reason, "too_far")
+    H.eq(info.reason, "too_far", "past 240 tiles")
+    H.eq(S().scan(p, "guard", 10200, 10000).reason, nil, "200 tiles is in range now")
     H.ok(not info.ok)
     info = S().scan(p, "guard", 10005, 10000)
     H.eq(info.reason, "too_close", "the player is standing there")
@@ -397,6 +420,23 @@ function T.scan_reports_the_spot_before_firing()
     info = S().scan(p, "guard", 10060, 10000)
     H.ok(info.ok, tostring(info.reason))
     H.eq(info.zombies, 2, "zombies within 10 tiles")
+    H.ok(H.logHas("specialty2 scan"))
+    -- 레이더 지도: 내 자리 기준 좀비·다른 사람 점, 불러진 칸 표
+    local q = H.addPlayer("other", "Mia", "Lee")
+    q.x, q.y = 10020, 9990
+    H.newZombie(10400, 10000)
+    local radar = S().radar(p, "guard", 240)
+    H.eq(radar.cx, 10000)
+    H.eq(radar.range, 240, "artillery range for the circle")
+    H.eq(radar.total, 3, "the zombie 400 tiles out is not on it")
+    local seen = {}
+    for i = 1, #radar.zx do seen[radar.zx[i] .. "," .. radar.zy[i]] = true end
+    H.ok(seen["63,0"] and seen["58,4"] and seen["90,0"])
+    H.eq(#radar.px, 1, "the other player, not me")
+    H.eq(radar.px[1], 20)
+    H.eq(radar.py[1], -10)
+    H.eq(#radar.grid, radar.n * radar.n)
+    H.eq(#S().radar(p, "guard", 60).zx, 1, "a 60-tile view keeps only the one 58 tiles out")
     H.eq(info.nearest, 60)
     H.eq(info.opt, "artillery")
 end
@@ -525,6 +565,137 @@ function T.engineers_hang_a_wooden_door_in_an_empty_outer_frame()
     H.ok(made[1].north and made[1].sent, "north door, sent to clients")
     H.eq(#hall.objs, 1, "inner doorway left alone")
     H.eq(S().rebuildDoors(def), 0, "a door is there now")
+end
+
+-- ---- 전·후 멘트 (2026-10-10 사용자 요청)
+
+local SAY = "IGUI_StoryEngine_RadioSay_spec2_"
+local function overheadOf(stage)
+    local found = nil
+    for _, o in ipairs(H.sentOf("radioOverhead")) do
+        if o.lt and o.lt.key == SAY .. stage then found = o end
+    end
+    return found
+end
+
+-- 기다리는 무전 요청을 모두 실패시킨다 (AI 없음: 준비된 문장이 나간다)
+local function failRadio()
+    for _ = 1, 20 do
+        local any = false
+        for i = 1, #H.bridge do
+            local b = H.bridge[i]
+            if b.module == "radio" and not b.failed then
+                b.failed, any = true, true
+                b.callback({ ok = false, error = "timeout" })
+            end
+        end
+        if not any then break end
+        H.fire("EveryOneMinute")
+    end
+end
+
+function T.artillery_reports_impact_or_a_scrubbed_mission()
+    local p, ps = setup()
+    ready(p, "guard", "artillery")
+    IsoTrap = { new = function() return { place = function() end, triggerExplosion = function() end } end }
+    H.ok(S().use(p, "guard", { x = 10060, y = 10000 }))
+    tick(11)
+    H.ok(H.logHas("specialty2 say guard artillery_done"), "impact confirmed on the radio")
+    failRadio()
+    H.ok(overheadOf("artillery"), "the line when the request is taken")
+    H.ok(overheadOf("artillery_done"), "the prepared line when the AI is away")
+    -- 표적 옆에 사람이 있으면 취소하고 알린다, 대기는 돌려준다
+    S().clearWait("guard", ps.key)
+    H.ok(S().use(p, "guard", { x = 10060, y = 10000 }))
+    p.x = 10055
+    tick(30)
+    H.ok(H.logHas("specialty2 say guard artillery_off"))
+    H.eq(S().status("guard", ps).reason, nil, "wait refunded")
+end
+
+function T.heist_says_what_came_back_and_the_cut()
+    local p, ps = setup()
+    ready(p, "rats", "heist")
+    grid.buildingAt = function() return building({ "kitchen" }) end
+    SuburbsDistributions = { kitchen = { counter = { procedural = true, procList = { { name = "KitchenStuff" } } } } }
+    ProceduralDistributions = { list = { KitchenStuff = { rolls = 4, items = { "TinnedBeans", 100, "Base.Pot", 100 } } } }
+    H.defineItem("Base.TinnedBeans", "food", 1.5)
+    H.defineItem("Base.Pot", "tools", 2)
+    H.ok(S().use(p, "rats", { x = 10105, y = 10105 }))
+    local before = #p.items
+    H.eq(S().debugRushJobs(ps.key), 1)
+    H.ok(H.logHas("specialty2 say rats heist_done"))
+    failRadio()
+    local o = overheadOf("heist_done")
+    H.ok(o, "prepared line")
+    H.eq(o.lt.args[1].v, #p.items - before, "how many things were handed over")
+    H.ok(o.lt.args[2].v >= 0 and o.lt.args[2].v <= 100, "Vic's cut in percent")
+end
+
+function T.heist_with_nothing_to_carry_says_so()
+    local p, ps = setup()
+    ready(p, "rats", "heist")
+    grid.buildingAt = function() return building({ "kitchen" }) end
+    SuburbsDistributions = { kitchen = {} }
+    ProceduralDistributions = { list = {} }
+    H.ok(S().use(p, "rats", { x = 10105, y = 10105 }))
+    H.eq(S().debugRushJobs(ps.key), 1)
+    H.ok(H.logHas("specialty2 say rats heist_empty"))
+    H.ok(not H.logHas("specialty2 say rats heist_done"))
+end
+
+function T.evac_confirms_the_landing()
+    local p, ps = setup()
+    ready(p, "guard", "evac")
+    local realSH = SafeHouse
+    SafeHouse = { hasSafehouse = function() return nil end }
+    ps.home = { x = 10500, y = 10000, z = 0 }
+    H.ok(S().use(p, "guard", {}))
+    tick(21)
+    SafeHouse = realSH
+    H.ok(H.logHas("specialty2 say guard evac_done"))
+end
+
+function T.lasting_effects_say_when_they_end()
+    local p, ps = setup()
+    ready(p, "rats", "camo")
+    H.ok(S().use(p, "rats", {}))
+    S().camoEnd(p)
+    tick(1)
+    H.ok(overheadOf("camo_broken"), "blown cover is not a timeout")
+    H.eq(overheadOf("camo_end"), nil)
+    S().clearWait("rats", ps.key)
+    H.ok(S().use(p, "rats", {}))
+    tick(4 * 60 + 1)
+    H.ok(overheadOf("camo_end"), "worn off")
+    ready(p, "hunter", "flare")
+    H.ok(S().use(p, "hunter", {}))
+    tick(6 * 60 + 1)
+    H.ok(overheadOf("flare_end"))
+    -- 피난민 일손: 치운 시신 수를 말한다
+    ps.home = { x = 10000, y = 10000, z = 0 }
+    ready(p, "pike", "refugees")
+    square(10005, 10003, 0, { bodies = { {}, {}, {} } })
+    H.ok(S().use(p, "pike", {}))
+    tick(24 * 60 + 1)
+    local o = overheadOf("refugees_end")
+    H.ok(o, "the hands came back")
+    H.eq(o.lt.args[1].v, 3)
+    -- 머리 위에만 뜬다: 무전 요청은 만들지 않는다
+    H.ok(not H.logHas("specialty2 say pike"))
+end
+
+function T.engineers_and_pike_put_real_numbers_and_names_in_the_line()
+    local p, ps = setup()
+    ready(p, "pike", "reconcile")
+    for _, f in ipairs(StoryEngine.Factions.list) do StoryEngine.Radio.channel(f.id).trust = 60 end
+    StoryEngine.Radio.channel("pike").trust = 85
+    StoryEngine.Radio.channel("rats").trust = 12
+    StoryEngine.Life.npc("rats").counts = StoryEngine.Life.npc("rats").counts or {}
+    H.ok(S().use(p, "pike", {}))
+    failRadio()
+    local o = overheadOf("reconcile")
+    H.ok(o and o.lt.args[1].t == "npc" and o.lt.args[1].v == "rats", "names who was reconciled")
 end
 
 return T
