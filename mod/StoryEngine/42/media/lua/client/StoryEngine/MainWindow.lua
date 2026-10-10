@@ -2314,6 +2314,28 @@ function StoryEngineLifePanel.fillSpec2(menu, n)
     end
 end
 
+-- 신뢰도 유지 (서버 Trust.lua 1b단계): 높은 신뢰는 일을 해 줘야 지켜지고, 형편이 바닥인데 돕지 않으면 떨어진다.
+-- { { 문장, "r,g,b" } }
+function StoryEngineLifePanel.upkeepLines(n)
+    local out = {}
+    if n.fate then return out end
+    local u = n.upkeep
+    if u then
+        local left = (u.limit or 0) - (u.idle or 0)
+        if left < 0 then
+            out[#out + 1] = { getText("IGUI_StoryEngine_Upkeep_Fading", StoryEngine.intToString(u.idle)), "0.95,0.4,0.35" }
+        elseif left <= 1 then
+            out[#out + 1] = { getText("IGUI_StoryEngine_Upkeep_Soon", StoryEngine.intToString(u.idle)), "0.95,0.75,0.4" }
+        else
+            out[#out + 1] = { getText("IGUI_StoryEngine_Upkeep_Fine", StoryEngine.intToString(left)), "0.6,0.6,0.6" }
+        end
+    end
+    if (n.lowDays or 0) > 0 then
+        out[#out + 1] = { getText("IGUI_StoryEngine_Upkeep_Neglect", StoryEngine.intToString(n.lowDays)), "0.95,0.4,0.35" }
+    end
+    return out
+end
+
 function StoryEngineLifePanel:onSpecialty2()
     local n = lifeOf(Cache.lifeFaction)
     if not n or not n.spec2 then return end
@@ -2488,6 +2510,9 @@ function StoryEngineLifePanel:refresh()
     elseif (n.starve or 0) > 0 then
         parts[#parts + 1] = " <RGB:0.95,0.4,0.35> " .. UI.escape(getText("IGUI_StoryEngine_Fate_Starving",
             StoryEngine.intToString(n.starve))) .. " <LINE> <LINE> "
+    end
+    for _, line in ipairs(StoryEngineLifePanel.upkeepLines(n)) do
+        parts[#parts + 1] = " <RGB:" .. line[2] .. "> " .. UI.escape(line[1]) .. " <LINE> "
     end
     if n.project then
         local pr = n.project

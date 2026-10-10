@@ -625,6 +625,12 @@ function Life.donate(player, fid, itemIds, mode)
     local trust = math.max(0, step - before)
     w.trust = math.max(before, step)
     -- 개인 모드: 보낸 사람의 개인 신뢰 (DESIGN_PER_PLAYER_TRUST 5-2절). 싱글·공유 모드는 신뢰 하나 (byKey 는 상대한 날 기록)
+    -- 유지비 (Trust T2): 물자 지원은 "일"이다. 다만 신뢰가 아주 높으면 작은 지원(이 통의 신뢰 2단계 미만)은 일로 안 친다.
+    -- 형편을 도운 것(T3)으로는 늘 친다
+    local T = StoryEngine.Trust
+    if T.deed then
+        if T.of(fid, ps.key) < T.DEED_SMALL_FROM or w.trust >= 2 then T.deed(fid, ps.key) else T.helped(fid) end
+    end
     local applied = trust > 0 and StoryEngine.Trust.apply(fid, trust, "donation", nil, ps.key) or 0
     if trust <= 0 and StoryEngine.Trust.touch then StoryEngine.Trust.touch(fid, ps.key) end
     if not pkey then n.donatedT = nil end          -- 예전 대기 기록 (이제는 통 n.donateWin)
@@ -711,6 +717,8 @@ function Life.list(psKey)
             spec = StoryEngine.Specialty and StoryEngine.Specialty.status(f.id, psKey) or nil,
             project = StoryEngine.Projects and StoryEngine.Projects.info(f.id) or nil,
             volunteer = StoryEngine.Work and StoryEngine.Work.volunteerStatus(f.id, psKey) or nil,
+            upkeep = StoryEngine.Trust and StoryEngine.Trust.upkeepInfo and StoryEngine.Trust.upkeepInfo(f.id, psKey) or nil,
+            lowDays = Radio.channel(f.id).lowDays,
             spec2 = StoryEngine.Specialty2 and StoryEngine.Specialty2.listFor(f.id, psKey) or nil,
         }
         -- 개인 모드: 보는 사람의 개인 신뢰 (trust 는 집단 신뢰 그대로). 혜택은 personal 로 판정한다

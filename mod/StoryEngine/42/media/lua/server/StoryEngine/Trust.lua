@@ -58,6 +58,63 @@ Trust.LATE = {
     gift = { failed = { -2, -2, -2, -2, -2 } },
 }
 
+-- ---------------------------------------------------------------- 신뢰도 유지 (2026-10-10 사용자 결정, PLAN_COUNCIL_POLITICS 1b단계)
+-- 올리기는 쉽고 내려가는 일은 드물던 것을 고친다. 샌드박스 TrustUpkeep(기본 켬)을 끄면 모두 예전대로.
+--   T1 믿은 만큼 아프게: 거절·무응답·실패 감점이 신뢰도 60 이상이면 1.5배, 80 이상이면 2배 (Trust.PAIN)
+--   T2 높은 신뢰의 유지비: 60 이상은 "일"(부탁·일거리·거래를 끝냄, 물자 지원, 위기에서 편듦)을 해 주지 않은 날이 쌓이면
+--      식는다. 말을 거는 것으로는 안 된다. 60~79 는 7일 넘으면 2일마다 -1, 80 이상은 4일 넘으면 매일 -1, 바닥 없음
+--      (Trust.UPKEEP). 60 아래는 예전 식음 규칙(연락이 없으면 14일 뒤부터, 처음 값 + 20 까지)
+--   T3 어려울 때 외면: 그 NPC 의 핵심 자원이 20 미만인 채 3일 넘게 돕지 않으면 매일 -1 (처음 값 아래로는 안 내림)
+--   T6 초·중반 감점표: 등급이 높을수록 크게 (Trust.MID = 후반 표의 절반, 초반은 다시 절반)
+--   T7 높은 신뢰는 더디게: 얻는 양이 60 이상이면 3/4, 80 이상이면 절반 (Trust.SLOW). 80 이상에서는 작은 물자 지원이 "일"이 아니다
+Trust.MID = {
+    npc = {
+        declined = { -1, -1, -2, -2, -3 },
+        ignored = { -1, -2, -2, -3, -3 },
+        failed = { -1, -2, -3, -4, -5 },
+    },
+    player = { failed = { -1, -1, -2, -2, -3 } },
+    gift = { failed = { -1, -1, -1, -1, -1 } },
+}
+Trust.PAIN = { { min = 80, mult = 2 }, { min = 60, mult = 1.5 } }
+Trust.SLOW = { { min = 80, mult = 0.5 }, { min = 60, mult = 0.75 } }
+Trust.UPKEEP = { { min = 80, idle = 4, every = 1 }, { min = 60, idle = 7, every = 2 } }
+Trust.NEGLECT_LOW = 20
+Trust.NEGLECT_DAYS = 3
+Trust.DEED_SMALL_FROM = 80       -- 이 신뢰 이상에서는 작은 물자 지원(신뢰 2단계 미만)이 "일"로 쳐지지 않는다
+-- 신뢰가 오르는 까닭 중 "일을 해 줬다"로 치는 것 (부탁·거래 완료와 물자 지원은 그 자리에서 따로 Trust.deed)
+Trust.DEED_REASONS = { volunteer_done = true, reward_waived = true, crisis_chosen = true, crisis_ally = true,
+                       holiday_help = true, council_help = true, op_help = true, group_help = true, helped = true,
+                       ray_supply = true }
+Trust.DEED_WHO = { npc = true, player = true, threat = true }
+
+function Trust.upkeepOn()
+    return StoryEngine.option("TrustUpkeep", true) == true
+end
+
+local function band(list, value)
+    for _, b in ipairs(list) do
+        if value >= b.min then return b end
+    end
+    return nil
+end
+
+-- T1: 감점(음수)을 지금 신뢰에 맞춰 키운다. key = 개인 모드에서 그 사람
+function Trust.pain(fid, key, delta)
+    if delta >= 0 or not Trust.upkeepOn() then return delta end
+    local b = band(Trust.PAIN, Trust.of(fid, key))
+    if not b then return delta end
+    return -math.floor(-delta * b.mult + 0.5)
+end
+
+-- T7: 얻는 양(양수)을 지금 신뢰에 맞춰 줄인다 (0 이 되지는 않는다)
+local function slow(delta, before, reason)
+    if delta <= 0 or reason == "debug" or not Trust.upkeepOn() then return delta end
+    local b = band(Trust.SLOW, before)
+    if not b then return delta end
+    return math.max(1, math.floor(delta * b.mult + 0.5))
+end
+
 function Trust.initiator(q)
     local o = q.origin or {}
     if o.initiator then return o.initiator end
@@ -166,6 +223,24 @@ function Trust.touch(fid, key)
     end
 end
 
+-- 이 NPC 에게 "일을 해 줬다" (T2 유지비 계산). key = 한 사람 (개인 모드의 개인 신뢰용)
+function Trust.deed(fid, key)
+    if not Factions.byId[fid] then return end
+    local ch = Radio.channel(fid)
+    local day = StoryEngine.Store.dayIndex(Sensor.now().dayKey)
+    ch.deedDay, ch.helpDay = day, day
+    if key then
+        ch.deedBy = ch.deedBy or {}
+        ch.deedBy[key] = day
+    end
+end
+
+-- 형편을 도왔다 (T3): 작은 물자 지원도 여기에는 쳐진다
+function Trust.helped(fid)
+    if not Factions.byId[fid] then return end
+    Radio.channel(fid).helpDay = StoryEngine.Store.dayIndex(Sensor.now().dayKey)
+end
+
 local function scaled(delta, reason)
     local Tuning = StoryEngine.Tuning
     if Tuning and reason ~= "debug" then
@@ -184,6 +259,8 @@ function Trust.addPersonal(fid, key, delta, reason, questId, src, raw)
     if delta == 0 then return 0 end
     local ch = Radio.channel(fid)
     local before = Trust.ensure(fid, key)
+    if not raw then delta = slow(delta, before, reason) end
+    if delta > 0 and Trust.DEED_REASONS[reason] then Trust.deed(fid, key) end
     local after = math.max(0, math.min(100, before + delta))
     ch.personal[key] = after
     if delta < 0 then ch.lastOffender = key end
@@ -203,6 +280,8 @@ local function applyGroup(fid, delta, reason, questId, byKey, src)
     local ch = Radio.channel(fid)
     if delta < 0 and byKey then ch.lastOffender = byKey end
     local before = ch.trust
+    delta = slow(delta, before, reason)
+    if delta > 0 and Trust.DEED_REASONS[reason] then Trust.deed(fid, byKey) end
     ch.trust = math.max(0, math.min(100, ch.trust + delta))
     local applied = ch.trust - before
     if applied > 0 and StoryEngine.Chronicle then pcall(StoryEngine.Chronicle.onTrust, fid, before, ch.trust) end
@@ -283,9 +362,15 @@ end
 -- outcome: accepted | declined | ignored | completed | failed
 function Trust.forQuest(q, outcome)
     local fid = q.origin and q.origin.faction
-    if not fid or q.noTrust then return 0 end      -- 빚으로 받은 거래 (Work.lua): 신뢰도 변화 없음
-    if q.lapsed then return 0 end                  -- 받은 사람이 접속하지 않은 채 닫힌 개인별 부탁 (감점 없음)
+    if not fid then return 0 end
     local who = Trust.initiator(q)
+    -- 부탁·거래를 끝냈다: 일을 해 준 것 (T2). 신뢰가 안 오르는 빚 독촉·거래 상한도 일은 일이다
+    if outcome == "completed" and Trust.DEED_WHO[who or ""] then
+        Trust.deed(fid, q.addressed or q.target)
+        for key in pairs(q.helpers or {}) do Trust.deed(fid, key) end
+    end
+    if q.noTrust then return 0 end                 -- 빚으로 받은 거래 (Work.lua): 신뢰도 변화 없음
+    if q.lapsed then return 0 end                  -- 받은 사람이 접속하지 않은 채 닫힌 개인별 부탁 (감점 없음)
     local row = who and Trust.DELTA[who] and Trust.DELTA[who][outcome]
     if not row then return 0 end
     local tier = math.max(1, math.min(#row, math.floor(q.tier or 1)))
@@ -299,11 +384,22 @@ function Trust.forQuest(q, outcome)
         local Store = StoryEngine.Store
         local stage = Store.stage(Store.data().players[q.target])
         local late = Trust.LATE[who] and Trust.LATE[who][outcome]
+        local mid = Trust.upkeepOn() and Trust.MID[who] and Trust.MID[who][outcome] or nil
         if stage >= 3 and late then
             delta = late[tier]
         else
+            -- T6: 초·중반도 등급이 높을수록 크게 (끄면 예전 표)
+            if mid then delta = mid[tier] end
             local mult = Store.STAGE_PENALTY[stage] or 1
             delta = -math.max(1, math.floor(-delta * mult + 0.5))
+        end
+        -- T1: 믿은 만큼 아프게 (무리의 일은 집단 신뢰, 개인의 일은 그 사람의 신뢰로 본다)
+        local painKey = Trust.personalMode() and not Trust.isGroupWork(q) and (q.addressed or q.target) or nil
+        if Trust.personalMode() and Trust.isGroupWork(q) then
+            local b = Trust.upkeepOn() and band(Trust.PAIN, Radio.channel(fid).trust or 0) or nil
+            if b then delta = -math.floor(-delta * b.mult + 0.5) end
+        else
+            delta = Trust.pain(fid, painKey, delta)
         end
         -- 나눠 내다 기한을 넘겼으면 못 낸 비율만큼만 깎는다 (2026-10-08 사용자 결정 "낸 만큼 반영")
         local share = outcome == "failed" and StoryEngine.Quests.paidShare and StoryEngine.Quests.paidShare(q) or 0
@@ -398,46 +494,93 @@ local function fadeOne(fid, value, idle)
     return -1
 end
 
+-- T2 높은 신뢰의 유지비: 일을 해 주지 않은 날 수로. nil = 이 구간이 아님 (60 미만이거나 꺼짐: 예전 식음 규칙)
+local function upkeepOne(value, idle)
+    if not Trust.upkeepOn() then return nil end
+    local b = band(Trust.UPKEEP, value)
+    if not b then return nil end
+    if idle > b.idle and (idle - b.idle - 1) % b.every == 0 then return -1 end
+    return 0
+end
+
+-- 보는 사람에게 알려 줄 유지비 형편: { idle, limit } | nil (60 미만이거나 꺼짐)
+function Trust.upkeepInfo(fid, key)
+    if not Trust.upkeepOn() or not Factions.byId[fid] then return nil end
+    local ch = Radio.channel(fid)
+    local personal = Trust.personalMode() and key ~= nil
+    local value = personal and Trust.personal(fid, key) or (ch.trust or 0)
+    local b = band(Trust.UPKEEP, value)
+    if not b then return nil end
+    local idle = personal and (ch.deedIdleBy or {})[key] or ch.deedIdle
+    return { idle = idle or 0, limit = b.idle }
+end
+
+-- T3 어려울 때 외면: 핵심 자원이 바닥인 채 돕지 않은 날 수 (무리의 일: 집단 신뢰)
+local function neglectOne(fid, ch, prevDay)
+    local Life = StoryEngine.Life
+    local res = Life and Life.KEY and Life.KEY[fid]
+    if not Trust.upkeepOn() or not res or Life.get(fid, res) >= Trust.NEGLECT_LOW then
+        ch.lowDays = nil
+        return
+    end
+    if ch.helpDay == prevDay then
+        ch.lowDays = 0
+        return
+    end
+    ch.lowDays = (ch.lowDays or 0) + 1
+    if ch.lowDays > Trust.NEGLECT_DAYS and (ch.trust or 0) > Trust.startOf(fid) then
+        applyGroup(fid, -1, "neglected", nil, nil, nil)
+        log("trust neglected", fid, ch.lowDays, "days")
+    end
+end
+
 function Trust.daily(prevDay, online)
     local personal = Trust.personalMode()
+    local anyone = false
+    for _ in pairs(online) do anyone = true end
     for _, f in ipairs(Factions.list) do
         if not Factions.isGone(f.id) then
             local ch = Radio.channel(f.id)
             if personal then
                 ch.personalIdle = ch.personalIdle or {}
+                ch.deedIdleBy = ch.deedIdleBy or {}
                 for key in pairs(ch.personal or {}) do
                     if online[key] then
-                        if (ch.touchBy or {})[key] == prevDay then
-                            ch.personalIdle[key] = 0
-                        else
-                            local idle = (ch.personalIdle[key] or 0) + 1
-                            ch.personalIdle[key] = idle
-                            local d = fadeOne(f.id, ch.personal[key], idle)
-                            if d ~= 0 then
-                                ch.personal[key] = math.max(0, ch.personal[key] + d)
-                                Radio.push(f.id, { from = "system", trust = d, personal = true, to = key, reason = "fade",
-                                                   clock = Sensor.now().clock })
-                                log("personal trust fades", f.id, key, idle, "days")
-                            end
+                        local touched = (ch.touchBy or {})[key] == prevDay
+                        local idle = touched and 0 or (ch.personalIdle[key] or 0) + 1
+                        ch.personalIdle[key] = idle
+                        local deedIdle = ((ch.deedBy or {})[key] == prevDay) and 0 or (ch.deedIdleBy[key] or 0) + 1
+                        ch.deedIdleBy[key] = deedIdle
+                        local reason = "upkeep"
+                        local d = upkeepOne(ch.personal[key], deedIdle)
+                        if d == nil then
+                            reason = "fade"
+                            d = touched and 0 or fadeOne(f.id, ch.personal[key], idle)
+                        end
+                        if d ~= 0 then
+                            ch.personal[key] = math.max(0, ch.personal[key] + d)
+                            Radio.push(f.id, { from = "system", trust = d, personal = true, to = key, reason = reason,
+                                               clock = Sensor.now().clock })
+                            log("personal trust", reason, f.id, key, idle, deedIdle, "days")
                         end
                     end
                 end
-            else
-                local anyone = false
-                for _ in pairs(online) do anyone = true end
-                if anyone then
-                    if ch.touchDay == prevDay then
-                        ch.idleDays = 0
-                    else
-                        ch.idleDays = (ch.idleDays or 0) + 1
-                        local d = fadeOne(f.id, ch.trust, ch.idleDays)
-                        if d ~= 0 then
-                            applyGroup(f.id, d, "fade", nil, nil, nil)
-                            log("trust fades", f.id, ch.idleDays, "days")
-                        end
-                    end
+            elseif anyone then
+                local touched = ch.touchDay == prevDay
+                ch.idleDays = touched and 0 or (ch.idleDays or 0) + 1
+                ch.deedIdle = (ch.deedDay == prevDay) and 0 or (ch.deedIdle or 0) + 1
+                local reason = "upkeep"
+                local d = upkeepOne(ch.trust or 0, ch.deedIdle)
+                if d == nil then
+                    reason = "fade"
+                    d = touched and 0 or fadeOne(f.id, ch.trust, ch.idleDays)
+                end
+                if d ~= 0 then
+                    applyGroup(f.id, d, reason, nil, nil, nil)
+                    log("trust", reason, f.id, ch.idleDays, ch.deedIdle, "days")
                 end
             end
+            if anyone then neglectOne(f.id, ch, prevDay) end
         end
     end
 end
@@ -508,7 +651,7 @@ function Trust.forget(key)
     if not key then return end
     for _, f in ipairs(Factions.list) do
         local ch = Radio.channel(f.id)
-        for _, map in ipairs({ ch.personal, ch.personalIdle, ch.touchBy, ch.tradeTrustBy, ch.chatTrustBy,
+        for _, map in ipairs({ ch.personal, ch.personalIdle, ch.touchBy, ch.deedBy, ch.deedIdleBy, ch.tradeTrustBy, ch.chatTrustBy,
                                ch.requestLogBy, ch.workLogBy, ch.volunteerLogBy, ch.workBurnBy, ch.favorOwedBy }) do
             if map then map[key] = nil end
         end
@@ -523,6 +666,7 @@ function Trust.resetPersonal(fid)
     local ch = Radio.channel(fid)
     ch.personal, ch.personalIdle, ch.touchBy, ch.tradeTrustBy, ch.chatTrustBy, ch.requestLogBy = {}, {}, {}, {}, {}, {}
     ch.workLogBy, ch.volunteerLogBy, ch.workBurnBy = {}, {}, {}
+    ch.deedBy, ch.deedIdleBy, ch.deedIdle, ch.lowDays = {}, {}, 0, nil
     local Life = StoryEngine.Life
     local n = Life and Life.npc and Life.npc(fid)
     if n then n.donateWinBy = {} end

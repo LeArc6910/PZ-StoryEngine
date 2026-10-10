@@ -842,7 +842,9 @@ function Work.volunteerEnd(parent, q, state, t)
             { overhead = true })
         log("volunteer done", parent.id, fid, "trust", gain)
     else
-        local loss = StoryEngine.Trust.apply(fid, -tier, "volunteer_failed", parent.id, parent.target)
+        -- 믿은 만큼 아프게 (Trust.pain, T1)
+        local loss = StoryEngine.Trust.apply(fid, StoryEngine.Trust.pain(fid, parent.target, -tier), "volunteer_failed",
+            parent.id, parent.target)
         if Life then
             Life.change(fid, Life.KEY[fid], -5 * tier, "volunteer_failed")      -- 맡겨 둔 일이 틀어졌다 (점검 C8)
             Life.record(fid, "volunteer_failed", ps and ps.name or parent.targetName, loss)

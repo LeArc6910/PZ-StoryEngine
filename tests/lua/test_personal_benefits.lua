@@ -247,7 +247,7 @@ function T.volunteer_tier_and_week_are_per_person()
     end
     local group = ch("ray").trust
     StoryEngine.Quests.setState(quest(parentA.workId), "completed", StoryEngine.Sensor.now(), nil)
-    H.eq(Tr().personal("ray", pa.key), 73, "alice +tier 4 x 2")
+    H.eq(Tr().personal("ray", pa.key), 71, "alice +tier 4 x 2, slower above 60 (x0.75)")
     H.eq(Tr().personal("ray", pb.key), 25)
     H.eq(ch("ray").trust, group, "group untouched")
 end

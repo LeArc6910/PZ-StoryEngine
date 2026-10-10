@@ -641,4 +641,18 @@ function T.mod_item_names_are_restored_after_eating()
     H.ok(not IN.fixItem(it), "a name the player chose is kept")
 end
 
+-- 신뢰도 유지 (서버 Trust.lua 1b단계): 거점 탭에 며칠째 해 준 일이 없는지, 형편이 바닥인데 돕지 않았는지
+function T.base_tab_shows_trust_upkeep()
+    local lines = StoryEngineLifePanel.upkeepLines
+    H.eq(#lines({ id = "ray" }), 0, "below 60 there is nothing to keep up")
+    local fine = lines({ id = "ray", upkeep = { idle = 1, limit = 4 } })
+    H.eq(fine[1][1], "IGUI_StoryEngine_Upkeep_Fine|3")
+    local soon = lines({ id = "ray", upkeep = { idle = 4, limit = 4 } })
+    H.eq(soon[1][1], "IGUI_StoryEngine_Upkeep_Soon|4")
+    local fading = lines({ id = "ray", upkeep = { idle = 6, limit = 4 }, lowDays = 2 })
+    H.eq(fading[1][1], "IGUI_StoryEngine_Upkeep_Fading|6")
+    H.eq(fading[2][1], "IGUI_StoryEngine_Upkeep_Neglect|2")
+    H.eq(#lines({ id = "ray", fate = "dead", upkeep = { idle = 9, limit = 4 } }), 0, "not for the dead")
+end
+
 return T
