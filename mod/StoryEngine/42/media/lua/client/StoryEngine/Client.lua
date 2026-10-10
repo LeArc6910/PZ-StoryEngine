@@ -363,8 +363,12 @@ end
 function Client.handlers.npcFate(args)
     local player = getPlayer()
     if not player then return end
-    HaloTextHelper.addBadText(player, getText("IGUI_StoryEngine_Fate_Line_" .. tostring(args.kind),
-        StoryEngine.Factions.name(args.faction)))
+    local line = getText("IGUI_StoryEngine_Fate_Line_" .. tostring(args.kind), StoryEngine.Factions.name(args.faction))
+    if args.kind == "revived" then
+        HaloTextHelper.addGoodText(player, line)
+    else
+        HaloTextHelper.addBadText(player, line)
+    end
     Net.toServer(player, "radioChannels", {})
     Net.toServer(player, "lifeList", {})
 end

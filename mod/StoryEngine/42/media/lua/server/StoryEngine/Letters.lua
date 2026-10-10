@@ -61,6 +61,21 @@ function Letters.queue(fid, reason, extra)
     log("letter queued", fid, reason)
 end
 
+-- 기다리는 편지를 거둔다 (되살리기: 작별 편지를 쓸 일이 없어졌다). 거둔 수를 돌려준다
+function Letters.drop(fid, reason)
+    local s = state()
+    local n = 0
+    for i = #s.pending, 1, -1 do
+        local p = s.pending[i]
+        if p.fid == fid and (reason == nil or p.reason == reason) then
+            table.remove(s.pending, i)
+            n = n + 1
+        end
+    end
+    if n > 0 then log("letters dropped", fid, tostring(reason), n) end
+    return n
+end
+
 -- 편지를 쓴다 (브릿지). 받는 캐릭터 언어로
 function Letters.write(rec, ps)
     local fid = rec.from

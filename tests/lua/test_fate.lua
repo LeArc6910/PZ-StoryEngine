@@ -166,9 +166,19 @@ function T.revive_and_debug_commands()
     local C = StoryEngine.Commands
     C.debugLife(p, { faction = "hunter", delta = 0, fate = "gone" })
     H.ok(gone("hunter"))
+    -- 떠나면서 예약된 후임과 작별 편지 (2026-10-10 인게임: 되살려도 남아 있었음)
+    local d = StoryEngine.Store.data()
+    H.ok(d.voices and d.voices.pending.hunter, "a successor was scheduled")
+    local farewell = 0
+    for _, l in ipairs(d.letters and d.letters.pending or {}) do if l.fid == "hunter" then farewell = farewell + 1 end end
+    H.eq(farewell, 1, "a farewell letter was waiting")
     C.debugLife(p, { faction = "hunter", delta = 0, fate = "revive" })
     H.ok(not gone("hunter"))
     H.eq(res("hunter", "food"), 70, "back to baseline")
+    H.eq(d.voices.pending.hunter, nil, "no successor is coming any more")
+    for _, l in ipairs(d.letters.pending) do H.ok(l.fid ~= "hunter", "the farewell letter is withdrawn") end
+    local told = H.sentOf("npcFate")
+    H.eq(told[#told].kind, "revived", "everyone's lists refresh")
     C.debugLife(p, { faction = "rats", delta = 0, fate = "doom" })
     H.advance(10)
     H.fire("EveryTenMinutes")

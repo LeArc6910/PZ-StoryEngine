@@ -303,7 +303,11 @@ function Fate.revive(fid)
         st.wins, st.losses = nil, nil
         st.questId, st.crisisAsked = nil, nil      -- 죽을 때 거둔 부탁에 매이지 않게 (점검 D6)
     end
+    -- 떠나면서 남긴 것도 거둔다 (2026-10-10 인게임: 예약된 후임과 작별 편지가 남아 있었음)
+    if StoryEngine.Voices and StoryEngine.Voices.cancel then pcall(StoryEngine.Voices.cancel, fid) end
+    if StoryEngine.Letters and StoryEngine.Letters.drop then pcall(StoryEngine.Letters.drop, fid, "farewell") end
     Radio.push(fid, { from = "system", fate = "revived", clock = Sensor.now().clock })
+    pcall(Net.toAll, "npcFate", { faction = fid, kind = "revived" })      -- 모든 접속자의 교신·거점 목록을 새로
     log("fate revived", fid)
 end
 

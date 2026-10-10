@@ -116,6 +116,14 @@ function Voices.onFate(fid, kind, now, reason)
     log("voice scheduled", fid, "in", days, "days", cold and "(cold)" or "")
 end
 
+-- 예약한 이어받기를 거둔다 (되살리기: 앞 사람이 돌아왔다)
+function Voices.cancel(fid)
+    if not state().pending[fid] then return false end
+    state().pending[fid] = nil
+    log("voice cancelled", fid)
+    return true
+end
+
 -- 이어받는다. cold = 방치·실패로 잃은 뒤 (예약에 적힌 값, 직접 부를 때는 인자로)
 function Voices.take(fid, now, cold)
     now = now or Sensor.now()
