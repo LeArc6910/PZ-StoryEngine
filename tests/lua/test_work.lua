@@ -126,7 +126,7 @@ function T.scout_visits_points_inside_and_pays_with_a_bonus()
     H.eq(child.kind, "scout")
     H.eq(#child.points, StoryEngine.Work.SCOUT_POINTS[2], "tier 2: two points")
     H.eq(child.zombies, 2 * StoryEngine.Work.SCOUT_ZOMBIES)
-    H.ok(not child.night, "no night rule below tier 3")
+    H.ok(not child.night, "a day job unless night is chosen")
     local function at(inside)
         return { { player = p, ps = ps, s = { x = child.cx, y = child.cy, building = inside and child.building or nil } } }
     end
@@ -151,10 +151,10 @@ function T.scout_visits_points_inside_and_pays_with_a_bonus()
     H.ok(#deliveries[1].items > #q.goods and q.workBonus, "scouting gets the extra too")
 end
 
-function T.scout_from_tier_3_only_counts_at_night()
+function T.scout_chosen_by_night_only_counts_at_night()
     local p, ps, q = setup("ray", 45)
     q.tier = 3
-    H.ok(StoryEngine.Work.choose(p, q.id, "labor", "scout"))
+    H.ok(StoryEngine.Work.choose(p, q.id, "labor", "scout", true))
     local child = quest(q.workId)
     H.ok(child.night, "night only")
     H.ok(#child.points >= 2, "several points (as many as the test map has)")

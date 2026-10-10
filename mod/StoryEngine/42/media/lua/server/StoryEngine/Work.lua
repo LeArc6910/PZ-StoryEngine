@@ -57,7 +57,9 @@ Work.CREDIT_DAYS = 14                            -- 외상 상환 기한 (게임
 Work.GUARD_MIN = { 60, 90, 120, 180, 240 }        -- 등급별 경비 시간 (게임 분)
 Work.GUARD_WAVE = 40                              -- 경비 중 무리 간격 (게임 분)
 Work.GUARD_TOTAL = 1.5
--- 정찰 (2026-10-05): 지점 수, 지점마다 머물 시간, 건물 안 좀비 = 등급 x SCOUT_ZOMBIES, 3등급부터 밤에만
+-- 정찰 (2026-10-05): 지점 수, 지점마다 머물 시간, 건물 안 좀비 = 등급 x SCOUT_ZOMBIES.
+-- 야간 작전 (2026-10-10): 네 가지 일 모두 등급이 되면 주간·야간을 고른다 (Quests.nightAllowed). 야간은 밤에만 진행,
+-- 기한 +Quests.NIGHT_HOURS, 덤·일거리 보상 x Quests.nightMult. 예전의 "정찰은 3등급부터 밤에만"은 없앴다
 Work.SCOUT_POINTS = { 2, 2, 3, 3, 4 }
 Work.SCOUT_STAY = 20
 Work.SCOUT_ZOMBIES = 3
@@ -72,6 +74,7 @@ Work.COURIER_HUNT = { 0.2, 0.15 }
 Work.COURIER_DEADLINE = 0.6
 Work.PARCEL_MAX = 150
 Work.PARCEL_HIT = { scratched = 10, cut = 20, deep = 30, bitten = 30, fracture = 40 }
+Work.PARCEL_DAWN = 30                             -- 야간 배달: 꾸러미를 든 채 동이 트면 한 번 깎인다
 Work.FAVOR_CALL_MIN = 2 * 24 * 60                 -- 빚을 진 뒤 부탁이 오기까지
 Work.FAVOR_EXPIRE_MIN = 14 * 24 * 60              -- 부탁이 끝내 안 오면 빚은 사라진다
 Work.PARCEL = "StoryEngine.SealedParcel"
@@ -278,16 +281,17 @@ function Work.guardPlan(tier)
     return math.max(1, math.ceil(total / waves)), waves, total
 end
 
--- 일 퀘스트를 만든다. 반환: 퀘스트 | nil, 이유
-function Work.startLabor(trade, how, player, ps, t)
+-- 일 퀘스트를 만든다. 반환: 퀘스트 | nil, 이유. night = 야간 작전으로
+function Work.startLabor(trade, how, player, ps, t, night)
     local tier = math.max(1, math.min(Quests.MAX_TIER, trade.tier or 1))
     local exclude = {}
     if ps.home and ps.home.building then exclude[ps.home.building] = true end
     local site, distance, key = pickSite(player:getX(), player:getY(), tier, exclude)
     if not site then return nil, "no_building" end
     if key then exclude[key] = true end
-    local deadline = t.t + Quests.deadlineMinutes(distance)
-    local opts = { tier = tier, building = true, search = 12, deadlineT = deadline }
+    local extra = night and Quests.NIGHT_HOURS * 60 or 0
+    local deadline = t.t + Quests.deadlineMinutes(distance) + extra
+    local opts = { tier = tier, building = true, search = 12, deadlineT = deadline, night = night or nil }
     local kind = how
     if how == "horde" then
         opts.size = Quests.HORDE_SIZE[tier]
@@ -298,9 +302,7 @@ function Work.startLabor(trade, how, player, ps, t)
         opts.more = scoutHops(site, Work.SCOUT_POINTS[tier], exclude)
         opts.stayMin = Work.SCOUT_STAY
         opts.zombies = tier * Work.SCOUT_ZOMBIES
-        opts.night = tier >= Work.SCOUT_NIGHT_TIER or nil
         opts.deadlineT = deadline + #opts.more * Work.SCOUT_HOP_HOURS * 60
-            + (opts.night and Work.SCOUT_NIGHT_HOURS * 60 or 0)
     elseif how == "guard" then
         kind = "defend"
         opts.needMin = Work.GUARD_MIN[tier]
@@ -309,7 +311,7 @@ function Work.startLabor(trade, how, player, ps, t)
     elseif how == "courier" then
         kind = "fetch"
         opts.item = Work.PARCEL
-        opts.deadlineT = t.t + math.floor(Quests.deadlineMinutes(distance) * Work.COURIER_DEADLINE)
+        opts.deadlineT = t.t + math.floor(Quests.deadlineMinutes(distance) * Work.COURIER_DEADLINE) + extra
     end
     local q, why = Quests.createSite(kind, ps, site, t, childOrigin(trade, how, how == "courier" and "pickup" or nil), opts)
     if not q then return nil, why end
@@ -325,10 +327,13 @@ local function startDropoff(trade, pickup, t, carrier)
     local ps = Store.data().players[trade.target] or {}
     local site, distance = pickSite(pickup.cx, pickup.cy, math.max(1, (trade.tier or 1) - 1), { [pickup.building or ""] = true })
     if not site then return nil end
+    local night = pickup.night or nil
     local q = Quests.createSite("visit", ps.key and ps or nil, site, t, childOrigin(trade, "courier", "dropoff"),
-        { tier = trade.tier, building = true, search = 12, radius = Work.SCOUT_RADIUS,
-          deadlineT = t.t + math.floor(Quests.deadlineMinutes(distance) * Work.COURIER_DEADLINE) })
+        { tier = trade.tier, building = true, search = 12, radius = Work.SCOUT_RADIUS, night = night,
+          deadlineT = t.t + math.floor(Quests.deadlineMinutes(distance) * Work.COURIER_DEADLINE)
+              + (night and Quests.NIGHT_HOURS * 60 or 0) })
     if not q then return nil end
+    if night then q.carriedNight = Quests.nightId(t) end      -- 이 밤 안에 못 건네면 동틀 때 상한다 (Work.tick)
     q.carry = { qid = pickup.id, items = { Work.PARCEL } }
     q.parcel = Work.PARCEL_MAX
     q.distance = math.floor(distance or 0)
@@ -369,6 +374,33 @@ function Work.trim(list, share)
             used = used + v
         end
     end
+    return out
+end
+
+-- 덤의 가치를 mult 배로 불린다 (야간 작전): 늘어난 몫만큼 pool(새로 굴린 같은 품목 묶음, 없으면 list)에서 앞에서부터
+-- 들어가는 것을 더한다. 남은 몫이 못 넣은 것 중 가장 싼 물건 값의 절반 이상이면 그것도 하나 (물건 하나짜리 덤 대비)
+function Work.scaleUp(list, mult, pool)
+    if not mult or mult <= 1 or #list == 0 then return list end
+    local Value = StoryEngine.Value
+    local total = 0
+    local out = {}
+    for _, ft in ipairs(list) do
+        total = total + (Value.of(ft) or 0)
+        out[#out + 1] = ft
+    end
+    pool = (pool and #pool > 0) and pool or list
+    local budget, used = total * (mult - 1), 0
+    local cheapest, cheapV = nil, nil
+    for _, ft in ipairs(pool) do
+        local v = Value.of(ft) or 0
+        if v > 0 and used + v <= budget + 0.001 then
+            out[#out + 1] = ft
+            used = used + v
+        elseif v > 0 and (not cheapV or v < cheapV) then
+            cheapest, cheapV = ft, v
+        end
+    end
+    if cheapest and budget - used >= cheapV / 2 then out[#out + 1] = cheapest end
     return out
 end
 
@@ -455,8 +487,8 @@ local TOPIC = {
 }
 
 -- 거래 제안에 대가 방식을 고른다. 반환: true, 정해진 방식 | false, 이유
--- force = 일 종류 고정 (테스트·디버그용, 클라이언트 명령은 넘기지 않는다)
-function Work.choose(player, qid, how, force)
+-- force = 일 종류 고정 (테스트·디버그용, 클라이언트 명령은 넘기지 않는다). night = 일을 야간 작전으로 (덤 x 배율)
+function Work.choose(player, qid, how, force, night)
     local q = Store.data().quests[qid]
     if not q or q.kind ~= "trade" then return false, "no_quest" end
     if not (q.state == "proposed" or (q.state == "accepted" and not q.payKind)) then return false, "not_open" end
@@ -473,8 +505,9 @@ function Work.choose(player, qid, how, force)
     if how == "labor" or Work.LABOR[how] then
         -- 일로 갚기: 종류는 서버가 무작위로 (건물을 못 찾으면 다른 종류로). 고른 뒤에는 바꿀 수 없다
         why = "no_building"
+        night = (night == true and Quests.nightAllowed(q.tier)) or nil
         for _, kind in ipairs(force and { force } or Work.laborKinds(fid)) do
-            child, why = Work.startLabor(q, kind, player, ps, t)
+            child, why = Work.startLabor(q, kind, player, ps, t, night)
             if child then
                 how = kind
                 break
@@ -485,11 +518,13 @@ function Work.choose(player, qid, how, force)
     if q.state == "proposed" then Quests.respond(player, qid, true) end
     q.target, q.targetName = ps.key, ps.name
     q.payKind = how
+    q.nightWork = (child and child.night) or nil
     local ch = Radio.channel(fid)
     local used = weekLog(fid, "workLog", t.t, ps.key)          -- 개인 모드는 그 사람의 기록
     used[#used + 1] = t.t
     local Lines = StoryEngine.Lines
     local topic = ps.name .. " agreed to the trade, but instead of paying with goods " .. TOPIC[how] .. "."
+    if q.nightWork then topic = topic .. " They will do it at night (harder), so you will add more on top when it is done." end
     if child then
         q.workId = child.id
         q.deadlineT = child.deadlineT + 24 * 60
@@ -658,6 +693,11 @@ function Work.onChild(q, state, t)
             end
             trade.parcel = cond
         end
+        -- 야간 작전으로 해냈으면 덤이 배율만큼 는다 (산 물건은 그대로)
+        -- (예전 세이브의 밤 전용 정찰처럼 일 퀘스트만 야간인 것도 같다)
+        if (trade.nightWork or q.night) and #bonus > 0 then
+            bonus = Work.scaleUp(bonus, Quests.nightMult(), Work.bonusGoods(trade))
+        end
         local goods = {}
         for _, g in ipairs(base) do goods[#goods + 1] = g end
         for _, g in ipairs(bonus) do goods[#goods + 1] = g end
@@ -666,7 +706,8 @@ function Work.onChild(q, state, t)
         if q.parcel and q.parcel < 100 then trade.goodsKept = base end
         Quests.setState(trade, "completed", t, ps and { ps = ps } or nil)
         local fid = trade.origin.faction
-        local extra = #bonus > 0 and " plus a little extra for the hard work" or ""
+        local extra = #bonus > 0 and (trade.nightWork and " plus a good deal extra because they did it at night"
+            or " plus a little extra for the hard work") or ""
         if q.parcel and q.parcel < 100 then
             extra = ", but the parcel arrived damaged so you sent less than agreed"
         elseif q.parcel and q.parcel < Work.PARCEL_MAX then
@@ -728,6 +769,8 @@ function Work.volunteerStatus(fid, key, contact)
     local tier = Work.volunteerTier(fid, key, not contact)
     local out = { tier = tier, gain = tier * Work.VOLUNTEER_TRUST,
                   left = math.max(0, Work.VOLUNTEER_PER_WEEK - Work.volunteerUsed(fid, t, key)) }
+    -- 야간으로 맡으면 신뢰도·자원이 배율만큼 (올림)
+    if Quests.nightAllowed(tier) then out.nightGain = math.ceil(out.gain * Quests.nightMult() - 0.001) end
     if Factions.isGone(fid) then out.why = "gone"
     elseif openVolunteer(fid, key) then out.why = "open"
     elseif out.left <= 0 then out.why = "week" end
@@ -735,7 +778,7 @@ function Work.volunteerStatus(fid, key, contact)
     return out
 end
 
-function Work.volunteer(player, fid, force)
+function Work.volunteer(player, fid, force, night)
     if not Factions.byId[fid] then return false, "no_faction" end
     if not Factions.canTalk(player) then return false, "no_radio" end
     local ps = Store.player(player)
@@ -745,14 +788,16 @@ function Work.volunteer(player, fid, force)
     local t = now()
     local d = Store.data()
     d.questSeq = (d.questSeq or 0) + 1
+    night = (night == true and st.nightGain ~= nil) or nil
     local parent = { id = "Q" .. StoryEngine.intToString(d.questSeq), kind = "volunteer", state = "accepted",
-                     tier = st.tier, gain = st.gain, target = ps.key, targetName = ps.name, createdT = t.t,
+                     tier = st.tier, gain = night and st.nightGain or st.gain, nightWork = night,
+                     target = ps.key, targetName = ps.name, createdT = t.t,
                      deadlineT = t.t, origin = { source = "volunteer", faction = fid, initiator = "player" },
                      history = { { state = "accepted", t = t.t, by = ps.name } } }
     d.quests[parent.id] = parent
     local child, why = nil, "no_building"
     for _, kind in ipairs(force and { force } or Work.laborKinds(fid)) do
-        child, why = Work.startLabor(parent, kind, player, ps, t)
+        child, why = Work.startLabor(parent, kind, player, ps, t, night)
         if child then
             parent.payKind = kind
             break
@@ -784,9 +829,11 @@ function Work.volunteerEnd(parent, q, state, t)
     Quests.setState(parent, state, t, ps and { ps = ps } or nil)
     local Life = StoryEngine.Life
     if state == "completed" then
-        local gain = StoryEngine.Trust.apply(fid, tier * Work.VOLUNTEER_TRUST, "volunteer_done", parent.id, parent.target)
+        local mult = (parent.nightWork or q.night) and Quests.nightMult() or 1
+        local gain = StoryEngine.Trust.apply(fid, math.ceil(tier * Work.VOLUNTEER_TRUST * mult - 0.001), "volunteer_done",
+            parent.id, parent.target)
         if Life then
-            Life.change(fid, Life.KEY[fid], tier * Work.VOLUNTEER_LIFE, "volunteer")
+            Life.change(fid, Life.KEY[fid], math.floor(tier * Work.VOLUNTEER_LIFE * mult + 0.5), "volunteer")
             Life.record(fid, "volunteer", ps and ps.name or parent.targetName, gain)
         end
         Radio.react(fid, "event", "The players did the job you gave them (" .. tostring(parent.payKind)
@@ -837,7 +884,7 @@ function Work.tick(entries, t)
     if #players == 0 then return end
     for _, q in pairs(Store.data().quests) do
         if Work.isWork(q) and q.kind == "defend" and Quests.isActive(q) and (q.present or 0) > 0
-            and t.t >= (q.nextWaveT or 0) then
+            and t.t >= (q.nextWaveT or 0) and (not q.night or Quests.isNight()) then
             local size, most = guardWave(q)
             local target = nearestPlayer(q.cx, q.cy)
             if target and StoryEngine.Hunt and (q.waves or 0) < most then
@@ -853,7 +900,26 @@ function Work.tick(entries, t)
         end
     end
     Work.parcelHarm(entries)
+    Work.parcelDawn(t)
     Work.callFavors(t)
+end
+
+-- 야간 배달: 꾸러미를 든 채 밤을 넘기면 동틀 때 한 번 상한다 (다음 밤에 이어서 건넬 수 있다)
+function Work.parcelDawn(t)
+    local night = Quests.isNight()
+    for _, q in pairs(Store.data().quests) do
+        if Work.isWork(q) and q.night and q.carry and q.parcel and Quests.isActive(q) then
+            if night then
+                q.carriedNight = Quests.nightId(t)
+            elseif q.carriedNight and q.dawnHit ~= q.carriedNight then
+                q.dawnHit = q.carriedNight
+                q.parcel = math.max(0, q.parcel - Work.PARCEL_DAWN)
+                log("work parcel dawn", q.id, "-" .. StoryEngine.intToString(Work.PARCEL_DAWN), "now", q.parcel)
+                Work.say(q, "parcel_dawn", { num(q.parcel) }, "Daylight. The parcel suffered for it.")
+                Quests.notify(q)
+            end
+        end
+    end
 end
 
 -- key: 개인 모드에서 그 사람에게 열린 것만 본다 (다른 사람의 개인별 부탁이 독촉을 막지 않게)

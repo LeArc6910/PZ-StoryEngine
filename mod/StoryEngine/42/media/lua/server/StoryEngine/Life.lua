@@ -367,7 +367,9 @@ function Life.onQuest(q, outcome, trustDelta)
     if not NPC_KINDS[q.kind] then return end
     local res = q.kind == "horde" and "safety" or Life.resourceOfItems(q.need) or "morale"
     if outcome == "completed" then
-        Life.change(fid, res, math.min(40, 10 * tier), "quest")
+        local gain = math.min(40, 10 * tier)
+        if q.night and StoryEngine.Quests.nightMult then gain = math.floor(gain * StoryEngine.Quests.nightMult() + 0.5) end
+        Life.change(fid, res, gain, "quest")
         if res == "medical" then Life.count(fid, "medical_help") end
         Life.record(fid, "quest_completed", who, trustDelta)
         if tier >= Life.SPILL_BIG_TIER and q.kind ~= "extort" and not q.favorCall then

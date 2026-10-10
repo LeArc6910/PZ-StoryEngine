@@ -70,6 +70,36 @@ function T.critical_quests_stand_out()
     has(P.riskText(choice), "IGUI_StoryEngine_Quest_Risk_outcome_dead|")
 end
 
+-- 야간 작전 (2026-10-10): 수락할 때 주간·야간, 꼬리표와 안내 줄, 일거리 청하기 메뉴
+function T.night_jobs_show_a_choice_a_tag_and_a_note()
+    H.addPlayer("tester", "Gerald", "Kar")
+    local P = StoryEngineQuestPanel
+    H.eq(P.acceptOptions(request({ kind = "horde" })), nil, "an ordinary request has one accept")
+    local choice = request({ kind = "horde", nightChoice = true, nightMult = 1.5 })
+    local opts = P.acceptOptions(choice)
+    H.eq(#opts, 2)
+    H.ok(not opts[1].night and opts[2].night, "day first, then night")
+    has(opts[2].label, "IGUI_StoryEngine_Quest_AcceptNight|1.5")
+    has(P.questDetail(choice), "IGUI_StoryEngine_Quest_Night_Choice|1.5")
+    hasnt(P.questSub(choice), "IGUI_StoryEngine_Quest_NightTag", "not a night job until chosen")
+    local night = request({ kind = "horde", state = "accepted", night = true, nightMult = 2, waitNight = true,
+                            size = 30, killed = 0, killsNeeded = 24, town = "West Point" })
+    has(P.questSub(night), "IGUI_StoryEngine_Quest_NightTag")
+    has(P.questDetail(night), "IGUI_StoryEngine_Quest_Night_horde|2")
+    has(P.questDetail(night), "IGUI_StoryEngine_Quest_Night_Waiting")
+    local forced = request({ kind = "horde", night = true, nightForced = true, nightMult = 1.5, town = "West Point" })
+    H.eq(P.acceptOptions(forced), nil, "nothing to choose")
+    has(P.questDetail(forced), "IGUI_StoryEngine_Quest_Night_Forced")
+    -- 일거리 청하기
+    local L = StoryEngineLifePanel
+    H.eq(L.volunteerOptions({ id = "ray", volunteer = { tier = 2, gain = 4 } }), nil)
+    local v = L.volunteerOptions({ id = "ray", volunteer = { tier = 3, gain = 6, nightGain = 9 } })
+    H.eq(#v, 2)
+    has(v[1].label, "IGUI_StoryEngine_Volunteer_Day|6")
+    has(v[2].label, "IGUI_StoryEngine_Volunteer_Night|9")
+    H.ok(v[2].night)
+end
+
 function T.quest_detail_for_someone_elses_request()
     H.addPlayer("tester", "Gerald", "Kar")
     local P = StoryEngineQuestPanel

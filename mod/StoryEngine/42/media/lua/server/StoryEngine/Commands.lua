@@ -615,7 +615,7 @@ end
 
 -- 일거리 청하기 (Work.volunteer): 보수 없이 일해 주고 신뢰도를 얻는다
 function Commands.volunteerAsk(player, args)
-    local ok, why = StoryEngine.Work.volunteer(player, tostring(args.faction or ""))
+    local ok, why = StoryEngine.Work.volunteer(player, tostring(args.faction or ""), nil, args.night == true)
     reply(player, "volunteerResult", { ok = ok, how = ok and why or nil, error = not ok and why or nil,
                                        faction = args.faction })
 end
@@ -628,7 +628,7 @@ end
 
 -- 거래 대가를 물건 대신 일·외상·빚으로 (Work.lua)
 function Commands.tradeWork(player, args)
-    local ok, why = StoryEngine.Work.choose(player, tostring(args.id or ""), tostring(args.how or ""))
+    local ok, why = StoryEngine.Work.choose(player, tostring(args.id or ""), tostring(args.how or ""), nil, args.night == true)
     reply(player, "tradeWorkResult", { ok = ok, how = ok and why or args.how, error = not ok and why or nil })
 end
 
@@ -734,7 +734,7 @@ end
 
 function Commands.questRespond(player, args)
     local accept = args.accept == true
-    local ok, why = StoryEngine.Quests.respond(player, tostring(args.id or ""), accept)
+    local ok, why = StoryEngine.Quests.respond(player, tostring(args.id or ""), accept, args.night == true)
     reply(player, "questRespondResult", { ok = ok, accept = accept, error = not ok and why or nil })
 end
 

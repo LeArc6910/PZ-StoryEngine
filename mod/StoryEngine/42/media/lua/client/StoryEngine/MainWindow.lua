@@ -115,8 +115,35 @@ local function payableValue(q)
     return math.floor(total)
 end
 
+-- 배율을 글로 ("1.5", "2")
+local function multText(m)
+    local s = tostring(m or 1.5)
+    s = string.gsub(s, "%.0$", "")
+    return s
+end
+
+-- 수락할 때 주간·야간을 고르는 부탁이면 선택지 (야간 작전, 서버 Quests.nightAllowed), 아니면 nil
+local function acceptOptions(q)
+    if not (q and q.nightChoice) then return nil end
+    return {
+        { label = getText("IGUI_StoryEngine_Quest_AcceptDay") },
+        { label = getText("IGUI_StoryEngine_Quest_AcceptNight", multText(q.nightMult)), night = true },
+    }
+end
+
 local function respond(q, accept)
-    if q then request("questRespond", { id = q.id, accept = accept }) end
+    if not q then return end
+    local options = accept and acceptOptions(q) or nil
+    if options then
+        local context = ISContextMenu.get(0, getMouseX(), getMouseY())
+        for _, o in ipairs(options) do
+            context:addOption(o.label, nil, function()
+                request("questRespond", { id = q.id, accept = true, night = o.night })
+            end)
+        end
+        return
+    end
+    request("questRespond", { id = q.id, accept = accept })
 end
 
 local function newRichText(x, y, w, h)
@@ -703,6 +730,17 @@ function StoryEngineQuestPanel:onWork()
         end
         tt.description = text
         opt.toolTip = tt
+        -- 야간 작전: 일을 밤에 하면 덤이 는다 (등급이 될 때만)
+        if o.how == "labor" and o.ok and q.workNight then
+            local nopt = context:addOption(getText("IGUI_StoryEngine_Work_labor_night", multText(q.nightMult)), nil, function()
+                request("tradeWork", { id = q.id, how = "labor", night = true })
+            end)
+            local nt = ISToolTip:new()
+            nt:initialise()
+            nt:setVisible(false)
+            nt.description = getText("IGUI_StoryEngine_Work_labor_night_desc")
+            nopt.toolTip = nt
+        end
     end
     local left = context:addOption(getText("IGUI_StoryEngine_Work_WeekLeft", StoryEngine.intToString(q.workWeekLeft or 0)), nil, nil)
     left.notAvailable = true
@@ -853,8 +891,29 @@ local function questSub(q)
     if q.favorCall then sub = getText("IGUI_StoryEngine_Work_FavorTag") .. " " .. sub end
     -- 다른 사람이 받은 퀘스트는 누가 받았는지 붙인다 (퀘스트는 서버 전체가 함께 본다)
     if q.owner and not q.mine then sub = sub .. "  -  " .. tostring(q.owner) end
+    if q.night then sub = getText("IGUI_StoryEngine_Quest_NightTag") .. " " .. sub end
     if q.risk then sub = getText("IGUI_StoryEngine_Quest_RiskTag") .. " " .. sub end
     return sub
+end
+
+-- 야간 작전 안내 줄 (서버 q.night·nightChoice·nightForced·nightWork)
+local NIGHT_KINDS = { horde = true, defend = true, scout = true, fetch = true, visit = true }
+local function nightLines(q)
+    local parts = {}
+    local function line(rgb, text) parts[#parts + 1] = " <LINE> <RGB:" .. rgb .. "> " .. UI.escape(text) end
+    local m = multText(q.nightMult)
+    if q.night then
+        if NIGHT_KINDS[q.kind] then line("0.6,0.75,1", getText("IGUI_StoryEngine_Quest_Night_" .. q.kind, m)) end
+        if q.nightForced and q.state == "proposed" then line("0.6,0.75,1", getText("IGUI_StoryEngine_Quest_Night_Forced")) end
+        if q.waitNight and ACTIVE[q.state] and q.kind ~= "scout" then
+            line("1,0.85,0.45", getText("IGUI_StoryEngine_Quest_Night_Waiting"))
+        end
+    elseif q.nightChoice then
+        line("0.6,0.75,1", getText("IGUI_StoryEngine_Quest_Night_Choice", m))
+    end
+    if q.nightWork then line("0.6,0.75,1", getText("IGUI_StoryEngine_Work_NightOn", m)) end
+    if #parts == 0 then return "" end
+    return table.concat(parts) .. " <LINE> <TEXT> "
 end
 
 -- 놓치면 그 NPC 를 잃을 수 있는 퀘스트의 경고 문장 (서버 Fate.questRisk -> q.risk)
@@ -1140,7 +1199,8 @@ local function personalLines(q)
 end
 
 local function questDetail(q)
-    return riskLine(q) .. questDetailBase(q) .. personalLines(q) .. ownerLine(q) .. fightLine(q) .. helpersLine(q)
+    return riskLine(q) .. questDetailBase(q) .. nightLines(q) .. personalLines(q) .. ownerLine(q) .. fightLine(q)
+        .. helpersLine(q)
 end
 
 -- 테스트용
@@ -1148,6 +1208,7 @@ StoryEngineQuestPanel.questDetail = function(q) return questDetail(q) end
 StoryEngineQuestPanel.questGroup = function(q) return questGroup(q) end
 StoryEngineQuestPanel.questSub = function(q) return questSub(q) end
 StoryEngineQuestPanel.riskText = function(q) return riskText(q) end
+StoryEngineQuestPanel.acceptOptions = function(q) return acceptOptions(q) end
 StoryEngineQuestPanel.canRespond = function(q) return canRespond(q) end
 StoryEngineRadioPanel.pendingProposal = function(fid) return pendingProposal(fid) end
 
@@ -2013,9 +2074,28 @@ function StoryEngineLifePanel:createChildren()
     self.volunteerButton = newButton(x + DONATE_W + SPEC_W + PROJECT_W + PAD * 3, h - PAD - BUTTON_H, VOLUNTEER_W,
         getText("IGUI_StoryEngine_Volunteer_Button"), self, function(panel)
             local n = lifeOf(Cache.lifeFaction)
-            if n then request("volunteerAsk", { faction = n.id }) end
+            if not n then return end
+            local options = StoryEngineLifePanel.volunteerOptions(n)
+            if not options then
+                request("volunteerAsk", { faction = n.id })
+                return
+            end
+            local context = ISContextMenu.get(0, getMouseX(), getMouseY())
+            for _, o in ipairs(options) do
+                context:addOption(o.label, nil, function() request("volunteerAsk", { faction = n.id, night = o.night }) end)
+            end
         end)
     self:addChild(self.volunteerButton)
+end
+
+-- 일거리 청하기: 등급이 되면 주간·야간을 고른다 (야간은 신뢰도가 더 오른다, 서버 Work.volunteerStatus.nightGain)
+function StoryEngineLifePanel.volunteerOptions(n)
+    local v = n and n.volunteer
+    if not (v and v.nightGain) then return nil end
+    return {
+        { label = getText("IGUI_StoryEngine_Volunteer_Day", StoryEngine.intToString(v.gain or 0)) },
+        { label = getText("IGUI_StoryEngine_Volunteer_Night", StoryEngine.intToString(v.nightGain)), night = true },
+    }
 end
 
 function StoryEngineLifePanel:onProject()

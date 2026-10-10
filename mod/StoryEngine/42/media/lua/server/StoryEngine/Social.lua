@@ -264,12 +264,77 @@ end
 
 -- 이야기 부탁을 낸다: 물건(기본) / 소탕(kind = "horde") / 아는 얼굴의 좀비(kind = "named").
 -- 소탕 건물을 못 찾았거나 아는 얼굴의 좀비가 꺼져 있으면 물건 부탁(spec.items)으로
+-- ---------------------------------------------------------------- 이야기 난이도 (2026-10-10 사용자 요청)
+-- 뒤 장으로 갈수록 이야기 부탁·위기의 등급이 오른다 (샌드박스 StoryRamp, 기본 켬). 이야기에 적힌 등급(대부분 2~3)에
+-- 장마다 더한다: 1·2장 그대로 / 3장 +1 / 4장 +2 (최대 4) / 5장 +2 (최대 5).
+-- 곁가지는 그 NPC 의 큰 이야기가 지금 몇 장인지에 따라 (2·3장 +1, 4·5장 +2, 최대 4: 쉬어 가는 이야기라 한 단계 아래),
+-- 후임 이어받기 장과 그 곁가지는 서버가 후반(91일~)이면 +1. AI 가 쓰는 곁가지는 신뢰도로 등급을 정하므로 그대로.
+Social.CHAPTER_TIER = { [3] = { add = 1 }, [4] = { add = 2, max = 4 }, [5] = { add = 2 } }
+Social.EPISODE_TIER = { [2] = 1, [3] = 1, [4] = 2, [5] = 2 }
+Social.EPISODE_TIER_MAX = 4
+Social.VOICE_TIER_LATE = 1
+
+function Social.rampOn()
+    return StoryEngine.option("StoryRamp", true) == true
+end
+
+-- 그 NPC 의 큰 이야기가 지금 있는 장 (곁가지 중이면 돌아갈 자리의 장). 1·2·3·4·5 또는 "s"(후임)
+function Social.mainChapter(fid)
+    local st = Social.story(fid)
+    local node = Stories.node(fid, st.ep and st.ep.node or st.node)
+    local ch = node and node.chapter or 1
+    if ch == "ep" then ch = 1 end
+    return ch
+end
+
+-- 이 장면의 부탁·위기에 더할 등급과 상한
+function Social.tierAdd(fid, node)
+    if not node or not Social.rampOn() then return 0, 5 end
+    local ch = node.chapter
+    local late = Store.stage() >= 3 and Social.VOICE_TIER_LATE or 0
+    if ch == "ep" then
+        if node.ai then return 0, 5 end
+        local main = Social.mainChapter(fid)
+        if main == "s" then return late, Social.EPISODE_TIER_MAX end
+        return Social.EPISODE_TIER[main] or 0, Social.EPISODE_TIER_MAX
+    elseif ch == "s" then
+        return late, 5
+    end
+    local row = Social.CHAPTER_TIER[ch]
+    if row then return row.add, row.max or 5 end
+    return 0, 5
+end
+
+-- 적힌 등급(base)에 장의 몫을 더한 등급. 상한은 올릴 때만 본다 (적힌 등급을 낮추지 않는다)
+function Social.rampTier(base, add, cap)
+    base = math.max(1, math.floor(tonumber(base) or 1))
+    if not add or add <= 0 then return base end
+    return math.max(base, math.min(cap or 5, base + add))
+end
+
+function Social.storyTier(fid, node)
+    local add, cap = Social.tierAdd(fid, node)
+    return Social.rampTier(node and node.quest and node.quest.tier, add, cap)
+end
+
 local function proposeStoryQuest(player, ps, fid, node, now)
     local spec = node.quest
+    local tier = Social.storyTier(fid, node)
+    if tier ~= spec.tier then
+        local raised = {}
+        for k, v in pairs(spec) do raised[k] = v end
+        raised.tier = tier
+        log("story tier", fid, node.id, spec.tier, "->", tier)
+        spec = raised
+    end
     local story = { faction = fid, node = node.id }
     local q
     if spec.kind == "horde" then
-        q = StoryEngine.Quests.proposeHorde(player, ps, fid, spec.tier, now, { story = story, why = spec.why })
+        -- 올린 등급 거리에 건물이 없으면 한 등급씩 낮춰 본다 (적힌 등급까지: 이야기가 멈추지 않게)
+        for t = spec.tier, math.min(spec.tier, node.quest.tier or spec.tier), -1 do
+            q = StoryEngine.Quests.proposeHorde(player, ps, fid, t, now, { story = story, why = spec.why })
+            if q then break end
+        end
     elseif spec.kind == "named" and StoryEngine.Named and StoryEngine.Named.enabled() then
         local person = StoryEngine.Named.byId[spec.person]
         if person then q = StoryEngine.Named.propose(player, ps, person, now, { story = story, why = spec.why }) end
@@ -481,7 +546,8 @@ function Social.advance(fid, now)
         if not st.crisisAsked then
             if now.t - st.since < (node.days or 1) * Social.pace() * 24 * 60 then return end
             if not Social.storyAskAllowed(now) then return end
-            local ok, why = Social.startCrisis(now, id)
+            local add, cap = Social.tierAdd(fid, node)
+            local ok, why = Social.startCrisis(now, id, add, cap)
             if ok then
                 st.crisisAsked, st.told = id, true
                 state().lastStoryAskT = now.t
@@ -708,7 +774,8 @@ end
 -- ---------------------------------------------------------------- crisis
 
 -- forceId: 이 위기를 고른다 (NpcEvents: 교회 습격 앞당김, 충돌). trigger = true 인 위기는 그렇게만 나온다
-function Social.startCrisis(now, forceId)
+-- tierAdd, tierCap: 이야기 장면이 여는 위기는 그 장의 몫만큼 선택지 등급이 오른다 (Social.tierAdd)
+function Social.startCrisis(now, forceId, tierAdd, tierCap)
     if not forceId and StoryEngine.Ops and StoryEngine.Ops.active() then return false, "operation" end
     if not forceId and StoryEngine.Saga and StoryEngine.Saga.active() then return false, "saga" end
     local s = state()
@@ -728,7 +795,7 @@ function Social.startCrisis(now, forceId)
     local player, ps = randomTarget()
     if not player then return false, "no_players" end
     local c = pool[ZombRand(#pool) + 1]
-    local q = StoryEngine.Quests.proposeChoice(player, ps, c, now)
+    local q = StoryEngine.Quests.proposeChoice(player, ps, c, now, tierAdd, tierCap)
     if not q then return false, "quest_failed" end
     s.crisesUsed[c.id] = true
     s.lastCrisisT = now.t
