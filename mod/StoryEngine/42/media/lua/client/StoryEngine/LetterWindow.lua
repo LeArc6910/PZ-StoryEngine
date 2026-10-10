@@ -17,6 +17,7 @@ local Client = StoryEngine.Client
 local UI = StoryEngine.UI
 
 local LETTER = "StoryEngine.Letter"
+local CHARTER = "StoryEngine.Charter"
 
 StoryEngineLetterWindow = ISCollapsableWindow:derive("StoryEngineLetterWindow")
 StoryEngineLetterWindow.instance = nil
@@ -39,8 +40,46 @@ local function memorialBody(info)
     return table.concat(parts)
 end
 
+-- 카운티 헌장 (서버 Era.lua): 머리말, 서명 한 줄씩, 서명하지 않은 사람, 떠났거나 죽은 사람의 빈칸
+local function signerName(g)
+    return StoryEngine.Factions.nameAs(tostring(g.fid), g.voice or false)
+end
+
+local function charterBody(info)
+    local c = info.charter
+    local day = StoryEngine.intToString(tonumber(c.day) or 0)
+    local parts = {}
+    parts[#parts + 1] = " <CENTRE> <SIZE:medium> "
+        .. UI.escape(getText(c.formed and "IGUI_StoryEngine_Charter_Title" or "IGUI_StoryEngine_Charter_Draft"))
+        .. " <SIZE:small> <LEFT> <LINE> <LINE> <RGB:0.92,0.88,0.78> "
+        .. getText(c.formed and "IGUI_StoryEngine_Charter_Preamble" or "IGUI_StoryEngine_Charter_DraftPreamble", day)
+        .. " <LINE> <LINE> "
+    for _, g in ipairs(c.signed or {}) do
+        local line = g.text
+        if not line or line == "" then
+            local key = "IGUI_StoryEngine_Charter_Line_" .. tostring(g.voice or g.fid)
+            line = getText(UI.hasText(key) and key or "IGUI_StoryEngine_Charter_Line_default")
+        end
+        parts[#parts + 1] = " <RGB:0.75,0.7,0.6> " .. UI.escape(signerName(g)) .. " <LINE> <INDENT:12> <RGB:0.92,0.88,0.78> "
+            .. UI.escape(line) .. " <LINE> <INDENT:0> "
+    end
+    for _, g in ipairs(c.unsigned or {}) do
+        parts[#parts + 1] = " <RGB:0.55,0.55,0.55> "
+            .. UI.escape(getText("IGUI_StoryEngine_Charter_Unsigned", signerName(g))) .. " <LINE> "
+    end
+    for _, g in ipairs(c.blanks or {}) do
+        local key = "IGUI_StoryEngine_Charter_Blank_" .. (g.fate == "dead" and "dead" or "gone")
+        parts[#parts + 1] = " <RGB:0.55,0.55,0.55> " .. UI.escape(getText(key, signerName(g))) .. " <LINE> "
+    end
+    if c.held then
+        parts[#parts + 1] = " <LINE> <RGB:0.6,0.6,0.6> " .. UI.escape(getText("IGUI_StoryEngine_Charter_Held"))
+    end
+    return table.concat(parts)
+end
+
 function StoryEngineLetterWindow.body(info)
     if info.memorial then return memorialBody(info) end
+    if info.charter then return charterBody(info) end
     local name = StoryEngine.Factions.nameAs(tostring(info.from), info.voice)
     local parts = {}
     if info.title and info.title ~= "" then
@@ -81,6 +120,7 @@ end
 function StoryEngineLetterWindow:setInfo(info)
     self.info = info
     self.title = info.memorial and getText("IGUI_StoryEngine_Memorial_Title", tostring(info.memorial))
+        or (info.charter and getText(info.charter.formed and "IGUI_StoryEngine_Charter_Title" or "IGUI_StoryEngine_Charter_Draft"))
         or getText("IGUI_StoryEngine_Letter_Title", StoryEngine.Factions.nameAs(tostring(info.from), info.voice))
     self.text.text = StoryEngineLetterWindow.body(info)
     self.text:paginate()
@@ -131,7 +171,7 @@ local function letterOf(items)
     for _, v in ipairs(items or {}) do
         local it = v
         if type(v) == "table" and v.items then it = v.items[1] end
-        if it and it.getFullType and it:getFullType() == LETTER then return it end
+        if it and it.getFullType and (it:getFullType() == LETTER or it:getFullType() == CHARTER) then return it end
     end
     return nil
 end

@@ -508,6 +508,9 @@ function Journal.authors(selfKey)
     end
     table.sort(memoirs, function(a, b) return tostring(a.lastDate) > tostring(b.lastDate) end)
     for _, m in ipairs(memoirs) do out[#out + 1] = m end
+    -- 카운티 연대기 (회의가 끝난 뒤의 에필로그, Era.lua): 목록 맨 위
+    local row = StoryEngine.Era and StoryEngine.Era.authorRow() or nil
+    if row then table.insert(out, 1, row) end
     return out
 end
 

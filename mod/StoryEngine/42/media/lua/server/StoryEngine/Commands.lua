@@ -33,6 +33,7 @@ require "StoryEngine/Letters"
 require "StoryEngine/Legacy"
 require "StoryEngine/Voices"
 require "StoryEngine/Council"
+require "StoryEngine/Era"
 require "StoryEngine/AiTales"
 require "StoryEngine/Tuning"
 require "StoryEngine/Grid"
@@ -125,6 +126,14 @@ function Commands.journalList(player, args)
     local ps = own
     if type(args.key) == "string" and StoryEngine.Store.data().players[args.key] then
         ps = StoryEngine.Store.data().players[args.key]
+    end
+    if args.epilogue and StoryEngine.Era then
+        -- 카운티 연대기 (회의가 끝난 뒤, Era.lua)
+        reply(player, "journalList", {
+            key = "council", own = own.key, epilogue = StoryEngine.Era.epilogueFor(),
+            authors = StoryEngine.Journal.authors(own.key),
+        })
+        return
     end
     if args.memoir then
         -- 회고록과 살아 있는 사람들의 추모
@@ -807,7 +816,11 @@ function Commands.debugCouncil(player, args)
     local Council = StoryEngine.Council
     local now = StoryEngine.Sensor.now()
     local s = Council.state()
-    if not s.stage or s.stage == "done" then
+    if args and args.reset then
+        -- 회의의 결실(의회 시대·선물·헌장·에필로그)을 되돌리고 회의도 처음으로
+        if StoryEngine.Era then StoryEngine.Era.reset() end
+        s.stage, s.result, s.cleared, s.prep = nil, nil, nil, nil
+    elseif not s.stage or s.stage == "done" then
         if s.stage == "done" then s.stage = nil end
         Council.start(now)
     elseif s.stage == "collect" then

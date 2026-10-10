@@ -290,7 +290,15 @@ function Radio.request(fid, lang, opts)
         if okP then person = info end
     end
 
+    -- 회의가 끝난 뒤: 어떻게 끝났는지, 말한 사람이 교회를 지켰는지 (Era.lua)
+    local council = nil
+    if StoryEngine.Era then
+        local okC, info = pcall(StoryEngine.Era.context, speaker)
+        if okC then council = info end
+    end
+
     Bridge.request("radio", {
+        council = council,
         speakerState = speakerState, specialty = specialty,
         story = story, life = life, newcomer = newcomer,
         faction = fid, lang = lang, trust = ch.trust, memory = ch.memory, personal = person,

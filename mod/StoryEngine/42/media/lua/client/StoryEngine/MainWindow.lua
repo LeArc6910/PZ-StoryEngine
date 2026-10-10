@@ -45,6 +45,7 @@ local COLOR_FAILED = { r = 0.95, g = 0.4, b = 0.35 }
 local COLOR_PROPOSED = { r = 1.0, g = 0.85, b = 0.45 }
 local COLOR_DECLINED = { r = 0.6, g = 0.6, b = 0.6 }
 local COLOR_MEMOIR = { r = 0.85, g = 0.75, b = 0.95 }
+local COLOR_EPILOGUE = { r = 1, g = 0.86, b = 0.55 }
 local COLOR_RISK = { r = 1.0, g = 0.5, b = 0.3 }       -- 놓치면 NPC 를 잃을 수 있는 퀘스트
 local SMALL_W = 80
 local SUPPORT_W = 120
@@ -1623,10 +1624,19 @@ end
 -- 목록 값: 일지 = 캐릭터 키, 회고록 = "m:" .. 키
 function StoryEngineJournalPanel:onSelect(value)
     if not value then return end
+    if string.sub(value, 1, 2) == "e:" then
+        -- 카운티 연대기 (회의가 끝난 뒤의 에필로그)
+        if Cache.journalEpilogue then return end
+        Cache.journalKey, Cache.journalMemoir, Cache.journalEpilogue = "council", false, { status = "loading" }
+        Cache.journal, Cache.journalComments = {}, {}
+        request("journalList", { epilogue = true })
+        self:refresh()
+        return
+    end
     local memoir = string.sub(value, 1, 2) == "m:"
     local key = memoir and string.sub(value, 3) or value
-    if key == Cache.journalKey and memoir == (Cache.journalMemoir == true) then return end
-    Cache.journalKey, Cache.journalMemoir = key, memoir
+    if key == Cache.journalKey and memoir == (Cache.journalMemoir == true) and not Cache.journalEpilogue then return end
+    Cache.journalKey, Cache.journalMemoir, Cache.journalEpilogue = key, memoir, nil
     Cache.journal, Cache.journalComments = {}, {}
     request("journalList", { key = key, memoir = memoir or nil })
     self:refresh()
@@ -1648,21 +1658,33 @@ function StoryEngineJournalPanel:refresh()
     self.list:clear()
     local selectedIndex = 0
     for i, a in ipairs(Cache.journalAuthors or {}) do
-        if a.memoir then
+        if a.epilogue then
+            local title = getText("IGUI_StoryEngine_Epilogue_Row")
+            local sub = tostring(a.lastDate or "?") .. "  |  "
+                .. getText("IGUI_StoryEngine_Epilogue_Result_" .. tostring(a.result or "formed"))
+            self.list:addItem(title, { title = title, sub = sub, value = "e:council", color = COLOR_EPILOGUE })
+            if Cache.journalEpilogue then selectedIndex = i end
+        elseif a.memoir then
             local title = getText("IGUI_StoryEngine_Journal_MemoirOf", tostring(a.name))
             local sub = tostring(a.lastDate or "?") .. "  |  "
                 .. getText("IGUI_StoryEngine_Journal_Comments", StoryEngine.intToString(a.count or 0))
             self.list:addItem(title, { title = title, sub = sub, value = "m:" .. a.key, color = COLOR_MEMOIR })
-            if Cache.journalMemoir and a.key == Cache.journalKey then selectedIndex = i end
+            if Cache.journalMemoir and not Cache.journalEpilogue and a.key == Cache.journalKey then selectedIndex = i end
         else
             local color = nil
             if a.dead then color = COLOR_DECLINED elseif a.key == Cache.journalOwn then color = COLOR_PROPOSED end
             self.list:addItem(tostring(a.name), { title = tostring(a.name), sub = authorSub(a), value = a.key, color = color })
-            if not Cache.journalMemoir and a.key == Cache.journalKey then selectedIndex = i end
+            if not Cache.journalMemoir and not Cache.journalEpilogue and a.key == Cache.journalKey then selectedIndex = i end
         end
     end
     self.list.selected = selectedIndex
 
+    if Cache.journalEpilogue then
+        self.text:setText(StoryEngineJournalPanel.epilogueText(Cache.journalEpilogue))
+        self.text:paginate()
+        self.text:setYScroll(0)
+        return
+    end
     if Cache.journalMemoir then
         self:showMemoir()
         return
@@ -1898,6 +1920,61 @@ function StoryEnginePeoplePanel.storyText(fid, st, noHeader)
             StoryEngine.intToString(math.max(1, st.nextDays)))) .. " <LINE> "
     elseif st.final then
         parts[#parts + 1] = " <RGB:0.7,0.7,0.65> " .. UI.escape(getText("IGUI_StoryEngine_People_StoryOver")) .. " <LINE> "
+    end
+    return table.concat(parts)
+end
+
+-- 카운티 연대기 (일지 탭, 서버 Era.epilogueFor): AI 가 쓴 글이 있으면 그 글, 없으면 채널마다 큰 이야기의 마지막 장면을
+-- 이어 붙인다. 아래에 교회를 지킨 사람들.
+function StoryEngineJournalPanel.epilogueText(ep)
+    local parts = {}
+    parts[#parts + 1] = " <H1> " .. UI.escape((ep.title and ep.title ~= "") and ep.title or getText("IGUI_StoryEngine_Epilogue_Title"))
+    if ep.status == "loading" then
+        parts[#parts + 1] = " <LINE> <RGB:0.6,0.6,0.6> " .. UI.escape(getText("IGUI_StoryEngine_Epilogue_Writing"))
+        return table.concat(parts)
+    end
+    local head = tostring(ep.date or "?") .. "  -  D" .. StoryEngine.intToString(tonumber(ep.day) or 0) .. "  -  "
+        .. getText("IGUI_StoryEngine_Epilogue_Result_" .. tostring(ep.result or "formed")) .. "  -  "
+        .. getText(ep.held and "IGUI_StoryEngine_Epilogue_Held" or "IGUI_StoryEngine_Epilogue_NotHeld")
+    parts[#parts + 1] = " <LINE> <RGB:0.6,0.6,0.6> " .. UI.escape(head) .. " <LINE> "
+    if ep.era then
+        parts[#parts + 1] = " <RGB:0.5,0.9,0.5> " .. UI.escape(getText("IGUI_StoryEngine_Epilogue_Era")) .. " <LINE> "
+    end
+    if ep.text and ep.text ~= "" then
+        parts[#parts + 1] = " <LINE> <TEXT> " .. UI.escape(ep.text) .. " <BR> "
+    else
+        if ep.status == "writing" then
+            parts[#parts + 1] = " <RGB:0.6,0.6,0.6> " .. UI.escape(getText("IGUI_StoryEngine_Epilogue_Writing")) .. " <LINE> "
+        end
+        for _, row in ipairs(ep.npcs or {}) do
+            local name = Factions.nameAs(tostring(row.fid), row.voice or false)
+            parts[#parts + 1] = " <LINE> <RGB:1,0.86,0.55> " .. UI.escape(name)
+            if row.gone then
+                parts[#parts + 1] = " <SPACE> <RGB:0.6,0.6,0.6> "
+                    .. UI.escape(getText(row.gone == "dead" and "IGUI_StoryEngine_Fate_dead" or "IGUI_StoryEngine_Fate_gone"))
+            end
+            parts[#parts + 1] = " <LINE> "
+            if row.arc then
+                local tone = row.tone or "mixed"
+                parts[#parts + 1] = " <RGB:0.7,0.7,0.65> " .. UI.escape(arcTitle(row.arc)) .. " <SPACE> - <SPACE> <RGB:"
+                    .. (row.final and (TONE_COLOR[tone] or TONE_COLOR.mixed) or "0.55,0.85,1") .. "> "
+                    .. UI.escape(row.final and getText("IGUI_StoryEngine_People_Tone_" .. tone)
+                        or getText("IGUI_StoryEngine_People_StoryOngoing")) .. " <LINE> "
+            end
+            local key = "IGUI_StoryEngine_Tale_" .. tostring(row.node)
+            if row.node and UI.hasText(key) then
+                parts[#parts + 1] = " <INDENT:12> <RGB:0.85,0.85,0.8> " .. UI.escape(getText(key)) .. " <LINE> <INDENT:0> "
+            end
+        end
+        parts[#parts + 1] = " <LINE> "
+    end
+    local held = {}
+    for _, p in ipairs(ep.players or {}) do
+        if p.defender then held[#held + 1] = tostring(p.name) end
+    end
+    if #held > 0 then
+        parts[#parts + 1] = " <LINE> <H2> " .. UI.escape(getText("IGUI_StoryEngine_Epilogue_Defenders")) .. " <LINE> <TEXT> "
+            .. UI.escape(table.concat(held, ", ")) .. " <LINE> "
     end
     return table.concat(parts)
 end
@@ -2219,7 +2296,8 @@ function StoryEngineLifePanel.fillSpec2(menu, n)
     -- 고르기 / 바꾸기 (30일마다)
     local label = s2.choice and ((s2.change or 0) > 0
         and getText("IGUI_StoryEngine_Spec2_ChangeWait", StoryEngine.intToString(s2.change))
-        or getText("IGUI_StoryEngine_Spec2_Change")) or getText("IGUI_StoryEngine_Spec2_ChooseButton")
+        or getText(s2.free and "IGUI_StoryEngine_Spec2_ChangeFree" or "IGUI_StoryEngine_Spec2_Change"))
+        or getText("IGUI_StoryEngine_Spec2_ChooseButton")
     local pick = menu:addOption(label, nil, nil)
     local sub = ISContextMenu:getNew(menu)
     menu:addSubMenu(pick, sub)
@@ -2553,7 +2631,8 @@ function StoryEngineMainWindow.open(key)
     request("radioChannels")
     request("radioHistory", { faction = Cache.faction })
     request("questList")
-    request("journalList", { key = Cache.journalKey, memoir = Cache.journalMemoir or nil })
+    request("journalList", { key = Cache.journalKey, memoir = Cache.journalMemoir or nil,
+                             epilogue = Cache.journalEpilogue and true or nil })
     request("lifeList")
     request("npcProfiles")
 end

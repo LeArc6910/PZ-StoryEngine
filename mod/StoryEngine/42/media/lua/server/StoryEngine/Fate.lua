@@ -192,7 +192,9 @@ function Fate.daily()
                 if v >= Fate.STARVE_ALL then all = false end
                 if v >= Fate.STARVE_RESET then any = true end
             end
-            if all then
+            if all and StoryEngine.Era and StoryEngine.Era.relief(fid) then
+                -- 의회 시대: 떠나지 않고 카운티가 나눠 준다 (Era.lua)
+            elseif all then
                 n.starve = (n.starve or 0) + 1
                 if n.starve >= Fate.STARVE_DAYS and Fate.causeOn("starve") then
                     Fate.apply(fid, "gone", "starve")
@@ -440,7 +442,8 @@ function Fate.questRisk(q)
         end
     end
     -- 고갈: 네 자원이 모두 바닥이면 며칠 뒤 떠난다. 그 NPC 가 청한 물건 부탁이 살릴 기회다
-    if Fate.causeOn("starve") and q.kind == "deliver" and o.initiator == "npc" then
+    if Fate.causeOn("starve") and q.kind == "deliver" and o.initiator == "npc"
+        and not (StoryEngine.Era and StoryEngine.Era.active()) then
         local n = Life.npc(fid)
         local all = true
         for _, r in ipairs(Life.RESOURCES) do

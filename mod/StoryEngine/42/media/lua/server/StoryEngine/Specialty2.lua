@@ -222,6 +222,8 @@ end
 
 -- 고르기를 바꿀 수 있을 때까지 남은 분 (처음 고르는 것은 0)
 function Specialty2.changeWait(ps, fid, now)
+    -- 의회 시대 (Era.lua): 언제든 바꿔 쓴다
+    if StoryEngine.Era and StoryEngine.Era.active() then return 0 end
     local _, c = Specialty2.choiceOf(ps, fid)
     if not c or not c.t then return 0 end
     return math.max(0, Specialty2.CHANGE_DAYS * 24 * 60 - (now - c.t))
@@ -262,6 +264,7 @@ function Specialty2.status(fid, ps)
         options = Specialty2.OPTIONS[fid], ready = ready, choice = opt,
         wait = key and math.ceil(Specialty2.waitMinutes(fid, opt, key, now) / 60) or 0,
         change = math.ceil(Specialty2.changeWait(ps, fid, now) / 60),
+        free = (StoryEngine.Era and StoryEngine.Era.active()) or nil,
     }
     local f = opt and key and fxOf(opt, key, now)
     if f then st.active = math.max(1, math.ceil((f.untilT - now) / 60)) end
@@ -1987,6 +1990,66 @@ Specialty2.STAGE2_FX = {
     end,
     reinforce = function(p, f) holdParts(f) end,
 }
+
+-- ---------------------------------------------------------------- 의회의 선물 (Era.lua)
+
+-- 플레이어 곁에 차 한 대: 기름 가득, 모든 부품 멀쩡. 반환: 차, 열쇠(아직 어디에도 넣지 않은 아이템) | nil
+function Specialty2.giftVehicle(player, script)
+    local px, py = math.floor(player:getX()), math.floor(player:getY())
+    local spot = nil
+    for i = 0, 23 do
+        local angle = (i % 8) * math.pi / 4
+        local d = 5 + math.floor(i / 8) * 3
+        spot = freeOutdoor(math.floor(px + math.cos(angle) * d), math.floor(py + math.sin(angle) * d), 0)
+        if spot then break end
+    end
+    if not spot then return nil end
+    local car = addVehicleDebug(script, IsoDirections.N, nil, spot)
+    if not car then return nil end
+    pcall(function()
+        for i = 0, car:getPartCount() - 1 do
+            local part = car:getPartByIndex(i)
+            if part and part:getCondition() < 100 then
+                part:setCondition(100)
+                car:transmitPartCondition(part)
+            end
+        end
+    end)
+    pcall(function()
+        local tank = car:getPartById("GasTank")
+        if tank then
+            tank:setContainerContentAmount(tank:getContainerCapacity())
+            car:transmitPartModData(tank)
+        end
+    end)
+    local okK, key = pcall(function() return car:createVehicleKey() end)
+    log("specialty2 gift vehicle", script, car:getId())
+    return car, okK and key or nil
+end
+
+-- 플레이어 곁에 가축 한 묶음 (kit 이 없으면 젖소). 반환: 놓은 마릿수
+function Specialty2.giftAnimals(player, kit)
+    kit = kit or Specialty2.ANIMAL_KITS[3]
+    local px, py, pz = math.floor(player:getX()), math.floor(player:getY()), math.floor(player:getZ())
+    local spot = nil
+    local start = ZombRand(8)
+    for i = 0, 15 do
+        local angle = ((start + i) % 8) * math.pi / 4
+        local sq = freeOutdoor(math.floor(px + math.cos(angle) * rand(Specialty2.ANIMAL_DIST)),
+            math.floor(py + math.sin(angle) * rand(Specialty2.ANIMAL_DIST)), pz)
+        if sq then spot = sq break end
+    end
+    if not spot then return 0 end
+    local made = 0
+    for _, entry in ipairs(kit) do
+        for _ = 1, entry[3] do
+            local sq = freeOutdoor(spot:getX() + ZombRand(3) - 1, spot:getY() + ZombRand(3) - 1, pz) or spot
+            if spawnAnimal(sq, entry[1], entry[2]) then made = made + 1 end
+        end
+    end
+    log("specialty2 gift animals", kit.say, made)
+    return made
+end
 
 Specialty2.HANDLERS = {
     livestock = livestock, stew = stew, praise = praise, sos = sos, power = power, illness = illness, pain = pain,

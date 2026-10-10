@@ -21,6 +21,7 @@ StoryEngine.ItemTooltip = ItemTooltip
 local PAD = 5
 local COLOR = { 0.95, 0.8, 0.5 }
 local DIM = { 0.7, 0.7, 0.7 }
+local GIFT = { 1, 0.86, 0.55 }
 
 local function fmt(n)
     n = tonumber(n) or 0
@@ -42,9 +43,15 @@ end
 
 -- 툴팁 줄 { { text, color } }. 모드와 상관없는 물건이면 빈 목록
 function ItemTooltip.lines(item)
-    local ok, s = pcall(Value.summary, item)
-    if not ok or not s then return {} end
     local out = {}
+    -- 생존자들의 선물 (카운티 회의, Gifts.lua)
+    local Gifts = StoryEngine.Gifts
+    if Gifts then
+        local okG, tip = pcall(Gifts.tip, item)
+        if okG and tip then out[#out + 1] = { tip, GIFT } end
+    end
+    local ok, s = pcall(Value.summary, item)
+    if not ok or not s then return out end
     if s.quest then
         out[#out + 1] = { getText("IGUI_StoryEngine_Tip_Quest"), DIM }
         return out
