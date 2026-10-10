@@ -152,6 +152,12 @@ option StoryEngine.TrustLossMult
 	page = StoryEngineBalance, translation = StoryEngine_TrustLossMult,
 }
 
+option StoryEngine.TrustUpkeep
+{
+	type = boolean, default = true,
+	page = StoryEngineBalance, translation = StoryEngine_TrustUpkeep,
+}
+
 option StoryEngine.SuspiciousRequests
 {
 	type = integer, min = 2, max = 20, default = 3,

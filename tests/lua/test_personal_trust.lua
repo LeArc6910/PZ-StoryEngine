@@ -168,19 +168,19 @@ end
 
 function T.trust_fades_only_on_days_the_player_was_on()
     local _, _, pa = setup(true)
-    ch("hunter").personal = { [pa.key] = 60 }      -- hunter starts at 0: floor 20
+    ch("hunter").personal = { [pa.key] = 55 }      -- hunter starts at 0: floor 20 (below 60: the old fade, not upkeep)
     local online = { [pa.key] = true }
     for day = 1, 13 do Tr().daily(day, online) end
-    H.eq(ch("hunter").personal[pa.key], 60, "13 idle days: nothing yet")
+    H.eq(ch("hunter").personal[pa.key], 55, "13 idle days: nothing yet")
     Tr().daily(14, online)
-    H.eq(ch("hunter").personal[pa.key], 59, "day 14: -1")
+    H.eq(ch("hunter").personal[pa.key], 54, "day 14: -1")
     Tr().daily(15, {})
     Tr().daily(16, {})
-    H.eq(ch("hunter").personal[pa.key], 59, "offline days do not count")
+    H.eq(ch("hunter").personal[pa.key], 54, "offline days do not count")
     Tr().daily(15, online)
     Tr().daily(16, online)
     Tr().daily(17, online)
-    H.eq(ch("hunter").personal[pa.key], 58, "then every 3 online days")
+    H.eq(ch("hunter").personal[pa.key], 53, "then every 3 online days")
     Tr().touch("hunter", pa.key)
     local today = StoryEngine.Store.dayIndex(StoryEngine.Sensor.now().dayKey)
     Tr().daily(today, online)

@@ -165,7 +165,7 @@ function T.half_done_request_loses_less_trust()
     local p, ps = setup()
     local function failed(sent)
         StoryEngine.Radio.channel("doc").trust = 50
-        local q = StoryEngine.Quests.proposeCustom(p, ps, "doc", { tier = 1, why = "patients", items = { { "Base.Bandage", 4 } } },
+        local q = StoryEngine.Quests.proposeCustom(p, ps, "doc", { tier = 3, why = "patients", items = { { "Base.Bandage", 4 } } },
             StoryEngine.Sensor.now(), { silent = true })
         q.state = "accepted"
         q.need = { { "Base.Bandage", 4 } }
