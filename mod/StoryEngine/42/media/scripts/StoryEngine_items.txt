@@ -93,6 +93,7 @@ module StoryEngine
         DaysFresh = 3,
         DaysTotallyRotten = 6,
         HungerChange = -200.0,
+        ThirstChange = -200.0,
         Calories = 1600.0,
         Carbohydrates = 120.0,
         Lipids = 40.0,
