@@ -594,6 +594,21 @@ function Ops.finish(success, why)
     log("ops finish", op.id, op.kind, op.state, why or "")
 end
 
+-- 작전이 필요 없어졌다 (의회가 시설을 맡았다, Era.lua): 진행 중인 작전과 줄 선 작전을 조용히 거둔다
+function Ops.supersede(why)
+    local s = state()
+    local op = s.current
+    s.queue = {}
+    if not op then return false end
+    local now = Sensor.now()
+    s.current = nil
+    Quests.cancelOp(op.id, now)
+    op.state, op.endT = "superseded", now.t
+    Store.push(s.history, { id = op.id, kind = op.kind, result = op.state, day = Store.dayIndex(now.dayKey), why = why }, 20)
+    log("ops superseded", op.id, op.kind, why or "")
+    return true
+end
+
 -- 60일 복구가 끝나 다시 끊겼다 (Grid.ensure)
 function Ops.onGridLost(kind)
     local now = Sensor.now()

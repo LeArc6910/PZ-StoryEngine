@@ -77,6 +77,7 @@ function Client.handlers.journalList(args)
     Cache.journalMemoir = args.memoir == true
     Cache.journalComments = args.comments or {}
     Cache.journalName = args.name
+    Cache.journalEpilogue = args.epilogue        -- 카운티 연대기를 보고 있으면 그 내용 (서버 Era.lua)
     StoryEngineMainWindow.refreshIfOpen("journal")
 end
 
@@ -86,7 +87,8 @@ function Client.handlers.journalNew(args)
     if not player then return end
     if args.own then HaloTextHelper.addGoodText(player, getText("IGUI_StoryEngine_JournalWritten")) end
     if StoryEngineMainWindow.instance then
-        Net.toServer(player, "journalList", { key = Cache.journalKey, memoir = Cache.journalMemoir or nil })
+        Net.toServer(player, "journalList", { key = Cache.journalKey, memoir = Cache.journalMemoir or nil,
+                                              epilogue = Cache.journalEpilogue and true or nil })
     end
 end
 
@@ -772,6 +774,7 @@ local function fillDebugMenu(context, worldobjects, playerNum)
     npc:addOption(label("ContextMenu_StoryEngine_DebugVoice"), worldobjects, toServer("debugVoice", { faction = fid }))
     npc:addOption(label("ContextMenu_StoryEngine_DebugEpisode"), worldobjects, toServer("debugEpisode", {}))
     npc:addOption(label("ContextMenu_StoryEngine_DebugCouncil"), worldobjects, toServer("debugCouncil", {}))
+    npc:addOption(label("ContextMenu_StoryEngine_DebugCouncilReset"), worldobjects, toServer("debugCouncil", { reset = true }))
     local aiSub = subMenu(context, npc, label("ContextMenu_StoryEngine_DebugAiTale", npcName))
     for _, k in ipairs({ "any", "quiet", "items", "horde" }) do
         aiSub:addOption(label("ContextMenu_StoryEngine_DebugAiTale_" .. k), worldobjects,

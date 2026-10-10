@@ -10,7 +10,8 @@
 --   추적 무리가 12번 온다. 모두 합쳐 샌드박스 CouncilSiege(1000) x ZombieMult 마리 (한 무리는 최대 300).
 --   신뢰도 SIEGE_HELP_TRUST(60) 이상인 NPC 가 돕는다: 길목에서 무리를 막아 줄이고(SIEGE_THIN, 80 이상이면 x1.25),
 --   처음 도착하면 방위대 분대·파이크의 위로·레이의 스튜·케이시 정찰, 무리마다 한 사람씩 저격·미끼·분대(SIEGE_ROTA),
---   다치면 닥(Specialty.assist: 대기·비용 없음). 버텨 내면 5등급 보상 보급.
+--   다치면 닥(Specialty.assist: 대기·비용 없음). 버텨 내면 생존자들의 선물 (Era.lua, 줄 사람이 없으면 5등급 보상 보급).
+-- 회의가 끝나면 Era.onFinish: 의회 시대(의회가 섰을 때)·선물(교회를 지켰을 때)·헌장과 에필로그(늘).
 -- 결말: 모금을 70% 이상 채움 / 교회를 지켜 냄 / 살아 있는 NPC 평균 신뢰도 50 이상 중 둘 이상이면 "카운티 의회"
 -- (모든 NPC 사기 +15, 케이시·파이크와 모두의 사이 +1), 아니면 다툼으로 끝남(사기 -10, 휘태커·빅 사이 -1).
 -- 케이시·파이크의 이야기는 단계마다 <npc>5_2 / 5_3 / 5_9a|5_9b 로 함께 움직인다 (처음 사람만, 늦게 5장에 온 쪽은 결과로 바로).
@@ -318,6 +319,12 @@ function Council.siegeTick(entries, now)
         end
     end
     if #present == 0 then return end
+    -- 교회를 지킨 사람들 (선물·호칭, Era.lua)
+    sg.present = sg.present or {}
+    for _, p in ipairs(present) do
+        local ps = Store.player(p)
+        sg.present[ps.key] = ps.name
+    end
     local lead = present[ZombRand(#present) + 1]
     -- 처음 도착했을 때: 올 수 있는 사람은 다 온다
     if not sg.opened then
@@ -440,8 +447,14 @@ function Council.finish(now)
         end
     end
     if s.result == "formed" then Council.rewardHelpers() end
-    -- 교회를 지켜 냈으면 큰 보상 보급 (교회에 가장 가까운 사람 근처)
-    if s.cleared and hq and StoryEngine.Loot then
+    -- 회의의 결실 (Era.lua): 의회 시대, 생존자들의 선물, 헌장과 에필로그
+    local givers = 0
+    if StoryEngine.Era then
+        local okE, n = pcall(StoryEngine.Era.onFinish, hq, now)
+        if okE then givers = n or 0 else log("council era error:", tostring(n)) end
+    end
+    -- 교회를 지켜 냈는데 선물을 줄 만큼 가까운 사람이 없으면 예전처럼 큰 보상 보급 (교회에 가장 가까운 사람 근처)
+    if s.cleared and givers == 0 and hq and StoryEngine.Loot then
         local best, bestD = nil, nil
         for _, p in ipairs(Sensor.players()) do
             local dx, dy = p:getX() - (hq.cx or 0), p:getY() - (hq.cy or 0)
@@ -530,6 +543,7 @@ function Council.statusText()
             .. " sent " .. StoryEngine.intToString(q.siege.sent) .. " held " .. StoryEngine.intToString(q.siege.held)
             .. " of " .. StoryEngine.intToString(q.siege.total) .. " helpers " .. table.concat(Council.helpers(), ",")
     end
+    if StoryEngine.Era then text = text .. " | " .. StoryEngine.Era.statusText() end
     return text
 end
 

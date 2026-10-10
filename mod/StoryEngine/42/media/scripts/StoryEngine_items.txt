@@ -38,6 +38,17 @@ module StoryEngine
         WorldStaticModel = SheetOfPaper,
     }
 
+    item Charter
+    {
+        DisplayName = County Charter,
+        DisplayCategory = Memento,
+        ItemType = base:normal,
+        Weight = 0.05,
+        Icon = Paperwork1,
+        StaticModel = Paperwork1,
+        WorldStaticModel = Paperwork1,
+    }
+
     item PhotoAlbum
     {
         DisplayName = Someone's Photo Album,
@@ -242,6 +253,27 @@ module StoryEngine
         StressChange = -10,
         StaticModel = CakeSlice,
         WorldStaticModel = CakeSlice,
+    }
+
+    item Food_CouncilBread
+    {
+        DisplayName = Council Day Bread,
+        DisplayCategory = Food,
+        ItemType = base:food,
+        Weight = 0.5,
+        Icon = Bread,
+        DaysFresh = 7,
+        DaysTotallyRotten = 14,
+        HungerChange = -25.0,
+        Calories = 450.0,
+        Carbohydrates = 60.0,
+        Lipids = 6.0,
+        Proteins = 12.0,
+        UnhappyChange = -30,
+        BoredomChange = -20,
+        StressChange = -10,
+        StaticModel = Bread,
+        WorldStaticModel = Bread,
     }
 
     item Food_ApplePie

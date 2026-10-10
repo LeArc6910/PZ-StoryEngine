@@ -133,6 +133,17 @@ function Letters.create(q, ps, fid, reason, extra, now, voice)
     return rec
 end
 
+-- 보급과 상관없는 글 (카운티 헌장, Era.lua): 기록만 만든다. 아이템은 부른 쪽이 modData.storyLetter = id 로 준다
+function Letters.createPlain(fields, now)
+    local s = state()
+    s.seq = s.seq + 1
+    local rec = { id = "L" .. StoryEngine.intToString(s.seq), status = "ready", day = Store.dayIndex(now.dayKey), readBy = {} }
+    for k, v in pairs(fields or {}) do rec[k] = v end
+    s.list[rec.id] = rec
+    log("letter", rec.id, "plain", rec.charter and "charter" or "")
+    return rec
+end
+
 -- 보급을 만들 때 (Quests.create, 물건을 놓기 전): 실을 편지가 있으면 q.items 에 더한다
 function Letters.attach(q, ps, now)
     if not Letters.enabled() or q.kind ~= "supply_drop" then return nil end
@@ -187,6 +198,10 @@ function Letters.read(player, id, qid)
         local text = rec.text and string.sub(rec.text, 1, Letters.NOTE_TEXT) or nil
         if rec.memorial then
             Store.addNote(ps, { kind = "memorial_read", by = rec.memorial, clock = Sensor.now().clock })
+        elseif rec.charter then
+            Store.addNote(ps, { kind = "op", clock = Sensor.now().clock,
+                text = rec.charter.formed and "read the county charter, with everyone's names under it"
+                    or "read the draft of the county charter that never got all its names" })
         else
             Store.addNote(ps, { kind = "letter_read", faction = rec.from, reason = rec.reason, text = text,
                                 clock = Sensor.now().clock })
@@ -194,9 +209,9 @@ function Letters.read(player, id, qid)
         log("letter read", rec.id, "by", ps.name)
     end
     return {
-        id = rec.id, from = rec.from, reason = rec.reason, to = rec.to, day = rec.day,
+        id = rec.id, from = rec.from, voice = rec.voice, reason = rec.reason, to = rec.to, day = rec.day,
         title = rec.title, text = rec.text, writing = rec.status == "writing" or nil,
-        memorial = rec.memorial, pages = rec.pages,
+        memorial = rec.memorial, pages = rec.pages, charter = rec.charter,
     }
 end
 

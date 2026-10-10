@@ -71,6 +71,8 @@ Holiday.ABOUT = {
     chuseok = "Chuseok, the Korean harvest festival (half-moon rice cakes, fruit, remembering the dead, the full moon)",
     dongji = "Dongji, the Korean winter solstice (red bean porridge to ward off bad luck)",
     christmas = "Christmas", july4 = "the Fourth of July", halloween = "Halloween", thanksgiving = "Thanksgiving",
+    councilday = "Council Day, the anniversary of the first county council at the March Ridge church (a shared meal, "
+        .. "candles in the windows, the charter read aloud)",
 }
 
 -- 음력 명절 양력 날짜 (KST). [해] = { 이름 = { 월, 일 } }
@@ -176,10 +178,19 @@ function Holiday.upcoming()
     local y, m, d = Holiday.today()
     local today = jdn(y, m, d)
     local set, setName = Holiday.set()
+    -- 의회의 날 (Era.lua): 의회가 선 다음 해부터, 어느 명절 묶음이든
+    local extra = StoryEngine.Era and StoryEngine.Era.holiday() or nil
+    if extra then
+        local list = {}
+        for _, h in ipairs(set) do list[#list + 1] = h end
+        list[#list + 1] = extra
+        set = list
+    end
     local out = {}
     for _, h in ipairs(set) do
         for _, yy in ipairs({ y, y + 1 }) do
             local dt = Holiday.dateOf(h, yy)
+            if dt and h.fromYear and yy <= h.fromYear then dt = nil end
             if dt then
                 local diff = jdn(dt[1], dt[2], dt[3]) - today
                 if diff >= 0 and diff <= Holiday.ANNOUNCE_DAYS then
