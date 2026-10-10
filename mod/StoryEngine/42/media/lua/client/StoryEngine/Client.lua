@@ -216,7 +216,7 @@ function Client.handlers.questRespondResult(args)
         HaloTextHelper.addGoodText(player, getText(args.accept and "IGUI_StoryEngine_Quest_Accepted" or "IGUI_StoryEngine_Quest_Declined"))
     else
         local key = "IGUI_StoryEngine_Quest_Error_" .. tostring(args.error)
-        local text = getTextOrNull(key) and getText(key) or getText("IGUI_StoryEngine_Error", tostring(args.error))
+        local text = StoryEngine.UI.hasText(key) and getText(key) or getText("IGUI_StoryEngine_Error", tostring(args.error))
         HaloTextHelper.addBadText(player, text)
     end
     Net.toServer(player, "questList", {})
@@ -403,7 +403,7 @@ function Client.handlers.lifeDonateResult(args)
         return
     end
     local key = "IGUI_StoryEngine_Life_Error_" .. tostring(args.error)
-    local text = getTextOrNull(key) and getText(key, StoryEngine.intToString(args.wait or 0))
+    local text = StoryEngine.UI.hasText(key) and getText(key, StoryEngine.intToString(args.wait or 0))
         or getText("IGUI_StoryEngine_Error", tostring(args.error))
     HaloTextHelper.addBadText(player, text)
 end
@@ -419,7 +419,7 @@ function Client.handlers.supportResult(args)
         return
     end
     local key = "IGUI_StoryEngine_Support_Error_" .. tostring(args.error)
-    local text = getTextOrNull(key) and getText(key, StoryEngine.intToString(args.wait or 0))
+    local text = StoryEngine.UI.hasText(key) and getText(key, StoryEngine.intToString(args.wait or 0))
         or getText("IGUI_StoryEngine_Support_Error", tostring(args.error))
     HaloTextHelper.addBadText(player, text)
 end

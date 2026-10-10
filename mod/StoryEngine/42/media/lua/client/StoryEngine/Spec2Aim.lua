@@ -71,7 +71,7 @@ function Aim.body(state)
         parts[#parts + 1] = " <RGB:0.5,0.9,0.5> " .. UI.escape(getText("IGUI_StoryEngine_Aim_Ok"))
     else
         local key = "IGUI_StoryEngine_Spec2_Error_" .. tostring(info.reason)
-        local why = getTextOrNull(key) and getText(key, "0") or tostring(info.reason)
+        local why = StoryEngine.UI.hasText(key) and getText(key, "0") or tostring(info.reason)
         parts[#parts + 1] = " <RGB:0.95,0.5,0.4> " .. UI.escape(getText("IGUI_StoryEngine_Aim_No", why))
     end
     return table.concat(parts)

@@ -150,10 +150,17 @@ function UI.npcName(fid)
     return name
 end
 
+-- 번역이 있는가. getTextOrNull(key) 처럼 인자 없이 물으면 %1 이 든 문장마다 게임이 "Missing arguments" 경고를
+-- 남긴다 (2026-10-10 클라이언트 로그; getTextOrNull 도 문장을 서식 처리한다, jar: (String, Object...)).
+-- 빈 인자를 채워서 묻는다 (남는 인자는 무시된다)
+function UI.hasText(key)
+    return getTextOrNull(key, "", "", "", "") ~= nil
+end
+
 function UI.render(lt)
     if type(lt) ~= "table" or not lt.key then return "" end
     local key = lt.key
-    if lt.alt and not getTextOrNull(key) then key = lt.alt end
+    if lt.alt and not UI.hasText(key) then key = lt.alt end
     local a = {}
     for i, arg in ipairs(lt.args or {}) do
         local t, v = arg.t, arg.v
