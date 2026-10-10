@@ -4,8 +4,14 @@
 -- 열리는 때(하루 한 번 확인): 케이시·파이크 채널 중 하나라도 준비됐고(처음 사람이 5장 대기 장면 casey5_1/pike5_1 에
 -- 있거나, 후임이 자기 이야기를 마쳤음), 살아 있는 채널 중 Council.READY_MIN 명 이상이 4장(또는 후임 이야기)을 마쳤을 때,
 -- 또는 다른 사람의 5장 결말이 처음 나온 지 Council.LATE_DAYS 일 x 이야기 속도가 지났을 때.
--- 단계: 준비 모금(collect, 4일) -> 회의 날 교회로 몰려드는 망자 소탕(horde, 3일) -> 회의(공용 주파수 장면) -> 결말.
--- 결말: 모금을 70% 이상 채움 / 소탕 성공 / 살아 있는 NPC 평균 신뢰도 50 이상 중 둘 이상이면 "카운티 의회"
+-- 단계: 준비 모금(collect, 4일) -> 회의 날 교회 사수(defend, 5일 안에) -> 회의(공용 주파수 장면) -> 결말.
+-- 교회 사수 (2026-10-10 사용자 결정: 1년의 마지막답게 아주 어렵게, 대신 관계가 좋은 모든 NPC 가 적극 돕는다):
+--   교회 둘레 SIEGE_RADIUS 타일에 누군가 SIEGE_MIN(6시간) 머무는 동안 회의가 진행되고, 그동안 SIEGE_WAVE(30분)마다
+--   추적 무리가 12번 온다. 모두 합쳐 샌드박스 CouncilSiege(1000) x ZombieMult 마리 (한 무리는 최대 300).
+--   신뢰도 SIEGE_HELP_TRUST(60) 이상인 NPC 가 돕는다: 길목에서 무리를 막아 줄이고(SIEGE_THIN, 80 이상이면 x1.25),
+--   처음 도착하면 방위대 분대·파이크의 위로·레이의 스튜·케이시 정찰, 무리마다 한 사람씩 저격·미끼·분대(SIEGE_ROTA),
+--   다치면 닥(Specialty.assist: 대기·비용 없음). 버텨 내면 5등급 보상 보급.
+-- 결말: 모금을 70% 이상 채움 / 교회를 지켜 냄 / 살아 있는 NPC 평균 신뢰도 50 이상 중 둘 이상이면 "카운티 의회"
 -- (모든 NPC 사기 +15, 케이시·파이크와 모두의 사이 +1), 아니면 다툼으로 끝남(사기 -10, 휘태커·빅 사이 -1).
 -- 케이시·파이크의 이야기는 단계마다 <npc>5_2 / 5_3 / 5_9a|5_9b 로 함께 움직인다 (처음 사람만, 늦게 5장에 온 쪽은 결과로 바로).
 -- 상태: d.council = { stage, startT, collectId, hordeId, prep, cleared, result, doneT, firstFinalT }
@@ -36,7 +42,23 @@ StoryEngine.Council = Council
 Council.READY_MIN = 6
 Council.LATE_DAYS = 30
 Council.COLLECT_DAYS = 4
-Council.HORDE_DAYS = 3
+Council.HORDE_DAYS = 3                -- (예전 소탕 기한, 더 쓰지 않는다)
+Council.SIEGE_DAYS = 5
+Council.SIEGE_MIN = 360               -- 교회 둘레에 머문 시간 (게임 분)
+Council.SIEGE_WAVE = 30               -- 무리 간격 (게임 분)
+Council.SIEGE_RADIUS = 30
+Council.SIEGE_HELP_TRUST = 60         -- 이 신뢰도 이상인 NPC 가 돕는다
+Council.SIEGE_CLOSE_TRUST = 80        -- 이 이상이면 막아 주는 몫 x SIEGE_CLOSE
+Council.SIEGE_CLOSE = 1.25
+Council.SIEGE_THIN = { guard = 0.20, rats = 0.10, hunter = 0.10, dewey = 0.10, casey = 0.05 }
+Council.SIEGE_THIN_MAX = 0.7
+Council.SIEGE_ROTA = { "hunter", "rats", "guard", "hunter", "pike", "rats" }   -- 무리마다 현장에 오는 지원
+Council.SIEGE_HEAL_GAP = 60
+Council.SIEGE_HURT = 50
+Council.SIEGE_STEW = "StoryEngine.Food_RayStew"
+Council.SIEGE_REWARD_TIER = 5
+Council.SIEGE_CONTEXT = "You are doing this to help hold the March Ridge church while the first county council meets "
+    .. "inside; the dead are coming at it by the hundreds."
 Council.PREP_SHARE = 0.7
 Council.TRUST_AVG = 50
 Council.NEED = { { "Base.TinnedSoup", 6 }, { "Base.Candle", 6 }, { "Base.Battery", 4 }, { "Base.Sheet", 4 } }
@@ -194,6 +216,41 @@ local function collectShare(q)
     return need > 0 and got / need or 0
 end
 
+-- ---------------------------------------------------------------- 교회 사수
+
+-- 몰려오는 망자의 총수 (샌드박스 CouncilSiege x ZombieMult, 무리 하나의 상한 300 과는 따로)
+function Council.siegeTotal()
+    local Tuning = StoryEngine.Tuning
+    local n = Tuning and Tuning.num("CouncilSiege") or 1000
+    local m = Tuning and tonumber(Tuning.get("ZombieMult")) or 1
+    return math.max(50, math.floor(n * m + 0.5))
+end
+
+local function helps(fid)
+    return not Factions.isGone(fid) and (Radio.channel(fid).trust or 0) >= Council.SIEGE_HELP_TRUST
+end
+
+-- 도우러 오는 NPC (신뢰도 SIEGE_HELP_TRUST 이상, 살아 있는)
+function Council.helpers()
+    local out = {}
+    for _, f in ipairs(Factions.list) do
+        if helps(f.id) then out[#out + 1] = f.id end
+    end
+    return out
+end
+
+-- 길목에서 막아 주는 몫 (0 ~ SIEGE_THIN_MAX)
+function Council.thinning()
+    local share = 0
+    for fid, part in pairs(Council.SIEGE_THIN) do
+        if helps(fid) then
+            local close = (Radio.channel(fid).trust or 0) >= Council.SIEGE_CLOSE_TRUST
+            share = share + part * (close and Council.SIEGE_CLOSE or 1)
+        end
+    end
+    return math.min(Council.SIEGE_THIN_MAX, share)
+end
+
 function Council.startHorde(now)
     local s = state()
     local q = Store.data().quests[s.collectId or ""]
@@ -202,21 +259,115 @@ function Council.startHorde(now)
     moveHosts("3", now)
     local pike = Factions.byId.pike
     local ps = anyPlayer()
-    local hq = Quests.createSite("horde", ps, { x = pike.x, y = pike.y, name = "March Ridge church" }, now,
+    local total = Council.siegeTotal()
+    local waves = math.max(1, math.ceil(Council.SIEGE_MIN / Council.SIEGE_WAVE))
+    local hq = Quests.createSite("defend", ps, { x = pike.x, y = pike.y, name = "March Ridge church" }, now,
         { council = true, source = "council", faction = "pike" },
-        { tier = 3, size = Quests.HORDE_SIZE[3], building = true, search = 40,
-          deadlineT = now.t + math.floor(Council.HORDE_DAYS * 24 * 60) })
+        { tier = 5, needMin = Council.SIEGE_MIN, radius = Council.SIEGE_RADIUS,
+          deadlineT = now.t + math.floor(Council.SIEGE_DAYS * 24 * 60) })
     s.hordeId = hq and hq.id or nil
-    if hq then hq.tier = 3 end
+    if hq then hq.siege = { total = total, waves = waves, wave = math.ceil(total / waves), sent = 0, held = 0 } end
+    local names = {}
+    for _, fid in ipairs(Council.helpers()) do names[#names + 1] = tostring(Stories.NAMES[fid] or fid) end
     local host = hostOf()
     if host then
-        Radio.react(host, "event", "The dead are gathering around the March Ridge church the day before the county council. "
-            .. "Ask the players to clear them so people can come safely.",
-            { text = "The dead are gathering around the church before the council.",
+        Radio.react(host, "event", "The dead are converging on the March Ridge church for the county council: about "
+            .. StoryEngine.intToString(total) .. " of them, coming in pack after pack. Ask the players to hold the church "
+            .. "(stay close to it) for about six hours until the council is over. "
+            .. (#names > 0 and ("Everyone on the radio who trusts them is coming to help: " .. table.concat(names, ", ") .. ".")
+                or "Nobody on the radio trusts them enough to come; they will be alone."),
+            { text = "The dead are coming at the church by the hundreds. Hold it until the council is over.",
               lt = original(host) and StoryEngine.Lines.story(Council.HOSTS[host] .. "3") or { key = "IGUI_StoryEngine_Council_HordeCall" } }, nil)
     end
     pcall(Net.toAll, "councilNotice", { stage = "horde" })
-    log("council horde", s.hordeId, "prep", s.prep)
+    log("council siege", s.hordeId, "prep", s.prep, "total", total, "waves", waves, "helpers", table.concat(Council.helpers(), ","))
+end
+
+local DIR_CODES = { "E", "SE", "S", "SW", "W", "NW", "N", "NE" }
+local function dirCode(angle)
+    local deg = angle * 180 / math.pi
+    return DIR_CODES[math.floor(((deg + 360 + 22.5) % 360) / 45) + 1]
+end
+
+local function siegeNote(players, key, english, args)
+    local host = hostOf() or "pike"
+    for _, p in ipairs(players) do
+        Radio.overhead(Store.player(p).key, host, english, { key = "IGUI_StoryEngine_Council_Siege_" .. key, args = args or {} })
+    end
+end
+
+local function assist(fid, player)
+    local Spec = StoryEngine.Specialty
+    if not Spec or not helps(fid) then return false end
+    local ok, done = pcall(Spec.assist, fid, player, { context = Council.SIEGE_CONTEXT })
+    return ok and done == true
+end
+
+-- 게임 10분마다 (Sensor tick): 교회를 지키는 동안 무리와 지원
+function Council.siegeTick(entries, now)
+    local s = state()
+    if s.stage ~= "horde" then return end
+    local q = Store.data().quests[s.hordeId or ""]
+    local sg = q and q.siege
+    if not sg or not Quests.isActive(q) then return end
+    local present = {}
+    for _, p in ipairs(Sensor.players()) do
+        if not p:isDead() then
+            local dx, dy = p:getX() - q.cx, p:getY() - q.cy
+            if math.sqrt(dx * dx + dy * dy) <= (q.radius or Council.SIEGE_RADIUS) + 10 then present[#present + 1] = p end
+        end
+    end
+    if #present == 0 then return end
+    local lead = present[ZombRand(#present) + 1]
+    -- 처음 도착했을 때: 올 수 있는 사람은 다 온다
+    if not sg.opened then
+        sg.opened = true
+        siegeNote(present, "Open", "Everyone is coming to the church. Hold on.",
+            { { t = "num", v = #Council.helpers() } })
+        assist("guard", lead)
+        assist("pike", lead)
+        if helps("ray") and StoryEngine.Items then
+            for _, p in ipairs(present) do pcall(StoryEngine.Items.addTo, p:getInventory(), Council.SIEGE_STEW) end
+            Radio.react("ray", "event", "You sent a pot of your stew to everyone holding the March Ridge church for the "
+                .. "county council. Tell them to eat and hold on.",
+                { text = "Sent you all a pot of stew. Eat, and hold on.", lt = { key = "IGUI_StoryEngine_Council_Siege_Stew" } },
+                Store.player(lead), { overhead = true })
+        end
+        log("council siege opened", #present, "present")
+    end
+    -- 케이시: 버티는 동안 정찰 표시
+    if helps("casey") and StoryEngine.Specialty and StoryEngine.Specialty.opScout then
+        for _, p in ipairs(present) do pcall(StoryEngine.Specialty.opScout, p, q.deadlineT or (now.t + 60)) end
+    end
+    -- 닥: 크게 다친 사람
+    sg.healT = sg.healT or {}
+    for _, p in ipairs(present) do
+        local key = Store.player(p).key
+        local okH, hp = pcall(function() return p:getBodyDamage():getOverallBodyHealth() end)
+        if okH and type(hp) == "number" and hp < Council.SIEGE_HURT and now.t >= (sg.healT[key] or 0) then
+            if assist("doc", p) then sg.healT[key] = now.t + Council.SIEGE_HEAL_GAP end
+        end
+    end
+    -- 무리
+    if now.t >= (q.nextWaveT or 0) and (q.waves or 0) < sg.waves and StoryEngine.Hunt then
+        local held = math.floor(sg.wave * Council.thinning() + 0.5)
+        local size = math.max(4, sg.wave - held)
+        local angle = ZombRandFloat(0, math.pi * 2)
+        local d = ZombRand(45, 66)
+        StoryEngine.Hunt.start(lead, size, q.cx + math.cos(angle) * d, q.cy + math.sin(angle) * d, "council")
+        q.waves = (q.waves or 0) + 1
+        q.nextWaveT = now.t + Council.SIEGE_WAVE
+        sg.sent, sg.held = sg.sent + size, sg.held + held
+        siegeNote(present, "Wave", "A pack is coming.",
+            { { t = "num", v = q.waves }, { t = "num", v = sg.waves }, { t = "num", v = size }, { t = "dir", v = dirCode(angle) } })
+        if held > 0 then
+            siegeNote(present, "Held", "Your friends on the radio stopped some of them on the roads.", { { t = "num", v = held } })
+        end
+        local fid = Council.SIEGE_ROTA[(q.waves - 1) % #Council.SIEGE_ROTA + 1]
+        assist(fid, lead)
+        log("council wave", q.waves, "/", sg.waves, "size", size, "held", held, "assist", fid)
+        Quests.notify(q)
+    end
 end
 
 function Council.avgTrust()
@@ -289,6 +440,22 @@ function Council.finish(now)
         end
     end
     if s.result == "formed" then Council.rewardHelpers() end
+    -- 교회를 지켜 냈으면 큰 보상 보급 (교회에 가장 가까운 사람 근처)
+    if s.cleared and hq and StoryEngine.Loot then
+        local best, bestD = nil, nil
+        for _, p in ipairs(Sensor.players()) do
+            local dx, dy = p:getX() - (hq.cx or 0), p:getY() - (hq.cy or 0)
+            local dd = dx * dx + dy * dy
+            if not p:isDead() and (not bestD or dd < bestD) then best, bestD = p, dd end
+        end
+        if best then
+            local giver = hostOf() or "pike"
+            local okR, errR = pcall(Quests.create, "supply_drop", best, Store.player(best), 1, now,
+                { source = "reward", faction = giver, rewardFor = hq.id, rewardKind = "horde" },
+                StoryEngine.Loot.roll(Council.SIEGE_REWARD_TIER, giver))
+            if not okR then log("council reward error:", tostring(errR)) end
+        end
+    end
     local suffix = s.result == "formed" and "9a" or "9b"
     for fid, prefix in pairs(Council.HOSTS) do
         if not Factions.isGone(fid) and original(fid) then
@@ -355,8 +522,20 @@ end
 function Council.statusText()
     local s = state()
     local done, living = Council.readyCount()
-    return "council " .. tostring(s.stage or "waiting") .. " ready " .. StoryEngine.intToString(done) .. "/"
+    local text = "council " .. tostring(s.stage or "waiting") .. " ready " .. StoryEngine.intToString(done) .. "/"
         .. StoryEngine.intToString(living) .. (s.result and (" " .. s.result) or "")
+    local q = Store.data().quests[s.hordeId or ""]
+    if q and q.siege then
+        text = text .. " siege " .. StoryEngine.intToString(q.waves or 0) .. "/" .. StoryEngine.intToString(q.siege.waves)
+            .. " sent " .. StoryEngine.intToString(q.siege.sent) .. " held " .. StoryEngine.intToString(q.siege.held)
+            .. " of " .. StoryEngine.intToString(q.siege.total) .. " helpers " .. table.concat(Council.helpers(), ",")
+    end
+    return text
+end
+
+Sensor.listeners.tick[#Sensor.listeners.tick + 1] = function(entries, now)
+    local ok, err = pcall(Council.siegeTick, entries, now)
+    if not ok then log("council siege error:", tostring(err)) end
 end
 
 Events.EveryHours.Add(function()

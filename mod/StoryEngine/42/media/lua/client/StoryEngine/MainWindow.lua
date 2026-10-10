@@ -1315,7 +1315,21 @@ local function opDetail(q)
                 .. (q.work.stage and ("_" .. q.work.stage) or "")
         end
         if q.holiday and q.kind == "collect" then goal = "IGUI_StoryEngine_Holiday_CollectGoal" end
+        if q.council and q.kind == "defend" then goal = "IGUI_StoryEngine_Council_Goal_defend" end
         line(getText(goal, StoryEngine.intToString(q.radius or 0)))
+    end
+    -- 카운티 회의 공성전: 몰려오는 수와 함께 싸우는 사람
+    if q.siege then
+        local n = StoryEngine.intToString
+        line(getText("IGUI_StoryEngine_Council_Siege_Total", n(q.siege.total or 0), n(q.siege.sent or 0), n(q.siege.held or 0)))
+        local names = {}
+        for _, fid in ipairs(q.siegeHelpers or {}) do names[#names + 1] = UI.npcName(fid) end
+        if #names > 0 then
+            line(getText("IGUI_StoryEngine_Council_Siege_Helpers", table.concat(names, ", ")))
+        else
+            parts[#parts + 1] = " <LINE> <RGB:0.95,0.6,0.35> " .. UI.escape(getText("IGUI_StoryEngine_Council_Siege_Alone"))
+                .. " <TEXT> "
+        end
     end
     parts[#parts + 1] = " <LINE> "
     if q.kind ~= "collect" then

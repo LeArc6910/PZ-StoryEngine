@@ -61,13 +61,13 @@ ALife.THREAT_RADIUS = 60                  -- A-Life 적대 행위자를 찾는 �
 ALife.LEAVE_DIST = 45                     -- 떠나는 대원이 모든 플레이어에게서 이만큼 멀어지면 정리
 ALife.LEAVE_MAX_MIN = 3 * 60              -- 떠나기 시작하고 이 시간이 지나면 정리
 ALife.ORDER_MS = 20 * 60 * 1000           -- 따라오기 명령 한 번의 길이 (실시간). 끝나기 전에 다시 건다
-ALife.ATTACK_SIZE = { 3, 5, 7 }           -- 진행 단계별 공격 인원
+ALife.ATTACK_SIZE = { 3, 5, 7, 8, 8 }     -- 진행 단계별 공격 인원 (A-Life 그룹 최대 8)
 ALife.ATTACK_DIST = { 45, 60 }            -- A-Life 자체 습격(45)과 비슷하게. 멀면 창 가장자리에서 바로 오프라인
 ALife.ATTACK_RETRIES = 2                  -- 막힌 칸·시야 안이라 그룹 전체가 취소되면 다른 자리로 다시
 ALife.STATUS_LOG_MIN = 5                  -- 지원 대원 상태를 로그에 남기는 간격 (게임 분)
 ALife.PROTECT_MS = 500                    -- 아군 보호 주기 (실시간)
 ALife.IGNORE_HOLD_MS = 3000               -- 플레이어를 무시 대상으로 거는 시간 (PROTECT_MS 마다 갱신)
-ALife.ATTACK_LEVEL = { 1, 3, 5 }
+ALife.ATTACK_LEVEL = { 1, 3, 5, 5, 5 }
 -- 따라오지 못한 대원 다시 붙이기 (2026-10-09 사용자 요청: 순간 이동·차량 뒤 대원이 140타일 떨어져 멈춰 있었음)
 ALife.REGROUP_DIST = 30                   -- 대상과 이만큼 떨어지면
 ALife.REGROUP_SPOT = { 4, 6 }             -- 대상 둘레 이 거리로 (거점 안이면 더 멀리, spawnSpot)
@@ -990,7 +990,7 @@ function ALife.sendAttack(player, fid, tries)
     if Factions.isGone(fid) then return false, "gone" end      -- 떠난 세력의 습격대는 없다 (점검 D4)
     tries = tries or 0
     local stage = Store.stage(Store.player(player))
-    local ok, info = ALife.spawnSquad(player, fid, ALife.ATTACK_LEVEL[stage], ALife.ATTACK_SIZE[stage], false,
+    local ok, info = ALife.spawnSquad(player, fid, ALife.ATTACK_LEVEL[stage] or 5, ALife.ATTACK_SIZE[stage] or 8, false,
         ALife.ATTACK_DIST, "attack", {
             done = function(outcome)
                 if (tonumber(outcome.active) or 0) > 0 then

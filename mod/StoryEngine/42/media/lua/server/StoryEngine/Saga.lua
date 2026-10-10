@@ -503,7 +503,8 @@ function Blackout.silence(sg, now)
     sg.data.mast = { x = mast.x, y = mast.y }
     sg.data.radioDown = true
     local stage = Store.stage()
-    local size = math.floor((Quests.HORDE_SIZE[math.min(Quests.MAX_TIER, stage + 1)] or 14) + 0.5)
+    local size = math.floor((Quests.HORDE_SIZE[math.min(Quests.MAX_TIER, stage + 1)] or 14)
+        * (1 + 0.25 * math.max(0, stage - 4)) + 0.5)
     remember(sg, "mast", Quests.createSite("horde", targetPs(sg), { x = mast.x, y = mast.y, name = "relay_mast" }, now,
         Saga.origin(sg, "mast", "casey"), { deadlineT = sg.endT, size = size, search = 40, tier = 3 }))
     remember(sg, "parts", Quests.createCollect(targetPs(sg), Saga.RELAY_PARTS, now, Saga.origin(sg, "parts", "casey"), sg.endT))

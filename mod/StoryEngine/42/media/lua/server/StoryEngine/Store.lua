@@ -84,9 +84,13 @@ end
 -- ---------------------------------------------------------------- 진행 단계 (밸런스)
 -- 서버(월드) 경과 일수로 초반·중반·후반을 나눈다 (모든 플레이어 공통). 초반에는 큰 보상을 주지 않고 실패 부담도 작게,
 -- 자원이 쌓인 후반에는 큰 보상이 나오는 대신 실패하면 신뢰를 크게 잃는다 (2026-09-27 사용자 결정).
-Store.STAGE_DAYS = { 31, 91 }            -- 이 날부터 중반(1개월 뒤), 후반(3개월 뒤)
-Store.STAGE_MAX_TIER = { 2, 4, 5 }       -- 단계별 퀘스트·이벤트 최고 등급
-Store.STAGE_PENALTY = { 0.5, 1 }         -- 초반·중반 신뢰도 감점 배율 (후반은 Trust.LATE 표)
+-- 2026-10-10 사용자 결정: 91일 뒤로도 커지게 4·5단계(181일, 271일)를 더했다. 4·5단계는 최고 등급·감점은 후반과 같고
+-- 무리 크기(Hunt.SIZE_BY_STAGE)·습격대·부탁 등급 확률(Director.INTENSITY_BY_STAGE)·모금 물량이 더 커진다.
+Store.STAGE_DAYS = { 31, 91, 181, 271 }  -- 이 날부터 중반(1개월 뒤), 후반(3개월 뒤), 4단계(6개월), 5단계(9개월)
+Store.STAGE_MAX_TIER = { 2, 4, 5, 5, 5 } -- 단계별 퀘스트·이벤트 최고 등급
+Store.STAGE_PENALTY = { 0.5, 1 }         -- 초반·중반 신뢰도 감점 배율 (후반부터는 Trust.LATE 표)
+Store.STAGE_NEED = { 1, 1.25, 1.5, 1.75, 2 }   -- 모금(큰 사건·복구 작전·명절·회의) 물량 배율
+Store.STAGE_PACK = { 1, 1.5, 2, 2.5, 3 }       -- 작은 좀비 무리(아는 얼굴의 일행, 구조 신호 건물 안) 배율
 -- 세력 신뢰도별 최고 등급: 낯선 사람은 큰 보급을 주지도, 큰 부탁을 하지도 않는다
 Store.TRUST_MAX_TIER = { { min = 60, tier = 5 }, { min = 40, tier = 4 }, { min = 20, tier = 3 }, { min = 0, tier = 2 } }
 
@@ -99,12 +103,21 @@ function Store.serverDays()
     return math.floor(getGameTime():getWorldAgeHours() / 24) + 1
 end
 
--- 1 초반 / 2 중반 / 3 후반. 서버 경과 일수 기준이라 ps 는 쓰지 않는다 (예전 호출과 맞추려고 받기만 한다)
+-- 1 초반 / 2 중반 / 3 후반 / 4 / 5. 서버 경과 일수 기준이라 ps 는 쓰지 않는다 (예전 호출과 맞추려고 받기만 한다)
 function Store.stage(ps)
     local d = Store.serverDays()
-    if d >= Store.STAGE_DAYS[2] then return 3 end
-    if d >= Store.STAGE_DAYS[1] then return 2 end
+    for i = #Store.STAGE_DAYS, 1, -1 do
+        if d >= Store.STAGE_DAYS[i] then return i + 1 end
+    end
     return 1
+end
+
+function Store.stageNeed()
+    return Store.STAGE_NEED[Store.stage()] or 1
+end
+
+function Store.stagePack()
+    return Store.STAGE_PACK[Store.stage()] or 1
 end
 
 -- 다음 일지에 들어갈 사건을 남긴다.

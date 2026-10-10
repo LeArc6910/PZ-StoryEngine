@@ -837,8 +837,10 @@ function Specialty.assist(fid, player, args)
         Store.addNote(ps, { kind = info.note or ("specialty_" .. fid), faction = fid, clock = now.clock,
                             count = info.count, item = info.item })
         if info.topic then
-            Radio.react(fid, "event", info.topic .. " You are doing this to help with the repair operation the whole "
-                .. "county depends on. Keep it short and in character.",
+            -- args.context: 무슨 일을 돕는 중인가 (기본은 복구 작전, 카운티 회의 공성전은 Council.SIEGE_CONTEXT)
+            Radio.react(fid, "event", info.topic .. " " .. tostring(args and args.context
+                or "You are doing this to help with the repair operation the whole county depends on.")
+                .. " Keep it short and in character.",
                 { text = info.fallbackText or "On it.", lt = specLine(fid) }, ps,
                 { overhead = true })
         end

@@ -322,6 +322,8 @@ end
 local function clearSize(op, n)
     local stage = Store.stage()
     local base = Quests.HORDE_SIZE[math.min(Quests.MAX_TIER, stage + 2)] or 20
+    -- 4·5단계: 표가 끝난 뒤로도 커진다 (단계마다 +25%)
+    base = base * (1 + 0.25 * math.max(0, stage - 3))
     local mult = Ops.CLEAR_MULT   -- 샌드박스 ZombieMult 는 Quests.createSite 가 곱한다
     for _ = 1, (op.fails[n] or 0) do mult = mult * Ops.RETRY_SIZE end
     return math.max(6, math.floor(base * mult + 0.5))
