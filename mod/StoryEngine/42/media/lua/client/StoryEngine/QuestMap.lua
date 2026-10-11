@@ -20,6 +20,7 @@ StoryEngine.QuestMap = QuestMap
 QuestMap.SYMBOL = "Exclamation"
 QuestMap.COLOR = { 1.0, 0.55, 0.1 }
 QuestMap.SCOUT_COLOR = { hunt = { 0.9, 0.15, 0.15 }, hostile = { 0.8, 0.25, 0.85 }, horde = { 0.55, 0.05, 0.05 } }
+QuestMap.COLOR_SLACK = 0.02     -- 저장된 색은 1/255 단위라 조금 어긋난다
 
 local ACTIVE = { offered = true, approached = true, entered = true, retrieved = true, accepted = true }
 
@@ -33,11 +34,32 @@ local function near(a, b)
     return math.abs(a - b) < 0.05
 end
 
+local function sameColor(sym, c)
+    return math.abs(sym:getRed() - c[1]) < QuestMap.COLOR_SLACK
+        and math.abs(sym:getGreen() - c[2]) < QuestMap.COLOR_SLACK
+        and math.abs(sym:getBlue() - c[3]) < QuestMap.COLOR_SLACK
+end
+
+-- 우리가 찍은 느낌표인지: 색으로 알아본다 (바닐라 펜 색은 검정·회색·빨강·파랑·초록뿐).
+-- 자리만으로 지우면 목록에서 밀려난 퀘스트, 자리가 옮겨진 퀘스트(아는 얼굴의 좀비·정찰 다음 지점)의 표시가 남는다
+function QuestMap.isOurs(sym)
+    if not (sym:isTexture() and sym:getSymbolID() == QuestMap.SYMBOL) then return false end
+    local ok, ours = pcall(function()
+        if sameColor(sym, QuestMap.COLOR) then return true end
+        for _, c in pairs(QuestMap.SCOUT_COLOR) do
+            if sameColor(sym, c) then return true end
+        end
+        return false
+    end)
+    return ok and ours == true
+end
+
 function QuestMap.sync()
     local map = ISWorldMap_instance
     if not map or not map.mapAPI then return end
     local api = map.mapAPI:getSymbolsAPIv2()
 
+    -- 색을 읽지 못할 때를 위해 알고 있는 자리로도 지운다
     local known = {}
     for _, q in ipairs(QuestMap.quests) do
         if q.x and q.y then known[#known + 1] = { q.x + 0.5, q.y + 0.5 } end
@@ -48,7 +70,9 @@ function QuestMap.sync()
     for _, k in ipairs(pmd.seScoutDrawn or QuestMap.scoutDrawn) do known[#known + 1] = { k[1], k[2] } end
     for i = api:getSymbolCount() - 1, 0, -1 do
         local sym = api:getSymbolByIndex(i)
-        if sym:isTexture() and sym:getSymbolID() == QuestMap.SYMBOL then
+        if QuestMap.isOurs(sym) then
+            api:removeSymbolByIndex(i)
+        elseif sym:isTexture() and sym:getSymbolID() == QuestMap.SYMBOL then
             local sx, sy = sym:getWorldX(), sym:getWorldY()
             for _, k in ipairs(known) do
                 if near(sx, k[1]) and near(sy, k[2]) then

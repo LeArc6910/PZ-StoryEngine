@@ -265,6 +265,7 @@ function Specialty2.status(fid, ps)
         wait = key and math.ceil(Specialty2.waitMinutes(fid, opt, key, now) / 60) or 0,
         change = math.ceil(Specialty2.changeWait(ps, fid, now) / 60),
         free = (StoryEngine.Era and StoryEngine.Era.active()) or nil,
+        cost = { res = Life.KEY[fid] or "morale", n = Specialty2.COST, min = Specialty2.RES_MIN },
     }
     local f = opt and key and fxOf(opt, key, now)
     if f then st.active = math.max(1, math.ceil((f.untilT - now) / 60)) end

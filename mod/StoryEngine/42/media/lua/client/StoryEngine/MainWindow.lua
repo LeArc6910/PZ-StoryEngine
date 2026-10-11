@@ -2273,6 +2273,8 @@ function StoryEngineLifePanel.fillSpec2(menu, n)
             use.notAvailable = true
             desc = spec2ErrorText(s2.reason, s2.wait) .. " <LINE> " .. desc
         end
+        local cost = UI.specCostText(s2.cost, n.res)
+        if cost then desc = desc .. " <LINE> " .. cost end
         spec2Tip(use, desc)
         if s2.choice == "pharmacy" and not s2.reason then
             use.onSelect = nil
@@ -2485,6 +2487,8 @@ function StoryEngineLifePanel:refresh()
             or getText("IGUI_StoryEngine_Spec2_Tooltip_Pick")
         if s2.active then tip2 = getText("IGUI_StoryEngine_Spec2_Active", StoryEngine.intToString(s2.active)) .. " <LINE> " .. tip2 end
         if s2.choice and s2.reason then tip2 = spec2ErrorText(s2.reason, s2.wait) .. " <LINE> " .. tip2 end
+        local cost2 = s2.choice and UI.specCostText(s2.cost, n.res)
+        if cost2 then tip2 = tip2 .. " <LINE> " .. cost2 end
         self.spec2Button.tooltip = tip2 .. " <LINE> " .. getText("IGUI_StoryEngine_Spec2_Common")
     end
     -- 특기: 구간 1~3, 막힌 이유는 툴팁으로
@@ -2499,6 +2503,8 @@ function StoryEngineLifePanel:refresh()
         tip = getText("IGUI_StoryEngine_Spec_Error_" .. tostring(spec.reason), StoryEngine.intToString(spec.wait or 0))
             .. " <LINE> " .. tip
     end
+    local specCost = UI.specCostText(spec.cost, n.res)
+    if specCost then tip = tip .. " <LINE> " .. specCost end
     if spec.scope then tip = tip .. " <LINE> " .. getText("IGUI_StoryEngine_Spec_Scope_" .. tostring(spec.scope)) end
     if UI.trustPair(n.id, n) then tip = tip .. " <LINE> " .. getText("IGUI_StoryEngine_Trust_BenefitTip") end
     self.specButton.tooltip = tip

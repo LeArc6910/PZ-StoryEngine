@@ -308,4 +308,13 @@ function T.successor_forgets_the_choice()
     H.eq(S().choiceOf(ps, "hunter"), nil)
 end
 
+function T.status_tells_the_cost()
+    local p, ps = setup()
+    finish("hunter")
+    local c = S().status("hunter", ps).cost
+    H.eq(c.res, StoryEngine.Life.KEY.hunter)
+    H.eq(c.n, S().COST)
+    H.eq(c.min, S().RES_MIN)
+end
+
 return T

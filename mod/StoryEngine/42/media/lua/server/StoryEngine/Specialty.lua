@@ -215,7 +215,17 @@ function Specialty.status(fid, psKey)
     elseif Life.get(fid, Life.KEY[fid] or "morale") < Life.SELF_MIN then
         reason = "no_resource"
     end
-    return { tier = tier, wait = wait, reason = reason, scope = Specialty.scope(fid) }
+    return { tier = tier, wait = wait, reason = reason, scope = Specialty.scope(fid), cost = Specialty.costOf(fid, tier) }
+end
+
+-- 쓰면 드는 자원 (툴팁용): { res, n, min(이만큼은 있어야 씀) }. 구간이 아직 없으면 첫 구간 기준.
+-- 닥 치료·레이 보급은 구간과 무관한 정해진 양 (Specialty.heal, raySupply 가 commit 에 넘기는 값과 같다)
+function Specialty.costOf(fid, tier)
+    local n = Specialty.COST[math.max(1, tier or 1)] or 10
+    local res = Life.KEY[fid] or "morale"
+    if fid == "doc" then n = Specialty.HEAL_COST end
+    if fid == "ray" then n, res = Specialty.RAY_COST, "food" end
+    return { res = res, n = n, min = Life.SELF_MIN }
 end
 
 -- 대기 초기화 (디버그, A-Life 지원 실패 환불). psKey 가 있으면 그 사람의 대기와 서버 전체 대기, 없으면 모두.

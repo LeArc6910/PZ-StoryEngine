@@ -150,6 +150,19 @@ function UI.npcName(fid)
     return name
 end
 
+-- 특기를 쓰면 드는 자원 (툴팁 한 줄). cost = 서버 Specialty.costOf / Specialty2.status 의 { res, n, min },
+-- res = 그 NPC 의 지금 자원 표 (거점 목록). 예전 서버가 cost 를 안 보내면 nil
+function UI.specCostText(cost, res)
+    if not cost or not cost.res or not cost.n then return nil end
+    local name = getText("IGUI_StoryEngine_Life_Res_" .. tostring(cost.res))
+    local have = res and res[cost.res]
+    if have == nil then
+        return getText("IGUI_StoryEngine_Spec_Cost", name, StoryEngine.intToString(cost.n))
+    end
+    return getText("IGUI_StoryEngine_Spec_Cost_Now", name, StoryEngine.intToString(cost.n),
+        StoryEngine.intToString(math.floor(have)), StoryEngine.intToString(cost.min or 0))
+end
+
 -- 번역이 있는가. getTextOrNull(key) 처럼 인자 없이 물으면 %1 이 든 문장마다 게임이 "Missing arguments" 경고를
 -- 남긴다 (2026-10-10 클라이언트 로그; getTextOrNull 도 문장을 서식 처리한다, jar: (String, Object...)).
 -- 빈 인자를 채워서 묻는다 (남는 인자는 무시된다)

@@ -1769,6 +1769,8 @@
     "IGUI_StoryEngine_Catalog_Black": "Black market: tier 5 %1",
     "IGUI_StoryEngine_Catalog_BlackDays": "This week's item (changes in %1 days)",
     "IGUI_StoryEngine_Catalog_BlackNote": "The trading post's black-market item. You can buy it regardless of trust, and there's only one a week. The price can be haggled.",
+    "IGUI_StoryEngine_Spec_Cost": "Using it costs: %1 -%2",
+    "IGUI_StoryEngine_Spec_Cost_Now": "Using it costs: %1 -%2 (now %3, usable at %4 or more)",
     "IGUI_StoryEngine_Spec_Scope_1": "Wait: server-wide (everyone waits)",
     "IGUI_StoryEngine_Spec_Scope_2": "Wait: per player (only the user waits)",
     "IGUI_StoryEngine_Spec_Scope_3": "Wait: the user waits fully, others 1 day",

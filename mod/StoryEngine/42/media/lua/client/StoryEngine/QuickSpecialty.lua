@@ -68,6 +68,8 @@ local function description(n)
     if n.spec and n.spec.reason then
         desc = getText("IGUI_StoryEngine_Spec_Error_" .. tostring(n.spec.reason), num(n.spec.wait)) .. " <LINE> " .. desc
     end
+    local cost = n.spec and UI.specCostText(n.spec.cost, n.res)
+    if cost then desc = desc .. " <LINE> " .. cost end
     -- 개인 모드: 특기 구간은 내 신뢰로 정한다
     local pair = UI.trustPairText(n.id, n)
     if pair then desc = desc .. " <LINE> " .. pair .. " <LINE> " .. getText("IGUI_StoryEngine_Trust_BenefitTip") end
@@ -377,6 +379,8 @@ function Q.rows2Of(life)
                     local key = "IGUI_StoryEngine_Spec2_Error_" .. tostring(s2.reason)
                     tip = (StoryEngine.UI.hasText(key) and getText(key, num(s2.wait)) or tostring(s2.reason)) .. " <LINE> " .. tip
                 end
+                local cost = UI.specCostText(s2.cost, n.res)
+                if cost then tip = tip .. " <LINE> " .. cost end
                 row.tip = name .. " <LINE> " .. tip
             end
             rows[#rows + 1] = row

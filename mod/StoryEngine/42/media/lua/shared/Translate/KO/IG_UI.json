@@ -1769,6 +1769,8 @@
     "IGUI_StoryEngine_Catalog_Black": "암시장: %1 5등급",
     "IGUI_StoryEngine_Catalog_BlackDays": "이번 주 물건 (%1일 뒤 바뀜)",
     "IGUI_StoryEngine_Catalog_BlackNote": "교역소의 암시장 물건이다. 신뢰도와 상관없이 살 수 있고, 일주일에 하나만 나온다. 값은 흥정할 수 있다.",
+    "IGUI_StoryEngine_Spec_Cost": "쓰면 드는 자원: %1 -%2",
+    "IGUI_StoryEngine_Spec_Cost_Now": "쓰면 드는 자원: %1 -%2 (지금 %3, %4 이상일 때 쓸 수 있음)",
     "IGUI_StoryEngine_Spec_Scope_1": "대기: 서버 전체 (누가 쓰든 모두 기다림)",
     "IGUI_StoryEngine_Spec_Scope_2": "대기: 개인별 (쓴 사람만 기다림)",
     "IGUI_StoryEngine_Spec_Scope_3": "대기: 쓴 사람은 전부, 다른 사람은 1일",

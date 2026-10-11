@@ -578,4 +578,33 @@ function T.alife_squad_skips_factions_out_of_their_window()
     ProjectALife = nil
 end
 
+-- 툴팁에 적을 소모량: 서버가 실제로 깎는 값과 같아야 한다 (2026-10-11)
+function T.status_tells_what_using_it_costs()
+    local p = setup()
+    local Sp = S()
+    setTrust("hunter", 45)
+    local c = Sp.status("hunter").cost
+    H.eq(c.res, "safety")
+    H.eq(c.n, 10)
+    H.eq(c.min, StoryEngine.Life.SELF_MIN)
+    setTrust("hunter", 85)
+    H.eq(Sp.status("hunter").cost.n, 15, "the top tier costs more")
+    -- 아직 구간이 없으면 첫 구간 기준
+    setTrust("casey", 0)
+    H.eq(Sp.status("casey").cost.n, 10)
+    H.eq(Sp.status("casey").cost.res, "morale")
+    -- 닥 치료·레이 보급은 정해진 양
+    setTrust("doc", 85)
+    H.eq(Sp.status("doc").cost.n, Sp.HEAL_COST)
+    H.eq(Sp.status("doc").cost.res, "medical")
+    setTrust("ray", 85)
+    H.eq(Sp.status("ray").cost.n, Sp.RAY_COST)
+    H.eq(Sp.status("ray").cost.res, "food")
+    -- 실제로 그만큼 깎인다
+    local before = res("hunter", "safety")
+    local want = Sp.status("hunter").cost.n
+    Sp.commit("hunter", StoryEngine.Store.player(p), 3, {})
+    H.eq(before - res("hunter", "safety"), want)
+end
+
 return T

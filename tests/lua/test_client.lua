@@ -655,4 +655,26 @@ function T.base_tab_shows_trust_upkeep()
     H.eq(#lines({ id = "ray", fate = "dead", upkeep = { idle = 9, limit = 4 } }), 0, "not for the dead")
 end
 
+-- 특기 툴팁에 쓰면 드는 자원 (2026-10-11): 거점 탭 버튼·특기 아이콘 줄·우클릭 메뉴·2차 특기
+function T.specialty_tooltips_show_the_cost()
+    H.addPlayer("tester", "Gerald", "Kar")
+    local UI = StoryEngine.UI
+    H.eq(UI.specCostText(nil, {}), nil, "an older server sends no cost")
+    H.eq(UI.specCostText({ res = "safety", n = 15, min = 20 }, { safety = 62.4 }),
+        "IGUI_StoryEngine_Spec_Cost_Now|IGUI_StoryEngine_Life_Res_safety|15|62|20")
+    H.eq(UI.specCostText({ res = "food", n = 15 }, nil), "IGUI_StoryEngine_Spec_Cost|IGUI_StoryEngine_Life_Res_food|15")
+    local Q = StoryEngineQuickSpecialty
+    local rows = Q.rowsOf({
+        { id = "hunter", spec = { tier = 3, cost = { res = "safety", n = 15, min = 20 } }, res = { safety = 60 } },
+        { id = "doc", spec = { tier = 1, reason = "cooldown", wait = 5 }, res = {} },
+    })
+    H.ok(string.find(rows[1].tip, "IGUI_StoryEngine_Spec_Cost_Now|IGUI_StoryEngine_Life_Res_safety|15|60|20", 1, true), rows[1].tip)
+    H.ok(not string.find(rows[2].tip, "Spec_Cost", 1, true), "no line without a cost")
+    local rows2 = Q.rows2Of({
+        { id = "hunter", res = { safety = 44 },
+          spec2 = { unlocked = true, choice = "game", cost = { res = "safety", n = 20, min = 30 } } },
+    })
+    H.ok(string.find(rows2[1].tip, "IGUI_StoryEngine_Spec_Cost_Now|IGUI_StoryEngine_Life_Res_safety|20|44|30", 1, true), rows2[1].tip)
+end
+
 return T
