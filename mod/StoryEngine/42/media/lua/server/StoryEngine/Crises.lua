@@ -60,6 +60,9 @@ Crises.SPLIT_ASK_TIER = 4
 Crises.SPLIT_HOLD = { field = "water", gun = "power" }     -- 외면당한 쪽이 쥐는 것
 Crises.TRANSFORMER_DAYS = 5
 Crises.TRANSFORMER_NEED = { { "Base.ElectricWire", 6 }, { "Base.ElectronicsScrap", 10 }, { "Base.Screwdriver", 1 } }
+Crises.TRANSFORMER_REPAIR_MIN = 120                         -- 부품이 모인 뒤 변전소 둘레에 머물러야 하는 시간 (분)
+Crises.TRANSFORMER_SITE_DAYS = 3
+Crises.TRANSFORMER_RADIUS = 20
 Crises.NIGHT_DAYS = 30
 Crises.NIGHT_FROM, Crises.NIGHT_TO = 20, 6                 -- 이 사이에만 전기
 Crises.RATION_PER = 10                                     -- 살아 있는 NPC 한 사람당 모자란 양
@@ -280,8 +283,39 @@ DEF.transformer = {
         return true
     end,
     done = function(cur, now)
-        local q = Store.data().quests[cur.collect or ""]
-        return q ~= nil and q.state == "completed"
+        local quests = Store.data().quests
+        local q = quests[cur.collect or ""]
+        if not (q and q.state == "completed") then return false end
+        if cur.noSite then return true end
+        if not cur.site then
+            -- 부품이 모였다: 가장 가까운 변전소에 가서 수리하는 동안 곁을 지킨다
+            local players = Sensor.players()
+            local p = players[1]
+            local Sites = StoryEngine.OpsSites
+            local site = p and Sites and Sites.byDistance(Sites.SUBSTATIONS, p:getX(), p:getY())[1] or nil
+            local ok, sq = false, nil
+            if site then
+                ok, sq = pcall(Quests.createSite, "defend", Store.player(p), { x = site.x, y = site.y, name = "substation" }, now,
+                    { crisis2 = "transformer", source = "politics", faction = "casey" },
+                    { needMin = Crises.TRANSFORMER_REPAIR_MIN, radius = Crises.TRANSFORMER_RADIUS, tier = 3,
+                      deadlineT = now.t + Crises.TRANSFORMER_SITE_DAYS * 24 * 60 })
+            end
+            if ok and sq then
+                cur.site = sq.id
+                cur.untilT = now.t + Crises.TRANSFORMER_SITE_DAYS * 24 * 60
+                local host = Factions.isGone("casey") and living()[1] or "casey"
+                if host then
+                    pcall(Radio.react, host, "crisis", "The parts for the burned transformer are in. Now someone has to stand at the "
+                        .. "substation for a couple of hours while it is rebuilt. Tell the players where (it is in their quest log).", nil, nil)
+                end
+                notify("transformer_site", {})
+                return false
+            end
+            cur.noSite = true           -- 자리를 만들지 못했다: 부품만으로 끝난 것으로 친다
+            return true
+        end
+        local sq = quests[cur.site]
+        return sq ~= nil and sq.state == "completed"
     end,
     finish = function(cur, now)
         for _, fid in ipairs(living()) do pcall(Life.change, fid, "morale", 5, "crisis") end
@@ -289,8 +323,10 @@ DEF.transformer = {
         notify("transformer_done", {})
     end,
     ignore = function(cur, now)
-        local q = Store.data().quests[cur.collect or ""]
-        if q and Quests.isActive(q) then pcall(Quests.setState, q, "failed", now) end
+        for _, id in ipairs({ cur.collect or "", cur.site or "" }) do
+            local q = Store.data().quests[id]
+            if q and Quests.isActive(q) then pcall(Quests.setState, q, "failed", now) end
+        end
         state().fx.night = { untilT = now.t + Crises.NIGHT_DAYS * 24 * 60 }
         news("Nobody rebuilt the burned transformer. For a month the county has power only at night.", now)
         notify("night", { days = Crises.NIGHT_DAYS })
@@ -774,7 +810,8 @@ function Crises.payload(key, now)
     if cur then
         local def = DEF[cur.id]
         local c = { id = cur.id, hours = math.max(0, math.ceil((cur.untilT - now.t) / 60)), options = def.options,
-                    waiting = cur.waiting, vote = cur.vote, sick = cur.sick, leaders = cur.leaders, collect = cur.collect }
+                    waiting = cur.waiting, vote = cur.vote, sick = cur.sick, leaders = cur.leaders, collect = cur.collect,
+                    site = cur.site }
         if def.allot then
             c.allot = { total = cur.total, step = cur.step, max = cur.max, partial = cur.partial, rows = {} }
             for _, fid in ipairs(cur.rows or {}) do
@@ -786,6 +823,29 @@ function Crises.payload(key, now)
     end
     if StoryEngine.Inquiry then out.probe = StoryEngine.Inquiry.probePayload() end
     return out
+end
+
+Crises.LABEL = {
+    split = "the council nearly splitting in two", transformer = "the burned transformer", ration = "the winter rationing",
+    refugees = "the refugee column at the county line", quarantine = "the fever and the quarantine", boat = "Casey's trip upriver",
+    tribunal = "the court-martial of Sergeant Whitaker", warehouse = "the thefts from the council stores",
+    trial = "the trial over a killing between two settlements", water = "the fouled water", pirate = "the pirate broadcasts",
+}
+
+-- 지나간 위기 (두 번째 연대기). 반환: id 목록, 영어 문장 목록
+function Crises.history()
+    local s = Store.data().crises
+    local ids, texts, seen = {}, {}, {}
+    for _, id in ipairs(Crises.ORDER) do
+        for key in pairs(s and s.done or {}) do
+            if not seen[id] and (key == id or string.sub(key, 1, #id + 1) == id .. "_") then
+                seen[id] = true
+                ids[#ids + 1] = id
+                texts[#texts + 1] = Crises.LABEL[id] or id
+            end
+        end
+    end
+    return ids, texts
 end
 
 function Crises.debug(args)

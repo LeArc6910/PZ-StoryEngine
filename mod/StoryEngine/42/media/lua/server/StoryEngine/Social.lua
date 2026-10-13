@@ -1110,7 +1110,7 @@ end
 --   예약 장면: 화제(사건)가 있으면 A 가 그 이야기를 꺼내고(topic_<화제>) B 가 받고(topic_reply),
 --             없으면 두 사람 사이(Bonds: 좋음 warm / 보통 plain /나쁨 cold)에 맞는 세 줄 (duo_<사이>_open/reply/close)
 --   플레이어 발언: 말에 든 낱말로 종류를 골라(도움·거래·감사·소식·인사) 첫 사람이 그 대답(player_<종류>), 다음 사람이 짧은 대답
-Social.OFFLINE_TOPICS = { storm = true, heli = true, death = true, power = true, water = true, winter = true,
+Social.OFFLINE_TOPICS = { politics = true, storm = true, heli = true, death = true, power = true, water = true, winter = true,
                           share = true, clash = true, holiday = true }
 Social.OFFLINE_RECENT_MIN = 24 * 60
 -- 플레이어 말의 종류: 클라이언트가 자기 언어의 낱말로 고른 것(intent)을 먼저, 없으면 영어 낱말 (Lines.intentOf)

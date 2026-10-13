@@ -511,6 +511,9 @@ function Journal.authors(selfKey)
     -- 카운티 연대기 (회의가 끝난 뒤의 에필로그, Era.lua): 목록 맨 위
     local row = StoryEngine.Era and StoryEngine.Era.authorRow() or nil
     if row then table.insert(out, 1, row) end
+    -- 두 번째 연대기 (의회가 선 지 1년): 그 위에
+    local row2 = StoryEngine.Era and StoryEngine.Era.authorRow2 and StoryEngine.Era.authorRow2() or nil
+    if row2 then table.insert(out, 1, row2) end
     return out
 end
 

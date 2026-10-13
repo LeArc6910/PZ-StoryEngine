@@ -589,6 +589,8 @@ function Work.onState(q, state, outcome, trustDelta)
         if state ~= "completed" then
             q.target = debtor                -- 떼먹은 감점은 빚진 사람에게
             Work.default(q, "favor_broken", t)
+            -- 두말하는 사람 (Life.TAGS two_faced): 표를 얻거나 물건을 받으며 진 빚을 떼먹었다
+            if StoryEngine.Life then pcall(StoryEngine.Life.record, q.origin.faction, "promise_broken", q.targetName, 0) end
         end
         setOwed(q.origin.faction, debtor, nil)
         log("work favor settled", q.id, state)

@@ -16,6 +16,7 @@ local CC = {}
 StoryEngine.CrisesClient = CC
 
 CC.NOTICES = { open = true, split = true, split_mended = true, split_over = true, transformer_done = true, night = true,
+               transformer_site = true,
                night_over = true, ration_done = true, refugees_done = true, quarantine_open = true, quarantine_seal = true,
                boat_hold = true, boat_let = true, boat_back = true, tribunal_testify = true, tribunal_hide = true,
                tribunal_refused = true }
@@ -60,7 +61,13 @@ function CC.caseLines(parts, case)
             text = getText("IGUI_StoryEngine_Inq_Clue_word_" .. mode, UI.npcName(c.fid), who)
             if c.refuted then text = getText("IGUI_StoryEngine_Inq_Clue_word_refuted", UI.npcName(c.fid), who) end
         else
-            text = getText("IGUI_StoryEngine_Inq_Clue_" .. c.kind .. "_" .. mode, who)
+            -- 위기마다 다른 단서 문장 (없으면 공통 문장)
+            local own = "IGUI_StoryEngine_Inq_" .. tostring(case.kind) .. "_" .. tostring(c.n)
+            if UI.hasText(own) then
+                text = getText(own, who)
+            else
+                text = getText("IGUI_StoryEngine_Inq_Clue_" .. c.kind .. "_" .. mode, who)
+            end
         end
         line(parts, "- " .. text, "0.9,0.88,0.8")
     end
@@ -81,6 +88,8 @@ function CC.textOf(e)
             line(parts, getText(c.vote and "IGUI_StoryEngine_Crisis2_WaitVote" or "IGUI_StoryEngine_Crisis2_WaitAsks"), "0.7,0.8,0.9")
         elseif c.allot then
             line(parts, getText("IGUI_StoryEngine_Crisis2_AllotHint"), "0.7,0.8,0.9")
+        elseif c.site then
+            line(parts, getText("IGUI_StoryEngine_Crisis2_SiteHint"), "0.7,0.8,0.9")
         elseif c.collect then
             line(parts, getText("IGUI_StoryEngine_Crisis2_CollectHint"), "0.7,0.8,0.9")
         end

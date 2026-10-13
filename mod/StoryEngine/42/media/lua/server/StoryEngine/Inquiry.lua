@@ -297,6 +297,7 @@ function RESOLVE.warehouse(cur, case, answer, how, right, ps, now)
         return
     end
     local culprit = case.truth
+    if how ~= "public" and StoryEngine.Politics then pcall(StoryEngine.Politics.learnSecret, culprit, "inquiry", nil) end
     if how == "public" then
         trust(culprit, -15, "exposed")
         for _, fid in ipairs(living()) do

@@ -39,6 +39,7 @@ Lines.COUNT = {
     duo_cold_open = 2, duo_cold_reply = 2, duo_cold_close = 1,
     topic_storm = 1, topic_heli = 1, topic_death = 1, topic_power = 1, topic_water = 1, topic_winter = 1,
     topic_share = 1, topic_clash = 1, topic_holiday = 1, topic_reply = 3,
+    topic_politics = 1,         -- 의회의 표결이 끝난 뒤 (Politics.vote -> Social.queueTopic)
     player_greet = 2, player_help = 1, player_trade = 1, player_info = 1, player_thanks = 1,
     -- 위협 세력만
     extort = 2, extort_paid = 1,
@@ -74,6 +75,7 @@ Lines.VOICE_COUNT = {
     duo_plain_open = 1, duo_plain_reply = 1, duo_plain_close = 1, duo_cold_open = 1, duo_cold_reply = 1,
     duo_cold_close = 1, topic_storm = 1, topic_heli = 1, topic_death = 1, topic_power = 1, topic_water = 1,
     topic_winter = 1, topic_share = 1, topic_clash = 1, topic_holiday = 1, topic_reply = 1, player_greet = 1,
+    topic_politics = 1,
     player_help = 1, player_trade = 1, player_info = 1, player_thanks = 1, extort = 1, extort_paid = 1,
     work_horde = 1, work_scout = 1, work_guard = 1, work_courier = 1, work_credit = 1, work_favor = 1,
     work_done = 1, work_paid = 1, favor_call = 1, volunteer_ask = 1, volunteer_done = 1, reward_waived = 1,
@@ -154,6 +156,7 @@ Lines.OUTSIDER_COUNT = {
     q_accepted = 1, q_declined = 1, q_ignored = 1, q_thanks = 1, q_failed = 1, request = 1, reward = 1,
     offline_reply = 1, chat_checkin = 1, volunteer_ask = 1, volunteer_done = 1,
     out_hello = 1, out_bye = 1, out_spec = 1, out_gift = 1, out_appeal = 1, out_cold = 1,
+    reward_trade = 1, trade_failed = 1, reward_waived = 1, favor_call = 1,
 }
 
 function Lines.lt(fid, kind, args)

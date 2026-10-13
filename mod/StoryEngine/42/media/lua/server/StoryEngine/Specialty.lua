@@ -850,6 +850,9 @@ end
 function Specialty.assist(fid, player, args)
     if not Factions.byId[fid] or Factions.isGone(fid) or not Specialty.enabled() then return false, "unavailable" end
     if StoryEngine.Saga and StoryEngine.Saga.specialtyBlocked(fid) then return false, "ill" end
+    -- 의회 이후의 큰 사건: 제안을 받은 파벌의 사람만 저절로 도우러 온다 (Politics.willHelp)
+    local Pol = StoryEngine.Politics
+    if Pol and Pol.willHelp and not Pol.willHelp(fid) then return false, "politics" end
     local handler = Specialty.HANDLERS[fid]
     if not handler or not player or player:isDead() then return false, "no_specialty" end
     local ps = Store.player(player)

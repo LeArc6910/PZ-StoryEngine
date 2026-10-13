@@ -179,6 +179,8 @@ function T.the_armory_bill_loosens_guns_and_drains_the_guard()
     -- 방위대 무기: 매일 -4, 저절로 회복하지 않는다
     Life.npc("guard").res.safety = 75
     Life.npc("ray").res.food = 30
+    -- 방위대와 빅의 충돌(무기 70 이상이면 하루 30%)이 끼어들지 않게
+    StoryEngine.Store.data().npcEvents = { lastClashT = now().t + 10 * 1440 }
     H.advanceDays(1)
     Life.daily()
     H.eq(res("guard", "safety"), 71)
@@ -810,8 +812,11 @@ function T.the_county_settles_into_balance_or_one_camp_rules()
     H.eq(Pol.mod("upkeep"), upkeep * Pol.BALANCE_UPKEEP)
     H.eq(Pol.mod("specWait", "guard"), 1)
     H.eq(Pol.payload("tester").phase.kind, "balance")
-    local notices = H.sentOf("politicsNotice")
-    H.eq(notices[#notices].kind, "phase")
+    local phaseNotice = false
+    for _, n in ipairs(H.sentOf("politicsNotice")) do
+        if n.kind == "phase" then phaseNotice = true end
+    end
+    H.ok(phaseNotice, "the players are told")
     -- 한 파벌이 자리와 법안과 공을 다 가져가면 독주
     s.chair = { fid = "ray", bloc = "field", untilT = now().t + 60 * 1440 }
     s.history[#s.history + 1] = { id = "canteen", bloc = "field", pass = true, day = StoryEngine.Store.serverDays() }

@@ -489,8 +489,77 @@ function Era.writeEpilogue(now)
     return ep
 end
 
--- 일지 탭에 보낼 에필로그 (없으면 nil)
-function Era.epilogueFor()
+-- ---------------------------------------------------------------- 두 번째 연대기 (의회가 선 지 1년)
+
+Era.CHRONICLE2_DAYS = 365
+
+-- 의회가 선 지 한 해가 되면 한 번: 그 한 해의 정치가 어떻게 흘렀는지를 쓴다 (Politics.daily 가 날마다 부른다).
+-- force = 날짜를 보지 않는다 (디버그). 반환: 기록 | nil
+function Era.secondChronicle(now, force)
+    local s = state()
+    if not s.era or s.epilogue2 then return nil end
+    now = now or Sensor.now()
+    if not force and Store.serverDays() - (s.era.day or 0) < Era.CHRONICLE2_DAYS then return nil end
+    local Pol = StoryEngine.Politics
+    local politics = Pol and Pol.summary and Pol.summary() or nil
+    if not politics then return nil end
+    -- 영어 문장 (AI 에게 넘긴다)과 id (AI 가 없을 때 클라이언트가 번역한다)를 함께
+    politics.passedText = {}
+    for _, id in ipairs(politics.passed or {}) do politics.passedText[#politics.passedText + 1] = Pol.TEXT[id] or id end
+    politics.camps = {}
+    for _, f in ipairs(Factions.list) do
+        if not Factions.isGone(f.id) then politics.camps[f.id] = Pol.blocOf(f.id) end
+    end
+    local Out, Cr, Off = StoryEngine.Outsiders, StoryEngine.Crises, StoryEngine.Offices
+    if Out and Out.history then politics.outsiders = Out.history() end
+    if Cr and Cr.history then politics.crises, politics.crisesText = Cr.history() end
+    if Off then
+        politics.offices = {}
+        for _, id in ipairs(Off.ORDER) do
+            local h = Off.holder(id, now.t)
+            if h then politics.offices[#politics.offices + 1] = { id = id, fid = h.fid, title = Off.TITLE[id] } end
+        end
+    end
+    local lang = StoryEngine.Broadcast and StoryEngine.Broadcast.language() or "EN"
+    local ep = { status = "writing", second = true, lang = lang, day = Store.serverDays(), date = now.date,
+                 npcs = Era.snapshot(), players = Era.people(), politics = politics }
+    s.epilogue2 = ep
+    local text = "A year has passed since the county council first sat at the March Ridge church. Someone is writing down "
+        .. "what that year of governing themselves did to the county."
+    if StoryEngine.Social and StoryEngine.Social.news then StoryEngine.Social.news("all", text) end
+    for _, ps in pairs(Store.data().players) do
+        if not ps.dead then Store.addNote(ps, { kind = "op", text = text, clock = now.clock }) end
+    end
+    Bridge.request("epilogue", {
+        lang = lang, day = ep.day, result = "formed", chapter = 2, era = true, npcs = ep.npcs, players = ep.players,
+        politics = politics, signers = {},
+    }, function(res)
+        local json = res.ok and res.json
+        if type(json) == "table" and type(json.text) == "string" and json.text ~= "" then
+            ep.text = string.sub(json.text, 1, Era.EPILOGUE_TEXT)
+            ep.title = type(json.title) == "string" and string.sub(json.title, 1, 80) or nil
+            ep.status = "ready"
+            log("era second chronicle written", lang)
+        else
+            ep.status = "failed"
+            log("era second chronicle failed, the client will tell it:", tostring(res.error))
+        end
+        pcall(Net.toAll, "journalNew", {})
+    end, { timeoutMs = 120000 })
+    pcall(Net.toAll, "eraNotice", { kind = "second" })
+    pcall(Net.toAll, "journalNew", {})
+    log("era second chronicle requested, day", ep.day)
+    return ep
+end
+
+-- 일지 탭에 보낼 에필로그 (없으면 nil). second = 두 번째 연대기
+function Era.epilogueFor(second)
+    if second then
+        local ep2 = state().epilogue2
+        if not ep2 then return nil end
+        return { status = ep2.status, second = true, title = ep2.title, text = ep2.text, day = ep2.day, date = ep2.date,
+                 result = "formed", npcs = ep2.npcs, players = ep2.players, politics = ep2.politics, era = true }
+    end
     local ep = state().epilogue
     if not ep then return nil end
     return { status = ep.status, title = ep.title, text = ep.text, day = ep.day, date = ep.date, result = ep.result,
@@ -502,6 +571,13 @@ function Era.authorRow()
     local ep = state().epilogue
     if not ep then return nil end
     return { key = "council", epilogue = true, result = ep.result, lastDate = ep.date, day = ep.day }
+end
+
+-- 두 번째 연대기의 줄 (없으면 nil)
+function Era.authorRow2()
+    local ep = state().epilogue2
+    if not ep then return nil end
+    return { key = "council2", epilogue = true, second = true, result = "formed", lastDate = ep.date, day = ep.day }
 end
 
 -- ---------------------------------------------------------------- 호칭
@@ -559,7 +635,7 @@ function Era.reset()
     local s = state()
     if s.era and StoryEngine.Grid then pcall(StoryEngine.Grid.reset, nil, "era reset") end
     s.era, s.owed, s.defenders, s.epilogue, s.charterId, s.givers, s.giftCar, s.giftAnimals = nil, nil, nil, nil, nil, nil, nil, nil
-    s.giftsGiven, s.charterGot, s.round = nil, nil, nil
+    s.giftsGiven, s.charterGot, s.round, s.epilogue2 = nil, nil, nil, nil
     log("era reset")
 end
 

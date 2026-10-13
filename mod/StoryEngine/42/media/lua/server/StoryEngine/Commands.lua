@@ -35,6 +35,7 @@ require "StoryEngine/Voices"
 require "StoryEngine/Council"
 require "StoryEngine/Era"
 require "StoryEngine/Politics"
+require "StoryEngine/Offices"
 require "StoryEngine/Outsiders"
 require "StoryEngine/Crises"
 require "StoryEngine/Inquiry"
@@ -137,7 +138,7 @@ function Commands.journalList(player, args)
     if args.epilogue and StoryEngine.Era then
         -- 카운티 연대기 (회의가 끝난 뒤, Era.lua)
         reply(player, "journalList", {
-            key = "council", own = own.key, epilogue = StoryEngine.Era.epilogueFor(),
+            key = "council", own = own.key, epilogue = StoryEngine.Era.epilogueFor(tonumber(args.epilogue) == 2),
             authors = StoryEngine.Journal.authors(own.key),
         })
         return
@@ -945,7 +946,8 @@ function Commands.politicsElection(player, args)
     elseif what == "run" then ok, why, extra = Politics.run(player)
     elseif what == "choose" then ok, why = Politics.choose(player, tostring(args.id or ""))
     elseif what == "cast" then ok, why = Politics.cast(player, args.side)
-    elseif what == "deal" then ok, why = Politics.deal(player, tostring(args.bloc or "")) end
+    elseif what == "deal" then ok, why = Politics.deal(player, tostring(args.bloc or ""))
+    elseif what == "office" then ok, why = StoryEngine.Offices.back(player, tostring(args.bloc or "")) end
     reply(player, "politicsResult", { what = what, ok = ok, error = not ok and why or nil, faction = extra })
     reply(player, "politicsState", { politics = Politics.payload(StoryEngine.Store.playerKey(player)) })
 end

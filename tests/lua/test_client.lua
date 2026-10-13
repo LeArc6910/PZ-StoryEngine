@@ -1105,4 +1105,81 @@ function T.inquiries_in_the_council_tab()
     H.eq(CC.inquiryText({ kind = "nonsense" }), nil)
 end
 
+-- 의회 탭: 압박·몰아세움, 자리 셋, 두 번째 연대기
+function T.council_tab_press_call_and_posts()
+    H.addPlayer("tester", "Gerald", "Kar")
+    local PC = StoryEngine.PoliticsClient
+    local d = { era = true, on = true, blocs = {}, secrets = { "guard" },
+        phase = { kind = "rule", bloc = "field", days = 20, cold = { "hunter" } },
+        bill = { id = "canteen", bloc = "field", by = "ray", hours = 30, yes = 1, no = 2, pass = false, lobbyLeft = 2, plea = "rats",
+                 calls = { ray = "for" },
+                 rows = { { fid = "ray", bloc = "field", trust = 20, need = 40, yes = false },
+                          { fid = "guard", bloc = "gun", trust = 30, need = 80, yes = false },
+                          { fid = "doc", bloc = "field", trust = 70, need = 50, yes = true } } },
+        offices = { list = { { id = "store", fid = "rats", bloc = "market", days = 40, mood = "cold" },
+                             { id = "captain", voteIn = 12 }, { id = "air" } },
+                    vote = { office = "air", hours = 50, cands = { field = "pike", market = "casey" }, votes = { market = 5, field = 3 },
+                             winner = "market" } } }
+    local rows = PC.lobbyRows(d)
+    H.ok(not rows[1].press.ok and rows[1].call.ok, "Ray can be called out on his signature")
+    H.eq(rows[1].call.side, "for")
+    H.ok(rows[2].press.ok and not rows[2].call.ok, "we hold something over the Guard")
+    H.ok(string.find(rows[3].press.tip, "IGUI_StoryEngine_Politics_Lobby_Error_no_secret", 1, true))
+    H.ok(string.find(rows[3].call.tip, "IGUI_StoryEngine_Politics_Lobby_Error_no_pledge", 1, true))
+    local text = PC.textOf(d)
+    H.ok(string.find(text, "IGUI_StoryEngine_Politics_Secrets|IGUI_StoryEngine_Faction_guard", 1, true))
+    H.ok(string.find(text, "IGUI_StoryEngine_Politics_Phase_cold|IGUI_StoryEngine_Faction_hunter", 1, true))
+    H.ok(string.find(text, "IGUI_StoryEngine_Politics_Plea|IGUI_StoryEngine_Faction_rats", 1, true))
+    H.ok(string.find(text, "IGUI_StoryEngine_Office_Held|IGUI_StoryEngine_Office_store|IGUI_StoryEngine_Faction_rats|40", 1, true))
+    H.ok(string.find(text, "IGUI_StoryEngine_Office_store_cold", 1, true))
+    H.ok(string.find(text, "IGUI_StoryEngine_Office_Empty|IGUI_StoryEngine_Office_captain|12", 1, true))
+    H.ok(string.find(text, "IGUI_StoryEngine_Office_Vote|IGUI_StoryEngine_Office_air", 1, true))
+    local erows = PC.electionRows(d)
+    H.eq(#erows, 2, "one row for each candidate for the post")
+    H.eq(erows[1].args.what, "office")
+    H.eq(erows[1].args.bloc, "field")
+    H.ok(erows[1].ok)
+    d.offices.vote.backed = "field"
+    H.ok(not PC.electionRows(d)[2].ok, "one backing only")
+    local msg = PC.noticeText({ kind = "office", office = "store", fid = "rats" })
+    H.ok(string.find(msg, "IGUI_StoryEngine_Office_Notice_chosen|IGUI_StoryEngine_Faction_rats|IGUI_StoryEngine_Office_store", 1, true))
+    msg = PC.noticeText({ kind = "moved", fid = "doc", to = "gun" })
+    H.ok(string.find(msg, "IGUI_StoryEngine_Politics_Notice_moved|IGUI_StoryEngine_Faction_doc", 1, true))
+    H.ok(PC.noticeText({ kind = "secret", fid = "guard" }))
+    H.ok(PC.noticeText({ kind = "plea", fid = "rats" }))
+end
+
+function T.second_chronicle_in_the_journal()
+    H.addPlayer("tester", "Gerald", "Kar")
+    local J = StoryEngineJournalPanel
+    local ep = { status = "failed", second = true, date = "1994-07-01", day = 665,
+        politics = { days = 351, phase = { kind = "rule", bloc = "market" }, chair = { fid = "rats" }, passed = { "post", "armory" },
+                     failed = 2, moved = { { fid = "doc", to = "gun" } }, camps = { ray = "field" },
+                     outsiders = { { id = "hale", state = "expelled" }, { id = "odell", state = "here" } },
+                     crises = { "ration", "pirate" }, offices = { { id = "store", fid = "dewey" } } },
+        npcs = { { fid = "ray", trust = 72 }, { fid = "doc", trust = 40, gone = "dead" } }, players = {} }
+    local text = J.epilogueText(ep)
+    H.ok(string.find(text, "IGUI_StoryEngine_Epilogue2_Title", 1, true))
+    H.ok(string.find(text, "IGUI_StoryEngine_Epilogue2_Days|351", 1, true))
+    H.ok(string.find(text, "IGUI_StoryEngine_Epilogue2_Phase_rule|IGUI_StoryEngine_Politics_Bloc_market", 1, true))
+    H.ok(string.find(text, "IGUI_StoryEngine_Epilogue2_Chair|IGUI_StoryEngine_Faction_rats", 1, true))
+    H.ok(string.find(text, "IGUI_StoryEngine_Epilogue2_Passed|IGUI_StoryEngine_Bill_post, IGUI_StoryEngine_Bill_armory", 1, true))
+    H.ok(string.find(text, "IGUI_StoryEngine_Epilogue2_Failed|2", 1, true))
+    H.ok(string.find(text, "IGUI_StoryEngine_Epilogue2_Moved|IGUI_StoryEngine_Faction_doc|IGUI_StoryEngine_Politics_Bloc_gun", 1, true))
+    H.ok(string.find(text, "IGUI_StoryEngine_Epilogue2_Out_expelled|IGUI_StoryEngine_Faction_hale", 1, true))
+    H.ok(string.find(text, "IGUI_StoryEngine_Epilogue2_Crises|IGUI_StoryEngine_Crisis2_ration, IGUI_StoryEngine_Crisis2_pirate", 1, true))
+    H.ok(string.find(text, "IGUI_StoryEngine_Epilogue2_Standing|IGUI_StoryEngine_Politics_Bloc_field|72", 1, true))
+    H.ok(string.find(text, "IGUI_StoryEngine_Fate_dead", 1, true))
+    -- AI 가 쓴 글이 있으면 그 글만
+    ep.status, ep.title, ep.text = "ready", "A Year of Votes", "They argued, and the lights stayed on."
+    text = J.epilogueText(ep)
+    H.ok(string.find(text, "A Year of Votes", 1, true))
+    H.ok(string.find(text, "They argued, and the lights stayed on.", 1, true))
+    H.ok(not string.find(text, "IGUI_StoryEngine_Epilogue2_Days", 1, true))
+    -- 첫 연대기는 그대로
+    local first = J.epilogueText({ status = "ready", result = "formed", held = true, text = "The church held.", npcs = {}, players = {} })
+    H.ok(string.find(first, "The church held.", 1, true))
+    H.ok(not string.find(first, "Epilogue2", 1, true))
+end
+
 return T

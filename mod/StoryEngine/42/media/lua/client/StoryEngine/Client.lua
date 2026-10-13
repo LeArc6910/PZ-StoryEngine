@@ -88,7 +88,7 @@ function Client.handlers.journalNew(args)
     if args.own then HaloTextHelper.addGoodText(player, getText("IGUI_StoryEngine_JournalWritten")) end
     if StoryEngineMainWindow.instance then
         Net.toServer(player, "journalList", { key = Cache.journalKey, memoir = Cache.journalMemoir or nil,
-                                              epilogue = Cache.journalEpilogue and true or nil })
+                                              epilogue = Cache.journalEpilogue and (Cache.journalEpilogue.second and 2 or true) or nil })
     end
 end
 
@@ -782,6 +782,12 @@ local function fillDebugMenu(context, worldobjects, playerNum)
     polSub:addOption(label("ContextMenu_StoryEngine_DebugPolitics_Vote"), worldobjects, toServer("debugPolitics", { vote = true }))
     polSub:addOption(label("ContextMenu_StoryEngine_DebugPolitics_Election"), worldobjects, toServer("debugPolitics", { election = true }))
     polSub:addOption(label("ContextMenu_StoryEngine_DebugPolitics_Phase"), worldobjects, toServer("debugPolitics", { phase = true }))
+    polSub:addOption(label("ContextMenu_StoryEngine_DebugPolitics_Secret", npcName), worldobjects, toServer("debugPolitics", { secret = fid }))
+    polSub:addOption(label("ContextMenu_StoryEngine_DebugPolitics_Chronicle"), worldobjects, toServer("debugPolitics", { chronicle = true }))
+    for _, id in ipairs({ "store", "captain", "air" }) do
+        polSub:addOption(label("ContextMenu_StoryEngine_DebugPolitics_Office", getText("IGUI_StoryEngine_Office_" .. id)), worldobjects,
+            toServer("debugPolitics", { office = id }))
+    end
     for _, id in ipairs(StoryEngine.PoliticsClient and StoryEngine.PoliticsClient.BILLS or {}) do
         polSub:addOption(label("ContextMenu_StoryEngine_DebugPolitics_Enact", getText("IGUI_StoryEngine_Bill_" .. id)), worldobjects,
             toServer("debugPolitics", { enact = id, target = fid }))

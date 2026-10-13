@@ -90,6 +90,15 @@ function Chronicle.payload()
             chronicle = list,
         }
     end
+    -- 밖에서 온 사람들 (Outsiders.lua): 와 있는 동안만. 생활 자원·프로젝트·큰 이야기는 없다
+    for _, f in ipairs(Factions.outsiders or {}) do
+        if not Factions.isGone(f.id) then
+            local list = {}
+            for i = #Chronicle.list(f.id), 1, -1 do list[#list + 1] = Chronicle.list(f.id)[i] end
+            out[#out + 1] = { id = f.id, freq = f.freq, trust = Radio.channel(f.id).trust, profile = {}, outsider = true,
+                              chronicle = list }
+        end
+    end
     return out
 end
 

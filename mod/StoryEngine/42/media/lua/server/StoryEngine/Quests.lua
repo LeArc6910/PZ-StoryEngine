@@ -154,7 +154,7 @@ end
 function Quests.isManaged(q)
     return Quests.isOp(q) or Quests.isSaga(q) or Quests.isWork(q) or (q ~= nil and q.kind == "volunteer")
         or (q ~= nil and q.origin ~= nil and (q.origin.holiday ~= nil or q.origin.source == "recover"
-            or q.origin.council ~= nil or q.origin.inquiry ~= nil
+            or q.origin.council ~= nil or q.origin.inquiry ~= nil or q.origin.crisis2 ~= nil
             or (q.kind == "collect" and q.origin.politics ~= nil)))
 end
 
@@ -2588,6 +2588,7 @@ function Quests.listFor(psKey, now)
             if q.origin and q.origin.council then item.council = true end
             -- 정치 위기의 조사 (Inquiry.lua): 현장 | 물증 자리
             if q.origin and q.origin.inquiry then item.inquiry = (q.origin.clue or 1) <= 2 and "site" or "item" end
+            if q.origin and q.origin.crisis2 then item.crisis2 = q.origin.crisis2 end
             if q.siege then
                 item.siege = { total = q.siege.total, sent = q.siege.sent, held = q.siege.held, waves = q.siege.waves }
                 item.siegeHelpers = StoryEngine.Council and StoryEngine.Council.helpers() or nil

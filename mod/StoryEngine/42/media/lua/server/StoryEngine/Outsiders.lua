@@ -1308,6 +1308,23 @@ function Outsiders.context(fid)
     return out
 end
 
+-- 누가 왔고 어떻게 됐는가 (두 번째 연대기): { { id, name, state = here|left|expelled|refused, sided } }
+function Outsiders.history()
+    local s = Store.data().outsiders
+    local out = {}
+    if not s then return out end
+    for _, id in ipairs(Outsiders.ORDER) do
+        local o = s.here and s.here[id]
+        local l = s.left and s.left[id]
+        if o then
+            out[#out + 1] = { id = id, name = nameOf(id), state = "here", sided = o.sided, rival = nameOf(Outsiders.DEFS[id].rival) }
+        elseif l and l.why ~= "debug" then
+            out[#out + 1] = { id = id, name = nameOf(id), state = l.why == "expelled" and "expelled" or (l.why == "refused" and "refused" or "left") }
+        end
+    end
+    return out
+end
+
 function Outsiders.debug(args, player)
     local s = state()
     local now = Sensor.now()

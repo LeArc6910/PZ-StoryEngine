@@ -70,6 +70,7 @@ Life.TAGS = {
     { id = "unreliable", count = "broken", min = 3 },
     { id = "generous", count = "donation", min = 3 },
     { id = "vic_friend", count = "rats_known", min = 3 },
+    { id = "two_faced", count = "promise_broken", min = 1 },      -- 표를 얻으려고 한 약속(빚)을 떼먹었다
 }
 
 local function state()

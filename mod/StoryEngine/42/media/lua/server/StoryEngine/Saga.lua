@@ -204,7 +204,10 @@ local function collectShare(q)
 end
 
 local function lifeChange(fid, res, delta, why)
-    if alive(fid) then Life.change(fid, res, delta, why) end
+    -- 의회 이후 (Politics.lua 6단계): 제안을 받은 파벌은 자기 사람들의 거점을 지킨다 (피해가 절반)
+    local Pol = StoryEngine.Politics
+    if delta < 0 and Pol and Pol.shielded and Pol.shielded(fid) then delta = math.ceil(delta / 2) end
+    if alive(fid) and delta ~= 0 then Life.change(fid, res, delta, why) end
 end
 
 -- ---------------------------------------------------------------- ① 군 헬기 추락

@@ -798,6 +798,7 @@ local function questTitle(q)
     end
     if q.council then return getText("IGUI_StoryEngine_QTitle_council_" .. tostring(q.kind)) end
     if q.inquiry then return getText("IGUI_StoryEngine_QTitle_inquiry_" .. tostring(q.inquiry)) end
+    if q.crisis2 then return getText("IGUI_StoryEngine_QTitle_crisis2_" .. tostring(q.crisis2)) end
     if q.holiday then
         return getText("IGUI_StoryEngine_QTitle_holiday", getText("IGUI_StoryEngine_Holiday_" .. tostring(q.holiday)),
             UI.townName(q.town))
@@ -1406,7 +1407,7 @@ local function opDetail(q)
 end
 
 questDetailBase = function(q)
-    if q.op or q.saga or q.work or q.holiday or q.council or q.inquiry then return opDetail(q) end
+    if q.op or q.saga or q.work or q.holiday or q.council or q.inquiry or q.crisis2 then return opDetail(q) end
     if q.kind == "named" then return namedDetail(q) end
     if q.kind == "choice" then return choiceDetail(q) end
     if q.kind == "market" then return marketDetail(q) end
@@ -1627,11 +1628,13 @@ end
 function StoryEngineJournalPanel:onSelect(value)
     if not value then return end
     if string.sub(value, 1, 2) == "e:" then
-        -- 카운티 연대기 (회의가 끝난 뒤의 에필로그)
-        if Cache.journalEpilogue then return end
-        Cache.journalKey, Cache.journalMemoir, Cache.journalEpilogue = "council", false, { status = "loading" }
+        -- 카운티 연대기 (회의가 끝난 뒤의 에필로그). e:council2 = 의회가 선 지 1년 뒤의 두 번째 연대기
+        local second = value == "e:council2"
+        if Cache.journalEpilogue and (Cache.journalEpilogue.second == true) == second then return end
+        Cache.journalKey, Cache.journalMemoir = "council", false
+        Cache.journalEpilogue = { status = "loading", second = second or nil }
         Cache.journal, Cache.journalComments = {}, {}
-        request("journalList", { epilogue = true })
+        request("journalList", { epilogue = second and 2 or true })
         self:refresh()
         return
     end
@@ -1661,11 +1664,12 @@ function StoryEngineJournalPanel:refresh()
     local selectedIndex = 0
     for i, a in ipairs(Cache.journalAuthors or {}) do
         if a.epilogue then
-            local title = getText("IGUI_StoryEngine_Epilogue_Row")
+            local title = getText(a.second and "IGUI_StoryEngine_Epilogue2_Row" or "IGUI_StoryEngine_Epilogue_Row")
             local sub = tostring(a.lastDate or "?") .. "  |  "
-                .. getText("IGUI_StoryEngine_Epilogue_Result_" .. tostring(a.result or "formed"))
-            self.list:addItem(title, { title = title, sub = sub, value = "e:council", color = COLOR_EPILOGUE })
-            if Cache.journalEpilogue then selectedIndex = i end
+                .. (a.second and getText("IGUI_StoryEngine_Epilogue2_Sub")
+                    or getText("IGUI_StoryEngine_Epilogue_Result_" .. tostring(a.result or "formed")))
+            self.list:addItem(title, { title = title, sub = sub, value = a.second and "e:council2" or "e:council", color = COLOR_EPILOGUE })
+            if Cache.journalEpilogue and (Cache.journalEpilogue.second == true) == (a.second == true) then selectedIndex = i end
         elseif a.memoir then
             local title = getText("IGUI_StoryEngine_Journal_MemoirOf", tostring(a.name))
             local sub = tostring(a.lastDate or "?") .. "  |  "
@@ -1928,7 +1932,72 @@ end
 
 -- 카운티 연대기 (일지 탭, 서버 Era.epilogueFor): AI 가 쓴 글이 있으면 그 글, 없으면 채널마다 큰 이야기의 마지막 장면을
 -- 이어 붙인다. 아래에 교회를 지킨 사람들.
+-- 두 번째 연대기: AI 가 쓴 글이 있으면 그 글, 없으면 그 한 해의 정치를 사실대로 적는다
+function StoryEngineJournalPanel.epilogue2Text(ep)
+    local parts = {}
+    parts[#parts + 1] = " <H1> " .. UI.escape((ep.title and ep.title ~= "") and ep.title or getText("IGUI_StoryEngine_Epilogue2_Title"))
+    if ep.status == "loading" then
+        parts[#parts + 1] = " <LINE> <RGB:0.6,0.6,0.6> " .. UI.escape(getText("IGUI_StoryEngine_Epilogue_Writing"))
+        return table.concat(parts)
+    end
+    parts[#parts + 1] = " <LINE> <RGB:0.6,0.6,0.6> " .. UI.escape(tostring(ep.date or "?") .. "  -  D"
+        .. StoryEngine.intToString(tonumber(ep.day) or 0) .. "  -  " .. getText("IGUI_StoryEngine_Epilogue2_Sub")) .. " <LINE> "
+    if ep.text and ep.text ~= "" then
+        parts[#parts + 1] = " <LINE> <TEXT> " .. UI.escape(ep.text) .. " <BR> "
+        return table.concat(parts)
+    end
+    if ep.status == "writing" then
+        parts[#parts + 1] = " <RGB:0.6,0.6,0.6> " .. UI.escape(getText("IGUI_StoryEngine_Epilogue_Writing")) .. " <LINE> "
+    end
+    local function row(text, rgb)
+        parts[#parts + 1] = " <LINE> <RGB:" .. (rgb or "0.85,0.85,0.8") .. "> " .. UI.escape(text)
+    end
+    local function bloc(b) return getText("IGUI_StoryEngine_Politics_Bloc_" .. tostring(b)) end
+    local pol = ep.politics or {}
+    row(getText("IGUI_StoryEngine_Epilogue2_Days", StoryEngine.intToString(tonumber(pol.days) or 0)))
+    if pol.phase then
+        row(pol.phase.kind == "rule" and getText("IGUI_StoryEngine_Epilogue2_Phase_rule", bloc(pol.phase.bloc))
+            or getText("IGUI_StoryEngine_Epilogue2_Phase_balance"), "1,0.86,0.55")
+    end
+    if pol.chair then
+        row(getText("IGUI_StoryEngine_Epilogue2_Chair", pol.chair.player or UI.npcName(pol.chair.fid)))
+    end
+    for _, o in ipairs(pol.offices or {}) do
+        row(getText("IGUI_StoryEngine_Office_Held", getText("IGUI_StoryEngine_Office_" .. tostring(o.id)), UI.npcName(o.fid), "-"))
+    end
+    local names = {}
+    for _, id in ipairs(pol.passed or {}) do names[#names + 1] = getText("IGUI_StoryEngine_Bill_" .. tostring(id)) end
+    if #names > 0 then row(getText("IGUI_StoryEngine_Epilogue2_Passed", table.concat(names, ", "))) end
+    if (tonumber(pol.failed) or 0) > 0 then
+        row(getText("IGUI_StoryEngine_Epilogue2_Failed", StoryEngine.intToString(pol.failed)))
+    end
+    for _, m in ipairs(pol.moved or {}) do
+        row(getText("IGUI_StoryEngine_Epilogue2_Moved", UI.npcName(m.fid), bloc(m.to)))
+    end
+    for _, o in ipairs(pol.outsiders or {}) do
+        row(getText("IGUI_StoryEngine_Epilogue2_Out_" .. tostring(o.state), UI.npcName(o.id)),
+            o.state == "here" and "0.75,0.9,0.75" or "0.8,0.7,0.65")
+    end
+    names = {}
+    for _, id in ipairs(pol.crises or {}) do names[#names + 1] = getText("IGUI_StoryEngine_Crisis2_" .. tostring(id)) end
+    if #names > 0 then row(getText("IGUI_StoryEngine_Epilogue2_Crises", table.concat(names, ", "))) end
+    parts[#parts + 1] = " <LINE> <LINE> <RGB:1,0.86,0.55> " .. UI.escape(getText("IGUI_StoryEngine_Epilogue2_People")) .. " <LINE> "
+    for _, r in ipairs(ep.npcs or {}) do
+        local name = Factions.nameAs(tostring(r.fid), r.voice or false)
+        local tail
+        if r.gone then
+            tail = getText(r.gone == "dead" and "IGUI_StoryEngine_Fate_dead" or "IGUI_StoryEngine_Fate_gone")
+        else
+            tail = getText("IGUI_StoryEngine_Epilogue2_Standing", bloc((pol.camps or {})[r.fid]),
+                StoryEngine.intToString(tonumber(r.trust) or 0))
+        end
+        parts[#parts + 1] = " <RGB:0.85,0.85,0.8> " .. UI.escape(name .. "  -  " .. tail) .. " <LINE> "
+    end
+    return table.concat(parts)
+end
+
 function StoryEngineJournalPanel.epilogueText(ep)
+    if ep.second then return StoryEngineJournalPanel.epilogue2Text(ep) end
     local parts = {}
     parts[#parts + 1] = " <H1> " .. UI.escape((ep.title and ep.title ~= "") and ep.title or getText("IGUI_StoryEngine_Epilogue_Title"))
     if ep.status == "loading" then
@@ -2002,7 +2071,7 @@ function StoryEnginePeoplePanel:refresh()
     self.list:clear()
     if not Cache.peopleFaction then Cache.peopleFaction = Factions.list[1] and Factions.list[1].id end
     local selectedIndex = 0
-    for i, f in ipairs(Factions.list) do
+    for i, f in ipairs(Factions.all()) do
         local n = peopleOf(f.id)
         local sub = getText("IGUI_StoryEngine_Radio_ListSub", f.freq)
         local color = nil
@@ -2714,6 +2783,21 @@ function StoryEnginePoliticsPanel:onLobby()
                 o.toolTip = tip
             end
         end
+        -- 압박(약점)과 몰아세움(헌장의 서명): 몰아세움은 방향이 정해져 있다
+        for _, how in ipairs({ "press", "call" }) do
+            local sides = how == "call" and { row.call.side or "for" } or { "for", "against" }
+            for _, side in ipairs(sides) do
+                local o = sub:addOption(getText("IGUI_StoryEngine_Politics_Lobby_" .. how .. "_" .. side), row.fid, function(fid)
+                    request("politicsLobby", { faction = fid, how = how, side = side })
+                end)
+                if not row[how].ok then o.notAvailable = true end
+                local tip = ISToolTip:new()
+                tip:initialise()
+                tip:setVisible(false)
+                tip.description = row[how].tip
+                o.toolTip = tip
+            end
+        end
     end
 end
 
@@ -2831,7 +2915,7 @@ function StoryEngineMainWindow.open(key)
     request("radioHistory", { faction = Cache.faction })
     request("questList")
     request("journalList", { key = Cache.journalKey, memoir = Cache.journalMemoir or nil,
-                             epilogue = Cache.journalEpilogue and true or nil })
+                             epilogue = Cache.journalEpilogue and (Cache.journalEpilogue.second and 2 or true) or nil })
     request("lifeList")
     request("npcProfiles")
     request("politicsState")
