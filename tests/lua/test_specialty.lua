@@ -247,10 +247,14 @@ function T.ray_supplies_lowest_resources()
     local ok, why = Sp.request(p, "ray", { target = "rats" })
     H.eq(why, "ray_refuses", "not to Vic below tier 3")
     H.eq(Sp.status("ray").wait, 0)
-    StoryEngine.Life.npc("doc").res.food = 10
+    local dr = StoryEngine.Life.npc("doc").res
+    dr.food = 10
+    local before = dr.food + dr.medical + dr.safety + dr.morale
+    local safetyWas = dr.safety
     H.ok(Sp.request(p, "ray", { target = "doc" }))
-    H.eq(res("doc", "food"), 35)
-    H.eq(res("doc", "safety"), 35, "then the next lowest")
+    H.eq(dr.food + dr.medical + dr.safety + dr.morale - before, 75, "tier 2 brings 75 in all (2026-10-13: 50/75/100)")
+    H.eq(res("doc", "food"), 55, "the lowest first")
+    H.ok(res("doc", "safety") > safetyWas, "then the next lowest")
     H.eq(res("ray", "food"), 30, "ray pays 15 food")
     H.eq(StoryEngine.Radio.channel("doc").trust, 26, "doc trust +1")
     H.ok(H.lastBridge("radio", "event"), "someone thanks")
@@ -274,16 +278,18 @@ end
 function T.ray_supply_is_halved_when_players_take_turns()
     setup()
     local Sp = S()
-    H.eq(Sp.raySupply(3), 45, "single player: full, whatever the scope")
+    H.eq(Sp.raySupply(1), 50)
+    H.eq(Sp.raySupply(2), 75)
+    H.eq(Sp.raySupply(3), 100, "single player: full, whatever the scope")
     SandboxVars.StoryEngine.SpecialtyScope_ray = 2
-    H.eq(Sp.raySupply(3), 45, "single player stays full with a per-player wait")
+    H.eq(Sp.raySupply(3), 100, "single player stays full with a per-player wait")
     local was = isServer
     isServer = function() return true end
-    H.eq(Sp.raySupply(1), 10)
-    H.eq(Sp.raySupply(2), 15)
-    H.eq(Sp.raySupply(3), 25)
+    H.eq(Sp.raySupply(1), 25)
+    H.eq(Sp.raySupply(2), 40, "37.5 rounds to the nearest 5")
+    H.eq(Sp.raySupply(3), 50)
     SandboxVars.StoryEngine.SpecialtyScope_ray = 1
-    H.eq(Sp.raySupply(3), 45, "server-wide wait in multiplayer: full")
+    H.eq(Sp.raySupply(3), 100, "server-wide wait in multiplayer: full")
     isServer = was
 end
 
@@ -307,6 +313,33 @@ function T.pike_comfort_companions_and_stiffness()
     H.advance(13 * 60)
     H.fire("EveryOneMinute")
     H.eq(friend.parts[1].stiff, 30, "effect over after 12 hours")
+end
+
+-- 2026-10-13: 첫 구간(신뢰도 40)도 공포·근육통 없음, 3시간
+function T.pike_first_tier_gets_three_hours_without_fear_or_strain()
+    local p = setup()
+    CharacterStat = { STRESS = "STRESS", UNHAPPINESS = "UNHAPPINESS", BOREDOM = "BOREDOM", PANIC = "PANIC" }
+    local values = { STRESS = 0.5, UNHAPPINESS = 50, BOREDOM = 50, PANIC = 80 }
+    function p:getStats()
+        return { get = function(_, k) return values[k] end, set = function(_, k, v) values[k] = v end }
+    end
+    p.parts = { H.newBodyPart("back", { stiff = 40 }) }
+    setTrust("pike", 45)
+    H.ok(S().request(p, "pike", {}))
+    local sent = H.sentOf("specComfort")
+    H.eq(sent[1].hours, 3)
+    H.near(sent[1].reduce, 0.3)
+    H.near(values.BOREDOM, 35, 0.001)
+    H.advance(1)
+    H.fire("EveryOneMinute")
+    H.eq(values.PANIC, 0, "fear kept at zero")
+    H.eq(p.parts[1].stiff, 0, "muscle strain cleared")
+    values.PANIC, p.parts[1].stiff = 60, 25
+    H.advance(3 * 60 + 5)
+    H.fire("EveryOneMinute")
+    H.fire("EveryOneMinute")
+    H.eq(values.PANIC, 60, "over after three hours")
+    H.eq(p.parts[1].stiff, 25)
 end
 
 function T.rats_decoy_noise()
@@ -474,7 +507,7 @@ function T.pike_comfort_changes_stats_on_the_server()
     function p:getStats()
         return { get = function(_, k) return values[k] end, set = function(_, k, v) values[k] = v end }
     end
-    setTrust("pike", 65)                                   -- 구간 2: 50% 감소, 6시간 두려움 없음
+    setTrust("pike", 65)                                   -- 구간 2: 50% 감소, 6시간 두려움·근육통 없음
     H.ok(S().request(p, "pike", {}))
     H.eq(values.BOREDOM, 45, "boredom halved by the server (multiplayer keeps it)")
     H.eq(values.UNHAPPINESS, 30)
@@ -484,7 +517,7 @@ function T.pike_comfort_changes_stats_on_the_server()
     H.fire("EveryOneMinute")
     H.eq(values.PANIC, 0, "server keeps fear at zero")
     local c = StoryEngine.Store.data().spec.comfort[StoryEngine.Store.player(p).key]
-    H.eq(c.stiff, false, "tier 2: no muscle strain effect")
+    H.eq(c.stiff, true, "every tier clears muscle strain now")
     H.advance(7 * 60)
     H.fire("EveryOneMinute")
     values.PANIC = 70

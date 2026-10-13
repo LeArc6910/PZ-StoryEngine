@@ -15,7 +15,9 @@
 -- 결말: 모금을 70% 이상 채움 / 교회를 지켜 냄 / 살아 있는 NPC 평균 신뢰도 50 이상 중 둘 이상이면 "카운티 의회"
 -- (모든 NPC 사기 +15, 케이시·파이크와 모두의 사이 +1), 아니면 다툼으로 끝남(사기 -10, 휘태커·빅 사이 -1).
 -- 케이시·파이크의 이야기는 단계마다 <npc>5_2 / 5_3 / 5_9a|5_9b 로 함께 움직인다 (처음 사람만, 늦게 5장에 온 쪽은 결과로 바로).
--- 상태: d.council = { stage, startT, collectId, hordeId, prep, cleared, result, doneT, firstFinalT }
+-- 다시 열기 (2026-10-13, docs/PLAN_COUNCIL_POLITICS.md 1단계): 의회가 못 섰으면 RETRY_DAYS(샌드박스 CouncilRetryDays, 30일)
+--   뒤에 준비 모금부터 다시 한다 (될 때까지). 헌장은 같은 기록을 고쳐 쓰고, 선물은 한 번만, 의회 시대는 선 회의에서 한 번.
+-- 상태: d.council = { stage, startT, collectId, hordeId, prep, cleared, result, doneT, firstFinalT, round }
 
 if isClient() then return end
 
@@ -64,6 +66,7 @@ Council.PREP_SHARE = 0.7
 Council.TRUST_AVG = 50
 Council.NEED = { { "Base.TinnedSoup", 6 }, { "Base.Candle", 6 }, { "Base.Battery", 4 }, { "Base.Sheet", 4 } }
 Council.HOSTS = { casey = "casey5_", pike = "pike5_" }
+Council.RETRY_DAYS = 30               -- 의회가 못 섰으면 이만큼 뒤에 다시 연다 (0 이면 다시 열지 않음)
 
 local function state()
     local d = Store.data()
@@ -172,8 +175,25 @@ function Council.agenda()
     return out
 end
 
+function Council.retryDays()
+    local Tuning = StoryEngine.Tuning
+    return Tuning and Tuning.num("CouncilRetryDays") or Council.RETRY_DAYS
+end
+
+-- 깨진 회의를 다시 열 때인가
+function Council.shouldRetry(now)
+    local s = state()
+    if s.stage ~= "done" or s.result ~= "failed" then return false end
+    local days = Council.retryDays()
+    if days <= 0 then return false end
+    if now.t - (s.doneT or now.t) < days * 24 * 60 then return false end
+    return hostOf() ~= nil
+end
+
 function Council.start(now)
     local s = state()
+    s.round = (s.round or (s.result and 1 or 0)) + 1
+    local again = s.round > 1
     s.stage, s.startT = "collect", now.t
     s.prep, s.cleared, s.result = nil, nil, nil
     moveHosts("2", now)
@@ -184,15 +204,18 @@ function Council.start(now)
     for _, fid in ipairs({ "casey", "pike" }) do
         local ready = original(fid) and Social().story(fid).node == Council.HOSTS[fid] .. "2"
         local voiced = not original(fid)
-        if not Factions.isGone(fid) and (ready or voiced) then
+        if not Factions.isGone(fid) and (ready or voiced or again) then
             local other = fid == "casey" and "pike" or "casey"
             local partner = not Factions.isGone(other) and tostring(Stories.NAMES[other]) or nil
             Radio.react(fid, "event", (partner and ("You and " .. partner .. " are calling") or "You are calling")
-                .. " the first county council since the fall, at the March Ridge church, broadcast on the radio. "
+                .. (again and (" the county council again at the March Ridge church: the last one broke up in arguments "
+                    .. StoryEngine.intToString(Council.retryDays()) .. " days ago and you want to try once more. ")
+                    or " the first county council since the fall, at the March Ridge church, broadcast on the radio. ")
                 .. "Everyone on the air is invited. Ask the players to help gather food, candles, batteries and blankets for it "
                 .. "(they can send them in the quest log).",
                 { text = "We are calling a county council at the church. Help us get ready.",
-                  lt = ready and StoryEngine.Lines.story(Council.HOSTS[fid] .. "2") or { key = "IGUI_StoryEngine_Council_Call" } }, nil)
+                  lt = again and { key = "IGUI_StoryEngine_Council_Call_Again" }
+                      or (ready and StoryEngine.Lines.story(Council.HOSTS[fid] .. "2") or { key = "IGUI_StoryEngine_Council_Call" }) }, nil)
         end
     end
     if Social().news then
@@ -201,10 +224,11 @@ function Council.start(now)
             if not Factions.isGone(fid) then callers[#callers + 1] = tostring(Stories.NAMES[fid]) end
         end
         Social().news("all", (#callers > 0 and table.concat(callers, " and ") or "People on the radio")
-            .. " are calling the first county council at the March Ridge church.")
+            .. (again and " are calling the county council again at the March Ridge church."
+                or " are calling the first county council at the March Ridge church."))
     end
-    pcall(Net.toAll, "councilNotice", { stage = "collect" })
-    log("council start", s.collectId)
+    pcall(Net.toAll, "councilNotice", { stage = "collect", round = s.round })
+    log("council start", s.collectId, "round", s.round)
 end
 
 local function collectShare(q)
@@ -473,14 +497,18 @@ function Council.finish(now)
     for fid, prefix in pairs(Council.HOSTS) do
         if not Factions.isGone(fid) and original(fid) then
             local node = Stories.node(fid, Social().story(fid).node)
-            if node and node.chapter == 5 and not node.final then Social().moveTo(fid, prefix .. suffix, now) end
+            local failedEnd = s.result == "formed" and Social().story(fid).node == prefix .. "9b"
+            if node and node.chapter == 5 and (not node.final or failedEnd) then Social().moveTo(fid, prefix .. suffix, now) end
         end
     end
     -- 회의 장면 (공용 주파수): 참석자들이 차례로 말한다
     local agenda = Council.agenda()
+    local again = (s.round or 1) > 1
     local topic = (s.result == "formed"
-        and "The first county council just met at the March Ridge church, broadcast on the radio, and it worked: they agreed to meet every month."
-        or "The first county council at the March Ridge church broke up in arguments.")
+        and (again and "The county council met again at the March Ridge church after the first one fell apart, and this time it worked: they agreed to meet every month."
+            or "The first county council just met at the March Ridge church, broadcast on the radio, and it worked: they agreed to meet every month.")
+        or (again and "The county council met again at the March Ridge church and broke up in arguments again."
+            or "The first county council at the March Ridge church broke up in arguments."))
         .. (#agenda > 0 and (" On the agenda: " .. table.concat(agenda, " | ")) or "")
     local ids = {}
     for _, f in ipairs(Factions.list) do
@@ -497,7 +525,7 @@ function Council.finish(now)
         -- 일지: 브릿지가 문장을 그대로 쓰는 op 메모 (format_note)
         if not ps.dead then Store.addNote(ps, { kind = "op", text = topic, clock = now.clock }) end
     end
-    pcall(Net.toAll, "councilNotice", { stage = "done", result = s.result })
+    pcall(Net.toAll, "councilNotice", { stage = "done", result = s.result, round = s.round })
     log("council done", s.result, "prep", s.prep, "cleared", tostring(s.cleared), "trust", Council.avgTrust())
 end
 
@@ -522,6 +550,10 @@ function Council.tick(now)
         if Council.shouldStart(now) and #Sensor.players() > 0 then Council.start(now) end
         return
     end
+    if s.stage == "done" and Council.shouldRetry(now) and #Sensor.players() > 0 then
+        Council.start(now)
+        return
+    end
     if s.stage == "collect" then
         local q = Store.data().quests[s.collectId or ""]
         if not q or not Quests.isActive(q) or now.t >= (q.deadlineT or 0) then Council.startHorde(now) end
@@ -535,7 +567,7 @@ end
 function Council.statusText()
     local s = state()
     local done, living = Council.readyCount()
-    local text = "council " .. tostring(s.stage or "waiting") .. " ready " .. StoryEngine.intToString(done) .. "/"
+    local text = "council " .. tostring(s.stage or "waiting") .. (s.round and (" round " .. StoryEngine.intToString(s.round)) or "") .. " ready " .. StoryEngine.intToString(done) .. "/"
         .. StoryEngine.intToString(living) .. (s.result and (" " .. s.result) or "")
     local q = Store.data().quests[s.hordeId or ""]
     if q and q.siege then

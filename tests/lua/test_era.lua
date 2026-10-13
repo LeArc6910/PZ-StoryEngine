@@ -284,4 +284,74 @@ function T.the_outcome_can_be_undone_for_testing()
     H.eq(Era.epilogueFor(), nil)
 end
 
+-- 회의 재도전 (2026-10-13, PLAN_COUNCIL_POLITICS 1단계): 의회가 못 섰으면 30일 뒤 다시 연다
+function T.a_failed_council_meets_again_after_thirty_days()
+    mockSandbox(14, 10)
+    local p, ps = setup()
+    local Era, Council = StoryEngine.Era, StoryEngine.Council
+    trustAll(10)
+    atSiege(ps, false, 0)
+    Council.finish(now())
+    H.eq(Council.state().result, "failed")
+    H.clockMin = H.clockMin + 29 * 1440
+    Council.tick(now())
+    H.eq(Council.state().stage, "done", "not yet")
+    H.clockMin = H.clockMin + 2 * 1440
+    Council.tick(now())
+    H.eq(Council.state().stage, "collect", "the preparations start over")
+    H.eq(Council.state().round, 2)
+    H.ok(Council.state().collectId, "a new collection")
+    local sent = H.sentOf("councilNotice")
+    H.eq(sent[#sent].round, 2)
+    -- 샌드박스 0 이면 다시 열지 않는다
+    Council.state().stage, Council.state().result, Council.state().doneT = "done", "failed", now().t - 60 * 1440
+    SandboxVars.StoryEngine.CouncilRetryDays = 0
+    H.ok(not Council.shouldRetry(now()))
+    SandboxVars.StoryEngine.CouncilRetryDays = nil
+    H.ok(Council.shouldRetry(now()))
+    -- 의회가 선 뒤에는 다시 열지 않는다
+    Council.state().result = "formed"
+    H.ok(not Council.shouldRetry(now()))
+end
+
+function T.the_second_council_turns_the_draft_into_the_charter()
+    mockSandbox(14, 10)
+    local p, ps = setup()
+    local Era, Council = StoryEngine.Era, StoryEngine.Council
+    trustAll(65)
+    -- 첫 회의: 교회는 지켰지만 모금이 없고 신뢰가 낮아 의회는 못 섬 (선물은 받는다)
+    local first = atSiege(ps, true, 0)
+    trustAll(65)
+    for _, fid in ipairs({ "guard", "rats", "hunter", "dewey", "doc" }) do StoryEngine.Radio.channel(fid).trust = 5 end
+    StoryEngine.Social.story("pike").node = "pike5_9b"
+    Council.finish(now())
+    H.eq(Council.state().result, "failed")
+    local id = Council.state().charterId
+    H.ok(id)
+    local charters = 0
+    for _, it in ipairs(p.items) do if it.fullType == "StoryEngine.Charter" then charters = charters + 1 end end
+    H.eq(charters, 1)
+    H.eq(StoryEngine.Letters.read(p, id).charter.formed, false)
+    local gifts = #H.sentOf("councilGifts")[1].gifts
+    H.ok(gifts > 0, "those who trust them sent a keepsake the first time")
+    local itemsBefore = #p.items
+    -- 30일 뒤 두 번째 회의: 이번에는 선다
+    H.clockMin = H.clockMin + 31 * 1440
+    Council.tick(now())
+    H.eq(Council.state().round, 2)
+    atSiege(ps, true, 1)
+    trustAll(70)
+    Council.finish(now())
+    H.eq(Council.state().result, "formed")
+    H.eq(Council.state().charterId, id, "the same paper")
+    local info = StoryEngine.Letters.read(p, id)
+    H.eq(info.charter.formed, true, "the draft became the charter")
+    H.eq(#info.charter.unsigned, 0)
+    H.eq(info.charter.round, 2)
+    H.eq(#p.items, itemsBefore, "no second charter and no second round of gifts")
+    H.ok(Era.active(), "the council era begins with the council that formed")
+    H.eq(StoryEngine.Social.story("pike").node, "pike5_9a", "the host leaves the failed ending for the good one")
+    H.ok(Council.state().defenders[ps.key], "still one of those who held the church")
+end
+
 return T

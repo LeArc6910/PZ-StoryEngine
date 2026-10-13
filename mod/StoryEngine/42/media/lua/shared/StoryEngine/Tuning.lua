@@ -34,6 +34,10 @@ Tuning.DEFAULTS = {
     StoryRamp = true,       -- 뒤 장으로 갈수록 이야기 부탁 등급이 오른다 (Social.tierAdd)
     TrustUpkeep = true,     -- 신뢰도 유지: 믿은 만큼 아프게·유지비·외면·더디게 오름 (Trust.lua 1b단계)
     CouncilSiege = 1000,    -- 카운티 회의 날 교회로 몰려오는 망자 수 (Council.lua, x ZombieMult)
+    CouncilRetryDays = 30,  -- 의회가 못 섰을 때 회의를 다시 여는 간격 (Council.lua, 0 = 다시 열지 않음)
+    Politics = true,        -- 의회가 선 뒤의 정치: 파벌·법안·표결 (Politics.lua)
+    BillDays = 10,          -- 파벌이 법안을 내는 간격
+    BillWeeks = 2,          -- 통과된 법안이 시행되는 주 수
     -- 개인 신뢰 (2026-10-09, docs/DESIGN_PER_PLAYER_TRUST.md): 1 서버 공유 / 2 개인 (멀티에서만)
     TrustBenefits = 1, TrustIntro = 25, HelperTrustShare = 0.5, GroupHelperTrust = 0.5,
     PersonalAskMinDays = 2, PersonalAskMaxDays = 5,

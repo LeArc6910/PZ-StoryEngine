@@ -256,6 +256,28 @@ module StoryEngine
         WorldStaticModel = CakeSlice,
     }
 
+    item Food_CouncilMeal
+    {
+        DisplayName = Common Kitchen Meal,
+        DisplayCategory = Food,
+        ItemType = base:food,
+        Weight = 0.8,
+        Icon = BowlFull,
+        EatType = 2handbowl,
+        ReplaceOnUse = Base.Bowl,
+        DaysFresh = 2,
+        DaysTotallyRotten = 4,
+        HungerChange = -100.0,
+        ThirstChange = -100.0,
+        Calories = 800.0,
+        Carbohydrates = 70.0,
+        Lipids = 20.0,
+        Proteins = 40.0,
+        UnhappyChange = -10,
+        StaticModel = BowlSoup_Ground,
+        WorldStaticModel = BowlSoup_Ground,
+    }
+
     item Food_CouncilBread
     {
         DisplayName = Council Day Bread,

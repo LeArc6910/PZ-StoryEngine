@@ -127,6 +127,7 @@ end
 function Life.base(fid, res)
     local b = (Life.BASE[fid] or {})[res] or 40
     if StoryEngine.Projects then b = b + StoryEngine.Projects.baseBonus(fid, res) end
+    if StoryEngine.Politics then b = b + StoryEngine.Politics.mod("baseBonus", fid, res) end   -- 밭 파벌 의장
     return b
 end
 
@@ -188,7 +189,8 @@ function Life.daily()
                 local v, b = n.res[r] or 0, Life.base(f.id, r)
                 if v > b then
                     n.res[r] = math.max(b, v - Life.DRIFT)
-                elseif v < b and v >= Life.SELF_MIN and not neglected then
+                elseif v < b and v >= Life.SELF_MIN and not neglected
+                    and not (StoryEngine.Politics and StoryEngine.Politics.mod("noRegen", f.id, r)) then   -- 법안이 깎는 자원은 회복하지 않는다
                     n.res[r] = math.min(b, v + Life.DRIFT)
                 end
             end
@@ -208,6 +210,11 @@ function Life.daily()
     if not first and StoryEngine.World then
         local ok, err = pcall(StoryEngine.World.dailyExtra)
         if not ok then log("world daily error:", err) end
+    end
+    -- 시행 중인 법안이 깎는 자원, 파벌 기울기 (Politics.lua)
+    if not first and StoryEngine.Politics then
+        local ok, err = pcall(StoryEngine.Politics.daily)
+        if not ok then log("politics daily error:", err) end
     end
     -- 형편 고갈: 모두 바닥이면 날을 센다 (Fate.lua)
     if not first and StoryEngine.Fate then
@@ -368,7 +375,7 @@ function Life.onQuest(q, outcome, trustDelta)
     local res = q.kind == "horde" and "safety" or Life.resourceOfItems(q.need) or "morale"
     if outcome == "completed" then
         local gain = math.min(40, 10 * tier)
-        if q.night and StoryEngine.Quests.nightMult then gain = math.floor(gain * StoryEngine.Quests.nightMult() + 0.5) end
+        if StoryEngine.Quests.bonusMult then gain = math.floor(gain * StoryEngine.Quests.bonusMult(q) + 0.5) end
         Life.change(fid, res, gain, "quest")
         if res == "medical" then Life.count(fid, "medical_help") end
         Life.record(fid, "quest_completed", who, trustDelta)

@@ -775,6 +775,17 @@ local function fillDebugMenu(context, worldobjects, playerNum)
     npc:addOption(label("ContextMenu_StoryEngine_DebugEpisode"), worldobjects, toServer("debugEpisode", {}))
     npc:addOption(label("ContextMenu_StoryEngine_DebugCouncil"), worldobjects, toServer("debugCouncil", {}))
     npc:addOption(label("ContextMenu_StoryEngine_DebugCouncilReset"), worldobjects, toServer("debugCouncil", { reset = true }))
+    -- 의회의 정치 (Politics.lua)
+    local polSub = subMenu(context, npc, label("ContextMenu_StoryEngine_DebugPolitics"))
+    polSub:addOption(label("ContextMenu_StoryEngine_DebugPolitics_Open"), worldobjects, toServer("debugPolitics", { open = true }))
+    polSub:addOption(label("ContextMenu_StoryEngine_DebugPolitics_Bill"), worldobjects, toServer("debugPolitics", { bill = "next" }))
+    polSub:addOption(label("ContextMenu_StoryEngine_DebugPolitics_Vote"), worldobjects, toServer("debugPolitics", { vote = true }))
+    polSub:addOption(label("ContextMenu_StoryEngine_DebugPolitics_Election"), worldobjects, toServer("debugPolitics", { election = true }))
+    for _, id in ipairs(StoryEngine.PoliticsClient and StoryEngine.PoliticsClient.BILLS or {}) do
+        polSub:addOption(label("ContextMenu_StoryEngine_DebugPolitics_Enact", getText("IGUI_StoryEngine_Bill_" .. id)), worldobjects,
+            toServer("debugPolitics", { enact = id, target = fid }))
+    end
+    polSub:addOption(label("ContextMenu_StoryEngine_DebugPolitics_Reset"), worldobjects, toServer("debugPolitics", { reset = true }))
     local aiSub = subMenu(context, npc, label("ContextMenu_StoryEngine_DebugAiTale", npcName))
     for _, k in ipairs({ "any", "quiet", "items", "horde" }) do
         aiSub:addOption(label("ContextMenu_StoryEngine_DebugAiTale_" .. k), worldobjects,

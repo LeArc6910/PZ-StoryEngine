@@ -34,6 +34,7 @@ require "StoryEngine/Legacy"
 require "StoryEngine/Voices"
 require "StoryEngine/Council"
 require "StoryEngine/Era"
+require "StoryEngine/Politics"
 require "StoryEngine/AiTales"
 require "StoryEngine/Tuning"
 require "StoryEngine/Grid"
@@ -896,6 +897,57 @@ function Commands.debugStatus(player, args)
         .. " | " .. StoryEngine.Work.statusText() .. " | " .. StoryEngine.Named.statusText()
         .. " | " .. StoryEngine.AiTales.statusText()
         .. " | " .. StoryEngine.Holiday.statusText() .. personalStatus() })
+end
+
+-- ---------------------------------------------------------------- 의회의 정치 (Politics.lua)
+
+function Commands.politicsState(player, args)
+    reply(player, "politicsState", { politics = StoryEngine.Politics.payload(StoryEngine.Store.playerKey(player)) })
+end
+
+-- 특별 법안 발의: args = { id, target }
+function Commands.politicsPropose(player, args)
+    local Politics = StoryEngine.Politics
+    local ok, why = Politics.proposeSpecial(player, tostring(args.id or ""), args.target and tostring(args.target) or nil)
+    reply(player, "politicsResult", { what = "propose", ok = ok, id = args.id, error = not ok and why or nil })
+    reply(player, "politicsState", { politics = Politics.payload(StoryEngine.Store.playerKey(player)) })
+end
+
+-- 로비: args = { faction, how = persuade|promise, side = for|against }
+function Commands.politicsLobby(player, args)
+    local Politics = StoryEngine.Politics
+    local ok, why, need = Politics.lobby(player, tostring(args.faction or ""), tostring(args.how or ""), args.side)
+    reply(player, "politicsResult", { what = "lobby", ok = ok, how = args.how, faction = args.faction,
+                                      error = not ok and why or nil, need = need })
+    reply(player, "politicsState", { politics = Politics.payload(StoryEngine.Store.playerKey(player)) })
+end
+
+-- 의장 선거: args = { what = back|run|choose|cast, bloc, id, side }
+function Commands.politicsElection(player, args)
+    local Politics = StoryEngine.Politics
+    local what = tostring(args.what or "")
+    local ok, why, extra = false, "how", nil
+    if what == "back" then ok, why = Politics.back(player, tostring(args.bloc or ""))
+    elseif what == "run" then ok, why, extra = Politics.run(player)
+    elseif what == "choose" then ok, why = Politics.choose(player, tostring(args.id or ""))
+    elseif what == "cast" then ok, why = Politics.cast(player, args.side) end
+    reply(player, "politicsResult", { what = what, ok = ok, error = not ok and why or nil, faction = extra })
+    reply(player, "politicsState", { politics = Politics.payload(StoryEngine.Store.playerKey(player)) })
+end
+
+-- 공동 작업장에 물건을 보낸다: args = { item = 아이템 ID }
+function Commands.politicsWorkshop(player, args)
+    local ok, why, wait = StoryEngine.Politics.workshop(player, args.item)
+    reply(player, "politicsResult", { what = "workshop", ok = ok, hours = ok and why or nil,
+                                      error = not ok and why or nil, wait = wait })
+end
+
+-- 디버그: 정치 열기, 법안 내기·표결·바로 시행·거두기
+function Commands.debugPolitics(player, args)
+    if not canUseDebug(player) then return end
+    local text = StoryEngine.Politics.debug(args or {}, player)
+    reply(player, "debugStatus", { text = text })
+    reply(player, "politicsState", { politics = StoryEngine.Politics.payload(StoryEngine.Store.playerKey(player)) })
 end
 
 local function onClientCommand(module, command, player, args)

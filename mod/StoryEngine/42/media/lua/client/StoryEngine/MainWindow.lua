@@ -2581,11 +2581,117 @@ function StoryEngineLifePanel:refresh()
     self.detail:paginate()
 end
 
+-- ================================================================ politics tab (의회: 파벌·법안·표결, 서버 Politics.lua)
+
+StoryEnginePoliticsPanel = derivePanel("StoryEnginePoliticsPanel")
+
+function StoryEnginePoliticsPanel:createChildren()
+    self.text = newRichText(PAD, PAD, self.width - PAD * 2, self.height - PAD * 3 - BUTTON_H)
+    self.text:setAnchorRight(true)
+    self.text:setAnchorBottom(true)
+    self:addChild(self.text)
+    self.proposeButton = newButton(PAD, self.height - PAD - BUTTON_H, 240, getText("IGUI_StoryEngine_Politics_Propose"),
+        self, StoryEnginePoliticsPanel.onPropose)
+    self.proposeButton.tooltip = getText("IGUI_StoryEngine_Politics_Propose_Tip")
+    self:addChild(self.proposeButton)
+    self.lobbyButton = newButton(PAD * 2 + 240, self.height - PAD - BUTTON_H, 200, getText("IGUI_StoryEngine_Politics_Lobby"),
+        self, StoryEnginePoliticsPanel.onLobby)
+    self.lobbyButton.tooltip = getText("IGUI_StoryEngine_Politics_Lobby_Tip")
+    self:addChild(self.lobbyButton)
+    self.electionButton = newButton(PAD * 3 + 440, self.height - PAD - BUTTON_H, 200, getText("IGUI_StoryEngine_Politics_ElectionButton"),
+        self, StoryEnginePoliticsPanel.onElection)
+    self:addChild(self.electionButton)
+end
+
+function StoryEnginePoliticsPanel:refresh()
+    local d = Cache.politics
+    local PC = StoryEngine.PoliticsClient
+    self.text:setText(PC and PC.textOf(d) or "")
+    self.text:paginate()
+    self.proposeButton:setVisible(d ~= nil and d.on == true)
+    self.lobbyButton:setVisible(d ~= nil and d.on == true and d.bill ~= nil)
+    self.electionButton:setVisible(d ~= nil and d.on == true and PC ~= nil and #PC.electionRows(d) > 0)
+end
+
+-- 선거(지지·출마)와 의장의 일(법안 고르기·동수일 때 한 표)
+function StoryEnginePoliticsPanel:onElection()
+    local d = Cache.politics
+    local PC = StoryEngine.PoliticsClient
+    if not (d and d.on and PC) then return end
+    local context = ISContextMenu.get(0, getMouseX(), getMouseY())
+    for _, row in ipairs(PC.electionRows(d)) do
+        local o = context:addOption(row.label, row.args, function(args) request("politicsElection", args) end)
+        if not row.ok then o.notAvailable = true end
+        local tip = ISToolTip:new()
+        tip:initialise()
+        tip:setVisible(false)
+        tip.description = row.tip
+        o.toolTip = tip
+    end
+end
+
+-- 로비 메뉴: 사람 -> 설득/약속 x 찬성 쪽/반대 쪽
+function StoryEnginePoliticsPanel:onLobby()
+    local d = Cache.politics
+    local PC = StoryEngine.PoliticsClient
+    if not (d and d.on and d.bill and PC) then return end
+    local context = ISContextMenu.get(0, getMouseX(), getMouseY())
+    for _, row in ipairs(PC.lobbyRows(d)) do
+        local top = context:addOption(row.label, nil, nil)
+        local sub = ISContextMenu:getNew(context)
+        context:addSubMenu(top, sub)
+        for _, how in ipairs({ "persuade", "promise" }) do
+            for _, side in ipairs({ "for", "against" }) do
+                local o = sub:addOption(getText("IGUI_StoryEngine_Politics_Lobby_" .. how .. "_" .. side), row.fid, function(fid)
+                    request("politicsLobby", { faction = fid, how = how, side = side })
+                end)
+                if not row[how].ok then o.notAvailable = true end
+                local tip = ISToolTip:new()
+                tip:initialise()
+                tip:setVisible(false)
+                tip.description = row[how].tip
+                o.toolTip = tip
+            end
+        end
+    end
+end
+
+-- 특별 법안 메뉴 (보증은 누구를 보증할지 고른다)
+function StoryEnginePoliticsPanel:onPropose()
+    local d = Cache.politics
+    local PC = StoryEngine.PoliticsClient
+    if not (d and d.on and PC) then return end
+    local context = ISContextMenu.get(0, getMouseX(), getMouseY())
+    for _, row in ipairs(PC.specialRows(d)) do
+        local option
+        if row.ok and row.target then
+            option = context:addOption(row.label, nil, nil)
+            local sub = ISContextMenu:getNew(context)
+            context:addSubMenu(option, sub)
+            for _, f in ipairs(Factions.list) do
+                if not Factions.isGone(f.id) then
+                    sub:addOption(Factions.name(f.id), f.id, function(target)
+                        request("politicsPropose", { id = row.id, target = target })
+                    end)
+                end
+            end
+        else
+            option = context:addOption(row.label, row.id, function(id) request("politicsPropose", { id = id }) end)
+            if not row.ok then option.notAvailable = true end
+        end
+        local tip = ISToolTip:new()
+        tip:initialise()
+        tip:setVisible(false)
+        tip.description = row.tip
+        option.toolTip = tip
+    end
+end
+
 -- ================================================================ window
 
 StoryEngineMainWindow = ISCollapsableWindow:derive("StoryEngineMainWindow")
 StoryEngineMainWindow.instance = nil
-StoryEngineMainWindow.TABS = { "radio", "quests", "journal", "life", "people" }
+StoryEngineMainWindow.TABS = { "radio", "quests", "journal", "life", "people", "politics" }
 
 function StoryEngineMainWindow:createChildren()
     ISCollapsableWindow.createChildren(self)
@@ -2605,6 +2711,7 @@ function StoryEngineMainWindow:createChildren()
         journal = StoryEngineJournalPanel:new(0, 0, self.width, vh),
         life = StoryEngineLifePanel:new(0, 0, self.width, vh),
         people = StoryEnginePeoplePanel:new(0, 0, self.width, vh),
+        politics = StoryEnginePoliticsPanel:new(0, 0, self.width, vh),
     }
     for _, key in ipairs(StoryEngineMainWindow.TABS) do
         local p = self.panels[key]
@@ -2666,6 +2773,7 @@ function StoryEngineMainWindow.open(key)
                              epilogue = Cache.journalEpilogue and true or nil })
     request("lifeList")
     request("npcProfiles")
+    request("politicsState")
 end
 
 -- 열려 있을 때만 새로 그린다.

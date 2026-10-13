@@ -297,8 +297,15 @@ function Radio.request(fid, lang, opts)
         if okC then council = info end
     end
 
+    -- 의회의 정치 (Politics.lua): 이 사람의 파벌, 걸린 법안과 자기 표, 시행 중인 법안
+    local politics = nil
+    if StoryEngine.Politics then
+        local okP2, info = pcall(StoryEngine.Politics.context, fid)
+        if okP2 then politics = info end
+    end
+
     Bridge.request("radio", {
-        council = council,
+        council = council, politics = politics,
         speakerState = speakerState, specialty = specialty,
         story = story, life = life, newcomer = newcomer,
         faction = fid, lang = lang, trust = ch.trust, memory = ch.memory, personal = person,

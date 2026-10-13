@@ -174,6 +174,8 @@ end
 
 -- 파이크가 난방 물건을 청한다 (접속자 중 한 명에게, 진행 중 부탁이 없을 때)
 function World.askHeat(now)
+    -- 겨울 대비 법안을 채워 두었으면 난방 부탁이 없다 (Politics.lua)
+    if StoryEngine.Politics and StoryEngine.Politics.winterReady() then return false, "stocked" end
     if not alive("pike") or openRequest("pike") then return false, "busy" end
     local players = Sensor.players()
     if #players == 0 then return false, "nobody" end
@@ -292,6 +294,7 @@ end
 -- 매일 (Life.daily): 겨울에는 모든 NPC 식량이 더 준다
 function World.dailyExtra()
     if not World.enabled() or not World.isWinter() then return end
+    if StoryEngine.Politics and StoryEngine.Politics.winterReady() then return end     -- 겨울 대비를 채워 둠
     local Life = StoryEngine.Life
     for _, f in ipairs(Factions.list) do
         if alive(f.id) then Life.change(f.id, "food", -World.WINTER_FOOD, "winter") end

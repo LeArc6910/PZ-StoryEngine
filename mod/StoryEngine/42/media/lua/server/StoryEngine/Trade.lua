@@ -245,13 +245,19 @@ local function isGunCat(category)
     return category == "firearm" or category == "ammo"
 end
 
+-- 법안 (Politics.lua): 무기고 개방이면 총기·탄약의 신뢰 한도가 한 등급 풀린다
+local function lawTier(fid, category)
+    local P = StoryEngine.Politics
+    return P and P.mod("gunTier", fid, category) or 0
+end
+
 -- 이 품목·등급을 거래하려면 필요한 신뢰도. 이 세력이 아예 취급하지 않으면 nil
 function Trade.needTrust(fid, category, tier)
     local rules = Trade.FACTIONS[fid]
     if not rules or tier > (rules.goods[category] or 0) then return nil end
     local need = nil
     for _, row in ipairs(Trade.LIMITS) do        -- 높은 신뢰도부터: 조건을 만족하는 마지막 줄이 가장 낮은 신뢰도
-        if row.maxTier > 0 and row.maxTier + (rules.stretch or 0) >= tier then need = row.min end
+        if row.maxTier > 0 and row.maxTier + (rules.stretch or 0) + lawTier(fid, category) >= tier then need = row.min end
     end
     if need and rules.gunTrust and isGunCat(category) then need = math.max(need, rules.gunTrust) end
     return need
@@ -344,6 +350,9 @@ end
 function Trade.offerContext(fid, trust, key)
     local rules = Trade.FACTIONS[fid]
     if not rules then return { allowed = false, reason = "no_trader" } end
+    -- 위령제 (Politics.lua): 그날은 아무도 거래하지 않는다
+    local P = StoryEngine.Politics
+    if P and P.mod("recess") then return { allowed = false, reason = "recess", trust = trust } end
     local limit = limitFor(trust)
     if limit.maxTier == 0 then return { allowed = false, reason = "low_trust", trust = trust, need = minTradeTrust() } end
 
@@ -353,17 +362,21 @@ function Trade.offerContext(fid, trust, key)
     local goods, catalog, catMult = {}, {}, {}
     for _, cat in ipairs(Value.CATEGORIES) do
         local cap = rules.goods[cat] or 0
-        local best = math.min(cap, limit.maxTier + (rules.stretch or 0))
+        local best = math.min(cap, limit.maxTier + (rules.stretch or 0) + lawTier(fid, cat))
         if rules.gunTrust and isGunCat(cat) and trust < rules.gunTrust then best = 0 end
         local level = Life and Life.get(fid, Value.RESOURCE_OF[cat] or "safety") or 50
         local empty = Life ~= nil and cap > 0 and level < Life.SELF_MIN
         if empty then best = 0 end
-        catMult[cat] = Life and ((level < Life.LOW and 1.3) or (level >= Life.PLENTY and 0.85)) or 1
+        -- 법안: 그 품목을 팔지 않기로 했거나 (공동 작업장), 값이 달라진다 (무기고 개방, 편들기의 대가)
+        local closed = P ~= nil and cap > 0 and P.mod("tradeBlock", fid, cat) == true
+        if closed then best = 0 end
+        catMult[cat] = (Life and ((level < Life.LOW and 1.3) or (level >= Life.PLENTY and 0.85)) or 1)
+            * (P and P.mod("price", fid, cat) or 1)
         if best > 0 then goods[#goods + 1] = { category = cat, maxTier = best } end
         if cap > 0 then
             local needs = {}
             for t = 1, cap do needs[t] = Trade.needTrust(fid, cat, t) or 101 end
-            catalog[#catalog + 1] = { category = cat, maxTier = best, needs = needs, empty = empty or nil,
+            catalog[#catalog + 1] = { category = cat, maxTier = best, needs = needs, empty = empty or nil, closed = closed or nil,
                                       short = (Life ~= nil and not empty and level < Life.LOW) or nil }
         end
     end

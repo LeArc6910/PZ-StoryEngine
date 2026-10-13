@@ -154,7 +154,7 @@ end
 function Quests.isManaged(q)
     return Quests.isOp(q) or Quests.isSaga(q) or Quests.isWork(q) or (q ~= nil and q.kind == "volunteer")
         or (q ~= nil and q.origin ~= nil and (q.origin.holiday ~= nil or q.origin.source == "recover"
-            or q.origin.council ~= nil))
+            or q.origin.council ~= nil or (q.kind == "collect" and q.origin.politics ~= nil)))
 end
 
 -- 상태가 바뀔 때 부르는 함수들 (명절·유품 회수 등 다른 모듈이 등록한다). fn(q, state, outcome, trustDelta)
@@ -1075,6 +1075,14 @@ end
 -- kind: "supply_drop" | "fetch". origin: { source = "director"|"reward"|"debug", faction, rewardFor }
 function Quests.create(kind, player, ps, tier, now, origin, itemsOverride)
     tier = math.max(1, math.min(Quests.MAX_TIER, math.floor(tier or 1)))
+    -- 카운티 우편 (Politics.lua): 보상과 산 물건은 보관함에 두지 않고 바로 손에 (배달꾼이 몫을 뗀다)
+    local Pol = StoryEngine.Politics
+    if kind == "supply_drop" and origin and origin.source == "reward" and Pol and Pol.mod("post") then
+        local goods = itemsOverride or StoryEngine.Loot.roll(tier, origin.faction)
+        local okP, done = pcall(Pol.post, player, ps, goods, origin)
+        if okP and done then return nil, "posted" end
+        itemsOverride = goods
+    end
     local exclude = {}
     if ps.home and ps.home.building then exclude[ps.home.building] = true end
     if ps.prev and ps.prev.building then exclude[ps.prev.building] = true end
@@ -1711,9 +1719,12 @@ function Quests.proposeHorde(player, ps, fid, tier, now, opts)
     place.inside = false
     place.rooms = roomNames(def)
     place.residential = def:isResidential() == true
-    local size = Quests.zombieCount(Quests.HORDE_SIZE[tier])
+    -- 정화 작업 (Politics.lua): 무리가 커지고 보상·신뢰가 는다
+    local purge = StoryEngine.Politics and StoryEngine.Politics.mod("hordeBonus") or 0
+    local size = Quests.zombieCount(Quests.HORDE_SIZE[tier] * (StoryEngine.Politics and StoryEngine.Politics.mod("hordeSize") or 1))
     local q = {
         id = "Q" .. StoryEngine.intToString(d.questSeq),
+        purge = purge > 0 and purge or nil,
         kind = "horde", tier = tier, building = found.key, place = place,
         x = math.floor((room:getX() + room:getX2()) / 2), y = math.floor((room:getY() + room:getY2()) / 2),
         z = room:getZ(), cx = cx, cy = cy,
@@ -1898,7 +1909,7 @@ function Quests.completeHorde(q)
     if best and not Quests.isManaged(q) then
         Quests.create("supply_drop", best, ps, 1, now,
             { source = "reward", faction = q.origin and q.origin.faction, rewardFor = q.id, rewardKind = q.kind },
-            StoryEngine.Loot.roll(q.tier, q.origin and q.origin.faction, q.night and Quests.nightMult() or nil))
+            StoryEngine.Loot.roll(q.tier, q.origin and q.origin.faction, Quests.bonusMult(q) > 1 and Quests.bonusMult(q) or nil))
     end
     setState(q, "completed", now, ps and { ps = ps } or nil)
 end
@@ -2173,6 +2184,14 @@ Quests.NIGHT_HOURS = 24
 
 function Quests.nightOn()
     return StoryEngine.option("NightJobs", true) == true
+end
+
+-- 이 퀘스트의 보상·신뢰 배율: 야간 작전과 정화 작업은 곱하지 않고 더한다 (둘 다면 2배, 2026-10-13 확정)
+function Quests.bonusMult(q)
+    local m = 1
+    if q.night then m = m + (Quests.nightMult() - 1) end
+    if q.purge then m = m + q.purge end
+    return m
 end
 
 function Quests.nightMult()

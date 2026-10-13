@@ -168,6 +168,14 @@ local function setOwed(fid, key, rec)
     end
 end
 
+-- 다른 모듈이 빚을 지운다 (의회 로비의 약속, Politics.lua). 이미 빚이 있으면 false.
+-- 이틀 뒤 그 NPC 가 빚 부탁을 하고, 저버리면 외상을 떼먹은 것과 같은 큰 감점 (Work.callFavors)
+function Work.owe(fid, key, name, tier, t)
+    if Work.owed(fid, key) then return false end
+    setOwed(fid, key, { key = key, name = name, sinceT = t, tier = tier or 1, promise = true })
+    return true
+end
+
 -- 이 NPC 에게 진 빚 기록 전부 (독촉·정리용): { 키 = 기록 }. 공유 모드 기록은 "_" 키로
 local function allOwed(fid)
     local ch = Radio.channel(fid)
@@ -830,8 +838,16 @@ function Work.volunteerEnd(parent, q, state, t)
     local Life = StoryEngine.Life
     if state == "completed" then
         local mult = (parent.nightWork or q.night) and Quests.nightMult() or 1
-        local gain = StoryEngine.Trust.apply(fid, math.ceil(tier * Work.VOLUNTEER_TRUST * mult - 0.001), "volunteer_done",
-            parent.id, parent.target)
+        -- 도제 수업 (Politics.lua): 신뢰 대신 그 NPC 분야의 경험치. 일을 해 준 것으로는 친다 (신뢰 유지)
+        local Pol = StoryEngine.Politics
+        local taught = Pol and Pol.apprentice(fid, player or (ps and playerOf(ps)) or nil, tier) or nil
+        local gain = 0
+        if taught ~= nil then
+            StoryEngine.Trust.deed(fid, parent.target)
+        else
+            gain = StoryEngine.Trust.apply(fid, math.ceil(tier * Work.VOLUNTEER_TRUST * mult - 0.001), "volunteer_done",
+                parent.id, parent.target)
+        end
         if Life then
             Life.change(fid, Life.KEY[fid], math.floor(tier * Work.VOLUNTEER_LIFE * mult + 0.5), "volunteer")
             Life.record(fid, "volunteer", ps and ps.name or parent.targetName, gain)

@@ -288,7 +288,9 @@ Director.events.npc_request = {
         if not fid then return false end
         intensity = Director.askTier(intensity, entry.ps, fid)
         local q, why
-        if ctx.forceKind == "horde" or (not ctx.forceKind and ZombRand(100) < Director.HORDE_SHARE) then
+        -- 정화 작업 (Politics.lua): 소탕 부탁이 두 배 자주
+        local hordeShare = Director.HORDE_SHARE * (StoryEngine.Politics and StoryEngine.Politics.mod("hordeShare") or 1)
+        if ctx.forceKind == "horde" or (not ctx.forceKind and ZombRand(100) < hordeShare) then
             q, why = Quests.proposeHorde(entry.player, entry.ps, fid, intensity, ctx.now)
         else
             q, why = Quests.propose(entry.player, entry.ps, fid, intensity, ctx.now)

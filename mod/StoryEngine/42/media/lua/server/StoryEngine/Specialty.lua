@@ -7,8 +7,8 @@
 --   doc    치료 (클라이언트에서 10초 가만히 있으면 specHealDone -> 서버가 상처를 고치고 syncBodyPart)
 --   dewey  1~2시간 뒤 가까운 차량 수리
 --   casey  3/6/12시간 정찰: 추적 무리 / + 적대 A-Life 무리 / + 좀비 밀집, 지도 표시와 혼잣말 경고
---   ray    다른 NPC 의 부족한 자원에 +20/30/45 (레이 식량 -15)
---   pike   스트레스·불행·지루함 감소, 구간 2 공포 없음 6시간, 구간 3 공포·근육통 없음 12시간
+--   ray    다른 NPC 의 부족한 자원에 +50/75/100 (레이 식량 -15)
+--   pike   스트레스·불행·지루함 감소, 공포·근육통 없음 3/6/12시간
 --   hunter 저격 10/20/30 (30분에 나눠)
 --   rats   60~80타일 밖 미끼 소음
 -- 저격은 요청한 클라이언트가 좀비를 쓰러뜨리고 총성은 그 플레이어만 듣는다 (실제 소음 판정 없음, 좀비를 끌지 않는다).
@@ -83,13 +83,13 @@ Specialty.WARN_DIST = 40
 Specialty.WARN_GAP_MIN = 30
 Specialty.CLUSTER_CELL = 10
 Specialty.CLUSTER_MIN = 15
-Specialty.RAY_SUPPLY = { 20, 30, 45 }
+Specialty.RAY_SUPPLY = { 50, 75, 100 }                 -- 2026-10-13: 20/30/45 에서 올림
 Specialty.RAY_COST = 15
 -- 멀티에서 대기 범위가 개인별·둘 다면 여럿이 번갈아 써서 다른 NPC 자원을 끌어올릴 수 있으므로 보급량을 줄인다 (2026-10-09 사용자 요청)
 Specialty.RAY_SPLIT_SHARE = 0.5
 Specialty.RAY_THANKS_DAYS = 7          -- 받은 NPC 의 신뢰도·레이와의 관계 +1 은 받는 NPC 마다 이만큼에 한 번
 Specialty.COMFORT = { 0.3, 0.5, 0.8 }                  -- 스트레스·불행·지루함 감소 비율
-Specialty.NO_FEAR_HOURS = { 0, 6, 12 }
+Specialty.NO_FEAR_HOURS = { 3, 6, 12 }                 -- 공포·근육통 없음 (모든 구간, 2026-10-13)
 Specialty.COMFORT_RADIUS = 10
 Specialty.DECOY_DIST = { 60, 80 }
 Specialty.DECOY_RADIUS = { 80, 120, 160 }
@@ -130,6 +130,9 @@ end
 function Specialty.cooldownDays(fid)
     local days = Specialty.COOLDOWN_DAYS[fid] or 3
     if fid == "casey" and projectDone("casey") then days = days * Specialty.ANTENNA_COOLDOWN end
+    -- 법안·편들기의 대가 (Politics.lua): 특기 품앗이면 절반, 맞서는 파벌에 기울었으면 1.5배
+    local P = StoryEngine.Politics
+    if P then days = days * P.mod("specWait", fid) end
     return days
 end
 
@@ -208,6 +211,8 @@ function Specialty.status(fid, psKey)
         reason = "hurt"                                 -- 큰 이야기에서 다쳤다 (노드 hurt)
     elseif not Specialty.enabled() then
         reason = "off"
+    elseif StoryEngine.Politics and StoryEngine.Politics.mod("recess") then
+        reason = "recess"                              -- 위령제: 그날은 모두 쉰다
     elseif tier == 0 then
         reason = "low_trust"
     elseif wait > 0 then
@@ -225,6 +230,8 @@ function Specialty.costOf(fid, tier)
     local res = Life.KEY[fid] or "morale"
     if fid == "doc" then n = Specialty.HEAL_COST end
     if fid == "ray" then n, res = Specialty.RAY_COST, "food" end
+    local P = StoryEngine.Politics
+    if P then n = math.floor(n * P.mod("specCost", fid) + 0.5) end
     return { res = res, n = n, min = Life.SELF_MIN }
 end
 
@@ -256,6 +263,7 @@ function Specialty.commit(fid, ps, tier, info)
         s.usedBy[fid][ps.key] = now.t
     end
     local cost = info.cost or Specialty.COST[tier] or 10
+    if StoryEngine.Politics then cost = math.floor(cost * StoryEngine.Politics.mod("specCost", fid) + 0.5) end   -- 특기 품앗이: 두 배
     Life.change(fid, info.costRes or Life.KEY[fid] or "morale", -cost, "specialty")
     Life.record(fid, "specialty", ps and ps.name or nil, 0, { spec = fid })
     if ps then
@@ -714,14 +722,14 @@ local function comfort(player, ps, fid, tier)
         Specialty.soothe(p, Specialty.COMFORT[tier])
         Net.toClient(p, "specComfort", { faction = fid, tier = tier, reduce = Specialty.COMFORT[tier], hours = hours })
         if hours > 0 then
-            state().comfort[Store.playerKey(p)] = { untilT = now.t + hours * 60, stiff = tier >= 3 }
+            state().comfort[Store.playerKey(p)] = { untilT = now.t + hours * 60, stiff = true }
         end
     end
     return true, { count = #targets, topic = "You prayed with " .. tostring(ps.name) .. " over the radio and talked them "
         .. "through their fear" .. (#targets > 1 and ", with their companions listening" or "") .. "." }
 end
 
--- 구간 3: 근육통을 계속 없앤다 (몸 상태는 서버에서 바꾸고 syncBodyPart, 바닐라 관리자 체력 패널과 같은 방식)
+-- 지속 시간 동안 공포와 근육통을 계속 없앤다 (몸 상태는 서버에서 바꾸고 syncBodyPart, 바닐라 관리자 체력 패널과 같은 방식)
 local function comfortTick(now)
     local s = state()
     for key, c in pairs(s.comfort) do
@@ -733,7 +741,7 @@ local function comfortTick(now)
                 -- 두려움 없음: 서버가 매분 공포를 0으로 (클라이언트도 매 틱)
                 pcall(function() p:getStats():set(CharacterStat.PANIC, 0) end)
             end
-            if p and c.stiff ~= false then   -- 근육통 없음은 구간 3 (예전 세이브의 기록은 stiff 가 없고 모두 구간 3)
+            if p and c.stiff ~= false then   -- 예전 세이브에서 쓰던 중인 구간 2 기록만 stiff = false (그때는 구간 3만 근육통)
                 pcall(function()
                     local parts = p:getBodyDamage():getBodyParts()
                     for i = 0, parts:size() - 1 do
@@ -796,8 +804,9 @@ end
 
 local function squad(player, ps, fid, tier)
     if ALife.enabled() and ALife.available() then
-        local ok, why = ALife.sendSupport(player, fid, "specialty", nil, Specialty.SQUAD_LEVEL[tier], nil,
-            Specialty.SQUAD_SIZE[tier])
+        -- 무기고 개방 (Politics.lua): 분대 -2명
+        local size = math.max(1, Specialty.SQUAD_SIZE[tier] + (StoryEngine.Politics and StoryEngine.Politics.mod("squad", fid) or 0))
+        local ok, why = ALife.sendSupport(player, fid, "specialty", nil, Specialty.SQUAD_LEVEL[tier], nil, size)
         if not ok then return false, why end
         return true, { topic = "You sent a squad of your soldiers to back up " .. tostring(ps.name) .. ". Tell them to hold on." }
     end

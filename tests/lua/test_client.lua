@@ -677,4 +677,146 @@ function T.specialty_tooltips_show_the_cost()
     H.ok(string.find(rows2[1].tip, "IGUI_StoryEngine_Spec_Cost_Now|IGUI_StoryEngine_Life_Res_safety|20|44|30", 1, true), rows2[1].tip)
 end
 
+-- 의회 탭 (2026-10-13, PoliticsClient.lua): 서버가 보낸 상태를 글로, 알림, 작업장에 보낼 물건
+function T.council_tab_tells_the_state_of_politics()
+    H.addPlayer("tester", "Gerald", "Kar")
+    local PC = StoryEngine.PoliticsClient
+    local function has(text, key) return string.find(text, key, 1, true) ~= nil end
+    H.ok(has(PC.textOf(nil), "IGUI_StoryEngine_Politics_Loading"))
+    H.ok(has(PC.textOf({ off = true }), "IGUI_StoryEngine_Politics_Off"))
+    H.ok(has(PC.textOf({ era = false }), "IGUI_StoryEngine_Politics_NoEra"))
+    H.ok(has(PC.textOf({ era = true, openIn = 9 }), "IGUI_StoryEngine_Politics_OpenIn|9"))
+    local d = {
+        era = true, on = true,
+        blocs = { { id = "field", lean = 30, members = { "ray", "pike" } }, { id = "gun", lean = 0, members = { "guard" } },
+                  { id = "market", lean = -25, members = { "rats" } } },
+        against = { "guard" },
+        bill = { id = "armory", bloc = "market", by = "rats", hours = 30, yes = 5, no = 3, pass = true,
+                 gain = { "rats", "hunter" }, lose = { "guard" },
+                 rows = { { fid = "ray", bloc = "field", trust = 60, need = 60, yes = true },
+                          { fid = "guard", bloc = "gun", trust = 40, need = 70, yes = false } } },
+        laws = { { id = "winter", hours = 100, share = 40 }, { id = "vouch", hours = 20, target = "hunter", guarantor = "ray" },
+                 { id = "workshop", hours = 200 } },
+        workshop = { wait = 0 },
+        history = { { id = "truce", pass = false, yes = 3, no = 5, day = 320 } },
+        specials = { { id = "memorial", ok = true }, { id = "winter", ok = false, why = "season", wait = 0 },
+                     { id = "vouch", ok = true, target = true } },
+    }
+    local text = PC.textOf(d)
+    H.ok(has(text, "IGUI_StoryEngine_Politics_Bloc_field"))
+    H.ok(has(text, "+30"), "the leaning shows with its sign")
+    H.ok(has(text, "IGUI_StoryEngine_Politics_Against"))
+    H.ok(has(text, "IGUI_StoryEngine_Politics_Bill|IGUI_StoryEngine_Bill_armory"))
+    H.ok(has(text, "IGUI_StoryEngine_Bill_armory_Desc"))
+    H.ok(has(text, "IGUI_StoryEngine_Politics_Forecast|5|3|IGUI_StoryEngine_Politics_Pass"))
+    H.ok(has(text, "IGUI_StoryEngine_Politics_Hours|30"))
+    H.ok(has(text, "IGUI_StoryEngine_Politics_Days|4"), "long waits in days")
+    H.ok(has(text, "IGUI_StoryEngine_Politics_Share|40"))
+    H.ok(has(text, "IGUI_StoryEngine_Politics_Vouch"))
+    H.ok(has(text, "IGUI_StoryEngine_Politics_Workshop_Hint"))
+    H.ok(has(text, "IGUI_StoryEngine_Politics_Failed|IGUI_StoryEngine_Bill_truce|3|5|320"))
+    d.bill = nil
+    d.nextIn = 6
+    H.ok(has(PC.textOf(d), "IGUI_StoryEngine_Politics_NextIn|6"))
+    -- 특별 법안 메뉴
+    local rows = PC.specialRows(d)
+    H.eq(#rows, 3)
+    H.ok(rows[1].ok and not rows[2].ok)
+    H.ok(has(rows[2].tip, "IGUI_StoryEngine_Politics_Why_season"))
+    H.eq(rows[3].target, true)
+    -- 알림
+    local t, good = PC.noticeText({ kind = "vote", id = "armory", pass = false, yes = 2, no = 6 })
+    H.ok(has(t, "IGUI_StoryEngine_Politics_Notice_fail|IGUI_StoryEngine_Bill_armory|2|6"))
+    H.eq(good, false)
+    H.ok(has(PC.noticeText({ kind = "post", got = 3, taken = 1 }), "IGUI_StoryEngine_Politics_Notice_post|3|1"))
+    H.ok(has(PC.noticeText({ kind = "ended", id = "truce", why = "broken" }), "IGUI_StoryEngine_Politics_Notice_broken"))
+    StoryEngine.Client.handlers.politicsState({ politics = d })
+    H.eq(StoryEngine.Cache.politics, d)
+    H.toServer = {}
+    StoryEngine.Client.handlers.politicsNotice({ kind = "meal" })
+    H.eq(H.toServer[#H.toServer].command, "politicsState", "a notice asks for the fresh state")
+    StoryEngine.Client.handlers.politicsResult({ what = "workshop", ok = false, error = "wait", wait = 12 })
+    StoryEngine.Client.handlers.politicsResult({ what = "propose", ok = false, error = "busy" })
+    -- 작업장에 보낼 수 있는 물건: 닳은 도구·무기·총만
+    StoryEngine.Value.cache["Base.Axe"] = { category = "tools", value = 8, tier = 2 }
+    StoryEngine.Value.cache["Base.Apple"] = { category = "food", value = 1, tier = 1 }
+    local worn = H.newItem("Base.Axe")
+    function worn:getCondition() return 3 end
+    function worn:getConditionMax() return 10 end
+    local fine = H.newItem("Base.Axe")
+    function fine:getCondition() return 10 end
+    function fine:getConditionMax() return 10 end
+    local apple = H.newItem("Base.Apple")
+    H.ok(PC.workshopItem(worn))
+    H.ok(not PC.workshopItem(fine))
+    H.ok(not PC.workshopItem(apple))
+    H.eq(StoryEngineMainWindow.TABS[#StoryEngineMainWindow.TABS], "politics")
+end
+
+function T.council_tab_lobby_menu()
+    H.addPlayer("tester", "Gerald", "Kar")
+    local PC = StoryEngine.PoliticsClient
+    local d = { era = true, on = true, blocs = {},
+        bill = { id = "armory", bloc = "market", by = "rats", hours = 30, yes = 1, no = 2, pass = false, lobbyLeft = 2,
+                 lobby = { guard = { how = "promise", side = "for", who = "Gerald Kar" } },
+                 rows = { { fid = "ray", bloc = "field", trust = 65, need = 60, yes = true },
+                          { fid = "doc", bloc = "field", trust = 45, need = 60, yes = false },
+                          { fid = "guard", bloc = "gun", trust = 70, need = 70, yes = true } } } }
+    local rows = PC.lobbyRows(d)
+    H.eq(#rows, 3)
+    H.ok(rows[1].persuade.ok and rows[1].promise.ok, "ray can be persuaded or promised")
+    H.ok(not rows[2].persuade.ok and rows[2].promise.ok, "doc trusts too little to be persuaded")
+    H.ok(string.find(rows[2].persuade.tip, "IGUI_StoryEngine_Politics_Lobby_Error_trust|60", 1, true))
+    H.ok(rows[3].done and not rows[3].promise.ok, "already spoken to")
+    local text = PC.textOf(d)
+    H.ok(string.find(text, "IGUI_StoryEngine_Politics_Lobbied_promise|Gerald Kar", 1, true))
+    H.ok(string.find(text, "IGUI_StoryEngine_Politics_LobbyLeft|2", 1, true))
+    d.bill.lobbyLeft = 0
+    H.ok(not PC.lobbyRows(d)[1].persuade.ok, "nobody left to move")
+    StoryEngine.Client.handlers.politicsResult({ what = "lobby", ok = true, how = "promise", faction = "ray" })
+    StoryEngine.Client.handlers.politicsResult({ what = "lobby", ok = false, error = "trust", need = 60 })
+end
+
+function T.council_tab_election_and_chair()
+    H.addPlayer("tester", "Gerald", "Kar")
+    local PC = StoryEngine.PoliticsClient
+    local d = { era = true, on = true, blocs = {}, laws = {},
+        chair = { fid = "guard", bloc = "gun", days = 40 },
+        election = { hours = 100, cands = { field = "ray", gun = "guard", market = "rats" }, votes = { field = 3, gun = 2, market = 3 },
+                     winner = "field", canRun = false, blocker = "hunter", rows = {} } }
+    local text = PC.textOf(d)
+    H.ok(string.find(text, "IGUI_StoryEngine_Politics_Chair|IGUI_StoryEngine_Faction_guard|40", 1, true), text)
+    H.ok(string.find(text, "IGUI_StoryEngine_Politics_Chair_gun", 1, true))
+    H.ok(string.find(text, "IGUI_StoryEngine_Politics_Election|", 1, true))
+    H.ok(string.find(text, "IGUI_StoryEngine_Politics_Candidate|IGUI_StoryEngine_Faction_ray|IGUI_StoryEngine_Politics_Bloc_field|3", 1, true))
+    local rows = PC.electionRows(d)
+    H.eq(#rows, 4, "three candidates to back and the run")
+    H.ok(rows[1].ok)
+    H.eq(rows[1].args.bloc, "field")
+    H.ok(not rows[4].ok, "cannot stand: someone does not trust them")
+    H.ok(string.find(rows[4].tip, "IGUI_StoryEngine_Politics_Run_Blocked", 1, true))
+    d.election.backed, d.election.backedBy = "gun", "Gerald Kar"
+    H.ok(not PC.electionRows(d)[1].ok, "already backed someone")
+    H.ok(string.find(PC.textOf(d), "IGUI_StoryEngine_Politics_Backed|Gerald Kar", 1, true))
+    -- 우리가 의장일 때: 법안 고르기와 한 표
+    local mine = { era = true, on = true, blocs = {}, laws = {},
+        chair = { player = "Gerald Kar", mine = true, days = 30, bills = { { id = "post", ok = true }, { id = "armory", ok = false } } } }
+    rows = PC.electionRows(mine)
+    H.eq(#rows, 2)
+    H.eq(rows[1].args.what, "choose")
+    H.ok(rows[1].ok and not rows[2].ok)
+    H.ok(string.find(PC.textOf(mine), "IGUI_StoryEngine_Politics_Chair_Player", 1, true))
+    mine.chair.bills = nil
+    mine.bill = { id = "post", bloc = "market", by = "chair", who = "Gerald Kar", hours = 10, yes = 4, no = 4, pass = false, rows = {}, cast = "for" }
+    rows = PC.electionRows(mine)
+    H.eq(#rows, 2)
+    H.eq(rows[1].args.side, "for")
+    H.ok(string.find(rows[1].label, "IGUI_StoryEngine_Politics_Cast_Set", 1, true))
+    local t, good = PC.noticeText({ kind = "elected", fid = "guard", bloc = "gun" })
+    H.ok(string.find(t, "IGUI_StoryEngine_Politics_Notice_elected", 1, true) and good)
+    H.ok(string.find(PC.noticeText({ kind = "elected", player = "Gerald Kar" }), "elected_player", 1, true))
+    StoryEngine.Client.handlers.politicsResult({ what = "run", ok = false, error = "trust", faction = "hunter" })
+    StoryEngine.Client.handlers.politicsResult({ what = "back", ok = true })
+end
+
 return T

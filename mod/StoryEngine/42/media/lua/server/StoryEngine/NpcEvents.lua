@@ -145,6 +145,7 @@ end
 
 function NpcEvents.clash(now)
     local s = state()
+    if StoryEngine.Politics and StoryEngine.Politics.mod("noClash") then return false end      -- 휴전 협정
     if not alive("guard") or not alive("rats") then return false end
     if Life.get("guard", "safety") < NpcEvents.CLASH_SAFETY then return false end
     if StoryEngine.Bonds.get("guard", "rats") >= 0 then return false end

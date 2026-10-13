@@ -271,6 +271,8 @@ function Specialty2.status(fid, ps)
     if f then st.active = math.max(1, math.ceil((f.untilT - now) / 60)) end
     if not Specialty2.enabled() then
         st.reason = "off"
+    elseif StoryEngine.Politics and StoryEngine.Politics.mod("recess") then
+        st.reason = "recess"                           -- 위령제: 그날은 모두 쉰다 (Politics.lua)
     elseif Factions.isGone(fid) then
         st.reason = "gone"
     elseif StoryEngine.Saga and StoryEngine.Saga.specialtyBlocked(fid) then

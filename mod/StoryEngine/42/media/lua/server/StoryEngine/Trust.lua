@@ -376,8 +376,8 @@ function Trust.forQuest(q, outcome)
     local tier = math.max(1, math.min(#row, math.floor(q.tier or 1)))
     local delta = row[tier]
     -- 야간 작전을 해냈다: 보상 배율만큼 더 (올림, Quests.nightMult)
-    if delta > 0 and outcome == "completed" and q.night and StoryEngine.Quests.nightMult then
-        delta = math.ceil(delta * StoryEngine.Quests.nightMult() - 0.001)
+    if delta > 0 and outcome == "completed" and StoryEngine.Quests.bonusMult then
+        delta = math.ceil(delta * StoryEngine.Quests.bonusMult(q) - 0.001)
     end
     if delta < 0 then
         -- 진행 단계: 초반 x0.5(반올림, 최소 1), 중반 그대로, 후반은 등급이 높을수록 큰 Trust.LATE 표
@@ -499,8 +499,15 @@ local function upkeepOne(value, idle)
     if not Trust.upkeepOn() then return nil end
     local b = band(Trust.UPKEEP, value)
     if not b then return nil end
-    if idle > b.idle and (idle - b.idle - 1) % b.every == 0 then return -1 end
+    local limit = Trust.upkeepLimit(b)
+    if idle > limit and (idle - limit - 1) % b.every == 0 then return -1 end
     return 0
+end
+
+-- 일 없이 버틸 수 있는 날 수. 플레이어가 의장이면 절반 (Politics.lua: 모두가 의장에게 더 바란다)
+function Trust.upkeepLimit(b)
+    local P = StoryEngine.Politics
+    return math.max(1, math.floor(b.idle * (P and P.mod("upkeep") or 1)))
 end
 
 -- 보는 사람에게 알려 줄 유지비 형편: { idle, limit } | nil (60 미만이거나 꺼짐)
@@ -512,7 +519,7 @@ function Trust.upkeepInfo(fid, key)
     local b = band(Trust.UPKEEP, value)
     if not b then return nil end
     local idle = personal and (ch.deedIdleBy or {})[key] or ch.deedIdle
-    return { idle = idle or 0, limit = b.idle }
+    return { idle = idle or 0, limit = Trust.upkeepLimit(b) }
 end
 
 -- T3 어려울 때 외면: 핵심 자원이 바닥인 채 돕지 않은 날 수 (무리의 일: 집단 신뢰)

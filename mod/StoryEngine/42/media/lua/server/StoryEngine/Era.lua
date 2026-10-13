@@ -280,6 +280,33 @@ function Era.writeCharter(now)
     local s = state()
     local formed = s.result == "formed"
     local signed, unsigned, blanks = Era.signers(formed)
+    local old = s.charterId and Letters.find(s.charterId) or nil
+    if old and old.charter then
+        -- 다시 연 회의: 같은 종이를 고쳐 쓴다 (손에 든 초안이 헌장이 된다). 이미 받은 사람에게는 다시 주지 않는다
+        local lines = {}
+        for _, g in ipairs(old.charter.signed or {}) do
+            if g.text then lines[tostring(g.fid) .. "|" .. tostring(g.voice or false)] = g.text end
+        end
+        for _, g in ipairs(signed) do g.text = lines[tostring(g.fid) .. "|" .. tostring(g.voice or false)] end
+        local c = old.charter
+        c.formed, c.day, c.signed, c.unsigned, c.blanks = formed, Store.serverDays(), signed, unsigned, blanks
+        c.held, c.round = c.held or s.cleared == true, s.round
+        s.owed = s.owed or {}
+        local first = s.charterGot == nil
+        s.charterGot = s.charterGot or {}
+        for key, ps in pairs(Store.data().players) do
+            if not ps.dead then
+                -- 예전 세이브: 누가 받았는지 적어 두지 않았다. 받을 것이 남지 않은 사람은 받은 것으로 본다
+                if first and not (s.owed[key] and s.owed[key].charter) then s.charterGot[key] = true end
+                if not s.charterGot[key] then
+                    s.owed[key] = s.owed[key] or {}
+                    s.owed[key].charter = true
+                end
+            end
+        end
+        log("era charter rewritten", old.id, formed and "signed" or "draft", #signed, "signatures")
+        return old
+    end
     local rec = Letters.createPlain({
         from = "pike", charter = { formed = formed, day = Store.serverDays(), signed = signed, unsigned = unsigned,
                                    blanks = blanks, held = s.cleared == true },
@@ -320,6 +347,10 @@ function Era.deliver()
                 local ok, err = pcall(giveCharter, player)
                 if not ok then log("era charter error:", tostring(err)) end
                 got.charter = ok or nil
+                if ok then
+                    s.charterGot = s.charterGot or {}
+                    s.charterGot[key] = true
+                end
             end
             for _, g in ipairs(owe.gifts or {}) do
                 local ok, n = pcall(Era.giveGift, player, g)
@@ -419,6 +450,7 @@ function Era.writeEpilogue(now)
     local sg = hq and hq.siege or nil
     local lang = StoryEngine.Broadcast and StoryEngine.Broadcast.language() or "EN"
     local ep = { status = "writing", lang = lang, day = Store.serverDays(), date = now.date, result = s.result,
+                 round = s.round,
                  held = s.cleared == true, prep = s.prep, npcs = Era.snapshot(), players = Era.people(),
                  siege = sg and { total = sg.total, sent = sg.sent, held = sg.held } or nil }
     s.epilogue = ep
@@ -427,6 +459,7 @@ function Era.writeEpilogue(now)
     Bridge.request("epilogue", {
         lang = lang, day = ep.day, result = ep.result, held = ep.held, prep = ep.prep, siege = ep.siege,
         era = Era.active() or nil, npcs = ep.npcs, players = ep.players, signers = signed,
+        round = (s.round or 1) > 1 and s.round or nil,
     }, function(res)
         local json = res.ok and res.json
         if type(json) == "table" and type(json.text) == "string" and json.text ~= "" then
@@ -500,10 +533,19 @@ function Era.onFinish(hq, now)
             keys[ps.key] = ps.name
         end
     end
-    s.defenders = s.cleared and keys or {}
+    -- 다시 연 회의: 앞 회의에서 교회를 지킨 사람도 그대로 남긴다. 선물은 교회를 처음 지켜 낸 회의에서 한 번만
+    if s.cleared then
+        s.defenders = s.defenders or {}
+        for key, name in pairs(keys) do s.defenders[key] = name end
+    else
+        s.defenders = s.defenders or {}
+    end
     if s.result == "formed" then Era.begin(now) end
     local givers = 0
-    if s.cleared then givers = Era.queueGifts(keys) end
+    if s.cleared and not (s.giftsGiven or s.givers) then
+        givers = Era.queueGifts(keys)
+        if givers > 0 then s.giftsGiven = true end
+    end
     local okC, errC = pcall(Era.writeCharter, now)
     if not okC then log("era charter error:", tostring(errC)) end
     local okE, errE = pcall(Era.writeEpilogue, now)
@@ -517,6 +559,7 @@ function Era.reset()
     local s = state()
     if s.era and StoryEngine.Grid then pcall(StoryEngine.Grid.reset, nil, "era reset") end
     s.era, s.owed, s.defenders, s.epilogue, s.charterId, s.givers, s.giftCar, s.giftAnimals = nil, nil, nil, nil, nil, nil, nil, nil
+    s.giftsGiven, s.charterGot, s.round = nil, nil, nil
     log("era reset")
 end
 

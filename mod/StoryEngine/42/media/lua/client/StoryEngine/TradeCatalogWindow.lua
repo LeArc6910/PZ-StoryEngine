@@ -146,6 +146,7 @@ function StoryEngineTradeCatalogWindow:render()
     if d.reason == "open_deal" or d.reason == "negotiating" then
         text = text .. "  |  " .. getText("IGUI_StoryEngine_TradeAsk_OpenDeal")
     end
+    if d.reason == "recess" then text = text .. "  |  " .. getText("IGUI_StoryEngine_TradeAsk_Recess") end
     self:drawText(fit(text, self.width - PAD * 2), PAD, self:titleBarHeight() + PAD, 0.6, 0.75, 0.6, 1, UIFont.Small)
 end
 
@@ -173,7 +174,9 @@ function StoryEngineTradeCatalogWindow:fill()
             local need = it.needs[t] or 101
             local open = d.allowed and t <= (it.maxTier or 0)
             local sub
-            if it.empty then
+            if it.closed then
+                sub = getText("IGUI_StoryEngine_TradeAsk_Closed")
+            elseif it.empty then
                 sub = getText("IGUI_StoryEngine_TradeAsk_EmptyTip")
             elseif open and it.short then
                 sub = getText("IGUI_StoryEngine_TradeAsk_Short")
