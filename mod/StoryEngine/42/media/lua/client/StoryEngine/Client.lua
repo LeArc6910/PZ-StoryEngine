@@ -781,11 +781,36 @@ local function fillDebugMenu(context, worldobjects, playerNum)
     polSub:addOption(label("ContextMenu_StoryEngine_DebugPolitics_Bill"), worldobjects, toServer("debugPolitics", { bill = "next" }))
     polSub:addOption(label("ContextMenu_StoryEngine_DebugPolitics_Vote"), worldobjects, toServer("debugPolitics", { vote = true }))
     polSub:addOption(label("ContextMenu_StoryEngine_DebugPolitics_Election"), worldobjects, toServer("debugPolitics", { election = true }))
+    polSub:addOption(label("ContextMenu_StoryEngine_DebugPolitics_Phase"), worldobjects, toServer("debugPolitics", { phase = true }))
     for _, id in ipairs(StoryEngine.PoliticsClient and StoryEngine.PoliticsClient.BILLS or {}) do
         polSub:addOption(label("ContextMenu_StoryEngine_DebugPolitics_Enact", getText("IGUI_StoryEngine_Bill_" .. id)), worldobjects,
             toServer("debugPolitics", { enact = id, target = fid }))
     end
     polSub:addOption(label("ContextMenu_StoryEngine_DebugPolitics_Reset"), worldobjects, toServer("debugPolitics", { reset = true }))
+    -- 정치 위기 (Crises.lua)
+    local crSub = subMenu(context, npc, label("ContextMenu_StoryEngine_DebugCrises"))
+    for _, id in ipairs({ "split", "transformer", "ration", "refugees", "quarantine", "boat", "tribunal",
+                          "warehouse", "trial", "water", "pirate" }) do
+        crSub:addOption(label("ContextMenu_StoryEngine_DebugCrises_start", getText("IGUI_StoryEngine_Crisis2_" .. id)), worldobjects,
+            toServer("debugCrises", { what = "start", id = id }))
+    end
+    crSub:addOption(label("ContextMenu_StoryEngine_DebugCrises_expire"), worldobjects, toServer("debugCrises", { what = "expire" }))
+    crSub:addOption(label("ContextMenu_StoryEngine_DebugCrises_reset"), worldobjects, toServer("debugCrises", { what = "reset" }))
+    -- 밖에서 온 사람들 (Outsiders.lua)
+    local outSub = subMenu(context, npc, label("ContextMenu_StoryEngine_DebugOutsiders"))
+    for _, f in ipairs(StoryEngine.Factions.outsiders) do
+        local oname = getText("IGUI_StoryEngine_Faction_" .. f.id)
+        local one = subMenu(context, outSub, oname)
+        for _, w in ipairs({ "arrive", "leave", "test", "expel", "ready" }) do
+            one:addOption(label("ContextMenu_StoryEngine_DebugOutsiders_" .. w), worldobjects,
+                toServer("debugOutsiders", { what = w, id = f.id }))
+        end
+        for _, v in ipairs({ 25, 45, 75 }) do
+            one:addOption(label("ContextMenu_StoryEngine_DebugOutsiders_trust", StoryEngine.intToString(v)), worldobjects,
+                toServer("debugOutsiders", { what = "trust", id = f.id, v = v }))
+        end
+    end
+    outSub:addOption(label("ContextMenu_StoryEngine_DebugOutsiders_reset"), worldobjects, toServer("debugOutsiders", { what = "reset" }))
     local aiSub = subMenu(context, npc, label("ContextMenu_StoryEngine_DebugAiTale", npcName))
     for _, k in ipairs({ "any", "quiet", "items", "horde" }) do
         aiSub:addOption(label("ContextMenu_StoryEngine_DebugAiTale_" .. k), worldobjects,

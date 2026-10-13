@@ -819,4 +819,290 @@ function T.council_tab_election_and_chair()
     StoryEngine.Client.handlers.politicsResult({ what = "back", ok = true })
 end
 
+function T.council_tab_crisis_offers()
+    H.addPlayer("tester", "Gerald", "Kar")
+    local PC = StoryEngine.PoliticsClient
+    local d = { era = true, on = true, blocs = {}, laws = {},
+        crisis = { saga = "migration", hours = 12, open = true, offers = { field = "pike", gun = "hunter", market = "rats" } } }
+    local text = PC.textOf(d)
+    H.ok(string.find(text, "IGUI_StoryEngine_Politics_Crisis|", 1, true))
+    H.ok(string.find(text, "IGUI_StoryEngine_Politics_Offer_gun|IGUI_StoryEngine_Faction_hunter", 1, true), text)
+    local rows = PC.electionRows(d)
+    H.eq(#rows, 4, "three offers and going alone")
+    H.eq(rows[2].args.what, "deal")
+    H.eq(rows[2].args.bloc, "gun")
+    H.eq(rows[4].args.bloc, "none")
+    d.crisis.deal, d.crisis.by, d.crisis.open = "gun", "Gerald Kar", false
+    H.ok(string.find(PC.textOf(d), "IGUI_StoryEngine_Politics_Deal_With|IGUI_StoryEngine_Politics_Bloc_gun|Gerald Kar", 1, true))
+    H.eq(#PC.electionRows(d), 0)
+    local t, good = PC.noticeText({ kind = "settled", bloc = "field", good = false })
+    H.ok(string.find(t, "IGUI_StoryEngine_Politics_Notice_blame", 1, true))
+    H.eq(good, false)
+    H.ok(string.find(PC.noticeText({ kind = "deal", bloc = "none", name = "Gerald Kar" }), "deal_none", 1, true))
+end
+
+-- 밖에서 온 사람들 (OutsidersClient.lua): 의회 탭의 글과 메뉴, 알림, 효과
+function T.outsiders_show_in_the_council_tab()
+    H.addPlayer("tester", "Gerald", "Kar")
+    local OC = StoryEngine.OutsidersClient
+    local F = StoryEngine.Factions
+    H.eq(#F.all(), 8)
+    StoryEngine.Client.handlers.outsiders({ present = { "hale", "abigail" } })
+    H.eq(#F.all(), 10)
+    H.ok(F.present.hale and not F.present.odell)
+    H.eq(OC.textOf(nil), "")
+    H.eq(OC.textOf({ list = {} }), "")
+    local o = { pending = "odell", jobs = { { id = "Q7", kind = "horde", tier = 3, faction = "ray" } }, list = {
+        { id = "hale", trust = 72, days = 12, rival = "guard", dislike = { "guard", "rats", "hunter" },
+          spec = { { kind = "proxy", n = 1, need = 40, ok = true }, { kind = "airdrop", n = 2, need = 70, ok = false, why = "wait", wait = 300 } },
+          gift = { value = 6, trust = 1 }, volunteer = { ok = true },
+          test = { hours = 40, rival = "guard" } },
+        { id = "abigail", trust = 28, days = 30, hard = true, low = 2, rival = "pike", dislike = { "pike", "doc", "casey" },
+          spec = { { kind = "miracle", n = 1, need = 40, ok = false, why = "trust" }, { kind = "burden", n = 2, need = 70, ok = false, why = "trust" } },
+          expel = { stance = "abstain" } } } }
+    local text = OC.textOf(o)
+    H.ok(string.find(text, "IGUI_StoryEngine_Out_Pending|IGUI_StoryEngine_Faction_odell", 1, true))
+    H.ok(string.find(text, "IGUI_StoryEngine_Out_Row|IGUI_StoryEngine_Faction_hale|72|12", 1, true))
+    H.ok(string.find(text, "IGUI_StoryEngine_Out_SpecLine|1|IGUI_StoryEngine_Out_Spec_proxy|IGUI_StoryEngine_Out_Ready", 1, true))
+    H.ok(string.find(text, "IGUI_StoryEngine_Out_Hours|5", 1, true), "five hours until the airdrop is back")
+    H.ok(string.find(text, "IGUI_StoryEngine_Out_Test|IGUI_StoryEngine_Faction_hale|IGUI_StoryEngine_Faction_guard|40", 1, true))
+    H.ok(string.find(text, "IGUI_StoryEngine_Out_Hard", 1, true))
+    H.ok(string.find(text, "IGUI_StoryEngine_Out_Leaving|2", 1, true))
+    H.ok(string.find(text, "IGUI_StoryEngine_Out_NeedTrust|40", 1, true))
+    H.ok(string.find(text, "IGUI_StoryEngine_Out_Expel", 1, true))
+    local rows = OC.rows(o)
+    H.eq(#rows, 2)
+    local hale = rows[1].items
+    H.eq(hale[1].sub[1].args.quest, "Q7", "the proxy job is picked from a list")
+    H.eq(hale[2].what, "aim")
+    H.ok(not hale[2].ok)
+    H.eq(hale[3].what, "gift")
+    H.eq(hale[4].what, "volunteer")
+    H.eq(hale[5].args.side, "out")
+    H.eq(hale[6].args.side, "home")
+    local ab = rows[2].items
+    H.eq(ab[#ab].args.stance, "abstain")
+    H.ok(not ab[#ab].ok, "that is already our stance")
+    H.ok(ab[#ab - 1].ok)
+    -- 맡길 일이 없으면 대리 작전은 꺼진다
+    o.jobs = {}
+    H.ok(not OC.rows(o)[1].items[1].ok)
+    -- 메뉴에서 고른 일
+    H.toServer = {}
+    OC.act(hale[1].sub[1])
+    H.eq(H.toServer[1].command, "outsiderUse")
+    H.eq(H.toServer[1].args.quest, "Q7")
+    OC.act(hale[5])
+    H.eq(H.toServer[2].command, "outsiderSide")
+    OC.act({ what = "order" })
+    H.eq(H.toServer[3].command, "tradeOptions")
+    H.eq(H.toServer[3].args.faction, "odell")
+    -- 알림과 결과
+    local msg, good = OC.noticeText({ kind = "hail", id = "odell" })
+    H.ok(string.find(msg, "IGUI_StoryEngine_Out_Notice_hail|IGUI_StoryEngine_Faction_odell", 1, true) and good)
+    msg = OC.noticeText({ kind = "left", id = "hale", why = "expelled" })
+    H.ok(string.find(msg, "Out_Notice_expelled", 1, true))
+    msg = OC.noticeText({ kind = "sided", id = "hale", side = "home", rival = "guard" })
+    H.ok(string.find(msg, "IGUI_StoryEngine_Faction_guard", 1, true))
+    msg = OC.resultText({ what = "use", ok = true, kind = "jewels", info = { taken = 2, scrip = 14 } })
+    H.ok(string.find(msg, "IGUI_StoryEngine_Out_Done_jewels|2|14", 1, true))
+    msg, good = OC.resultText({ what = "use", ok = false, error = "wait", wait = 125 })
+    H.ok(string.find(msg, "IGUI_StoryEngine_Out_Error_wait|3", 1, true) and not good)
+    -- 의회가 올린 표결과 불참
+    local PC = StoryEngine.PoliticsClient
+    local d = { era = true, on = true, blocs = {}, bill = { id = "admit", system = true, by = "council", target = "odell", hours = 30,
+        yes = 1, no = 0, pass = true, rows = { { fid = "ray", bloc = "field", trust = 60, need = 50, yes = true },
+                                               { fid = "guard", bloc = "gun", trust = 20, need = 70, yes = false, absent = true } } } }
+    text = PC.textOf(d)
+    H.ok(string.find(text, "IGUI_StoryEngine_Bill_admit_Desc|IGUI_StoryEngine_Faction_odell", 1, true))
+    H.ok(string.find(text, "IGUI_StoryEngine_Politics_ByCouncil", 1, true))
+    H.ok(string.find(text, "IGUI_StoryEngine_Politics_Absent", 1, true))
+    StoryEngine.Client.handlers.outsiders({ present = {} })
+    H.eq(#F.all(), 8)
+end
+
+function T.outsider_effects_run_on_the_client()
+    local p = H.addPlayer("tester", "Gerald", "Kar")
+    local OC = StoryEngine.OutsidersClient
+    local hours = 100
+    getGameTime = function() return { getWorldAgeHours = function() return hours end } end
+    -- 짐을 든 자: 무게 한도 두 배, 끝나면 되돌린다
+    local base = 8
+    function p:getMaxWeightBase() return base end
+    function p:setMaxWeightBase(v) base = v end
+    StoryEngine.Client.handlers.outsiderFx({ kind = "burden", minutes = 120 })
+    H.eq(base, 16)
+    H.eq(p:getModData().seBurdenBase, 8)
+    StoryEngine.Client.handlers.outsiderFx({ kind = "burden", minutes = 100 })
+    H.eq(base, 16, "told again, not doubled again")
+    hours = 103
+    OC.tick()
+    H.eq(base, 8)
+    H.eq(p:getModData().seBurdenBase, nil)
+    -- 체질 관리: 배고픔이 절반 속도로 오른다
+    local hunger, weight = 0.2, 90
+    CharacterStat = { HUNGER = "HUNGER", THIRST = "THIRST", PAIN = "PAIN" }
+    function p:getStats()
+        return { get = function(_, s) return s == "HUNGER" and hunger or 0 end,
+                 set = function(_, s, v) if s == "HUNGER" then hunger = v end end }
+    end
+    function p:getNutrition()
+        return { getWeight = function() return weight end, setWeight = function(_, v) weight = v end }
+    end
+    StoryEngine.Client.handlers.outsiderFx({ kind = "regimen", minutes = 600 })
+    OC.tick()
+    hunger = 0.3
+    OC.tick()
+    H.ok(math.abs(hunger - 0.25) < 0.0001, "half of the rise is taken back")
+    H.ok(weight < 90, "and the weight creeps toward eighty")
+    -- 지연제: 감염이 더 나아가지 않는다
+    local level = 30
+    local bd = p:getBodyDamage()
+    function bd:getInfectionLevel() return level end
+    function bd:setInfectionLevel(v) level = v end
+    function bd:getInfectionTime() return 0 end
+    function bd:setInfectionTime() end
+    StoryEngine.Client.handlers.outsiderFx({ kind = "retard", minutes = 600 })
+    OC.tick()
+    level = 34
+    OC.tick()
+    H.eq(level, 30)
+    StoryEngine.Client.handlers.outsiderFx({ kind = "retard", minutes = 0 })
+    level = 40
+    OC.tick()
+    H.eq(level, 40, "once it is lifted the infection runs again")
+    -- 기도를 받아 둔 사람: 체력이 바닥에 닿으면 서버에 알린다
+    H.toServer = {}
+    StoryEngine.Client.handlers.outsiderFx({ kind = "armed", minutes = 9999 })
+    p.hp = 60
+    for _ = 1, 10 do OC.watch(p) end
+    H.eq(#H.toServer, 0)
+    p.hp = 12
+    for _ = 1, 10 do OC.watch(p) end
+    H.eq(H.toServer[1].command, "outsiderMiracle")
+    for _ = 1, 10 do OC.watch(p) end
+    H.eq(#H.toServer, 1, "once")
+    CharacterStat = nil
+end
+
+-- 정치 위기 (CrisesClient.lua): 의회 탭의 글, 선택 메뉴, 배분 계산
+function T.political_crises_in_the_council_tab()
+    H.addPlayer("tester", "Gerald", "Kar")
+    local CC = StoryEngine.CrisesClient
+    H.eq(CC.textOf(nil), "")
+    H.eq(#CC.rows(nil), 0)
+    local e = { fx = { { id = "split", days = 12, snubbed = "gun", hold = "power" }, { id = "route" } },
+                current = { id = "quarantine", hours = 50, options = { "seal", "open" }, sick = "ray" } }
+    local text = CC.textOf(e)
+    H.ok(string.find(text, "IGUI_StoryEngine_Crisis2_Head|IGUI_StoryEngine_Crisis2_quarantine|50", 1, true))
+    H.ok(string.find(text, "IGUI_StoryEngine_Crisis2_quarantine_Desc|IGUI_StoryEngine_Faction_ray", 1, true))
+    H.ok(string.find(text, "IGUI_StoryEngine_Crisis2_Fx_split|12|IGUI_StoryEngine_Crisis2_Hold_power", 1, true))
+    H.ok(string.find(text, "IGUI_StoryEngine_Crisis2_Fx_route", 1, true))
+    local rows = CC.rows(e)
+    H.eq(#rows, 2)
+    H.eq(rows[1].option, "seal")
+    H.ok(string.find(rows[1].label, "IGUI_StoryEngine_Crisis2_quarantine_seal|IGUI_StoryEngine_Faction_ray", 1, true))
+    H.toServer = {}
+    CC.act(rows[2])
+    H.eq(H.toServer[1].command, "crisisChoose")
+    H.eq(H.toServer[1].args.option, "open")
+    -- 기다리는 동안에는 고를 것이 없다
+    e.current.waiting, e.current.vote = true, true
+    H.eq(#CC.rows(e), 0)
+    H.ok(string.find(CC.textOf(e), "IGUI_StoryEngine_Crisis2_WaitVote", 1, true))
+    -- 배분: 배급은 남김없이
+    local allot = { total = 30, step = 5, max = 15, rows = { { fid = "ray" }, { fid = "guard" }, { fid = "rats" } } }
+    local c = { id = "ration", hours = 70, options = {}, allot = allot }
+    rows = CC.rows({ current = c })
+    H.eq(#rows, 1)
+    H.ok(rows[1].allot == c)
+    local shares = {}
+    H.ok(CC.bump(allot, shares, "ray", 1))
+    H.ok(not CC.bump(allot, shares, "guard", -1), "nothing to take back")
+    H.eq(CC.left(allot, shares), 25)
+    H.ok(not CC.canSend(allot, shares))
+    CC.bump(allot, shares, "ray", 1)
+    CC.bump(allot, shares, "ray", 1)
+    H.ok(not CC.bump(allot, shares, "ray", 1), "fifteen is the most for one place")
+    shares = CC.even(allot)
+    H.eq(shares.ray, 10)
+    H.eq(shares.guard, 10)
+    H.eq(shares.rats, 10)
+    H.ok(CC.canSend(allot, shares))
+    H.ok(not CC.bump(allot, shares, "ray", 1), "nothing left to hand out")
+    -- 난민은 남겨도 된다 (남은 사람은 돌려보낸다)
+    local ref = { total = 100, step = 10, max = 40, partial = true, rows = { { fid = "ray" }, { fid = "pike" } } }
+    shares = { ray = 20 }
+    H.ok(CC.canSend(ref, shares))
+    H.eq(CC.left(ref, shares), 80)
+    shares = CC.even(ref)
+    H.eq(shares.ray, 40)
+    H.eq(shares.pike, 40)
+    -- 알림
+    local msg, good = CC.noticeText({ kind = "open", id = "split" })
+    H.ok(string.find(msg, "IGUI_StoryEngine_Crisis2_Notice_open|IGUI_StoryEngine_Crisis2_split", 1, true) and not good)
+    msg, good = CC.noticeText({ kind = "refugees_done", taken = 60, away = 40 })
+    H.ok(string.find(msg, "refugees_done|60|40", 1, true) and good)
+    msg, good = CC.noticeText({ kind = "boat_back" })
+    H.ok(good)
+    H.eq(CC.noticeText({ kind = "nonsense" }), nil)
+    -- 갈라선 의회의 표결
+    local PC = StoryEngine.PoliticsClient
+    local d = { era = true, on = true, blocs = {}, bill = { id = "canteen", bloc = "field", by = "ray", hours = 30, yes = 5, no = 3,
+        pass = false, two3 = true, rows = {} } }
+    H.ok(string.find(PC.textOf(d), "IGUI_StoryEngine_Politics_Two3", 1, true))
+end
+
+-- 조사 (CrisesClient.lua): 수사 수첩, 묻기·다시 묻기·판결, 유도신문의 대답
+function T.inquiries_in_the_council_tab()
+    H.addPlayer("tester", "Gerald", "Kar")
+    local CC = StoryEngine.CrisesClient
+    local case = { kind = "warehouse", answers = { "ray", "guard", "rats" }, found = 3, need = 4, hows = { "public", "cover", "private" },
+                   clues = { { n = 1, kind = "site", clears = "rats" }, { n = 3, kind = "item", clears = "guard" },
+                             { n = 6, kind = "word", fid = "ray", points = "guard" } },
+                   words = { { fid = "doc", state = "silent" }, { fid = "ray", state = "confront" } }, canJudge = false }
+    local e = { fx = {}, current = { id = "warehouse", hours = 100, options = {}, case = case } }
+    local text = CC.textOf(e)
+    H.ok(string.find(text, "IGUI_StoryEngine_Inq_Count|3|4", 1, true))
+    H.ok(string.find(text, "IGUI_StoryEngine_Inq_Clue_site_clears|IGUI_StoryEngine_Faction_rats", 1, true))
+    H.ok(string.find(text, "IGUI_StoryEngine_Inq_Clue_word_points|IGUI_StoryEngine_Faction_ray|IGUI_StoryEngine_Faction_guard", 1, true))
+    local rows = CC.rows(e)
+    H.eq(#rows, 2 + 9, "two witnesses, three suspects times three ways")
+    H.ok(not rows[1].ok, "Doc will not talk yet")
+    H.eq(rows[2].inquiry.what, "confront")
+    H.ok(not rows[3].ok, "no verdict before four clues")
+    case.canJudge = true
+    rows = CC.rows(e)
+    H.ok(rows[3].ok)
+    H.eq(rows[3].inquiry.answer, "ray")
+    H.eq(rows[3].inquiry.how, "public")
+    H.toServer = {}
+    CC.act(rows[3])
+    H.eq(H.toServer[1].command, "inquiryAct")
+    H.eq(H.toServer[1].args.what, "judge")
+    -- 재판: 답이 사람이 아니라 사건의 성격
+    local trial = { kind = "trial", answers = { "murder", "accident", "defence" }, found = 4, need = 4, accused = "rats", victim = "pike",
+                    clues = { { n = 6, kind = "word", fid = "doc", points = "murder", refuted = true } }, words = {}, canJudge = true }
+    e = { fx = {}, current = { id = "trial", hours = 50, options = {}, case = trial } }
+    text = CC.textOf(e)
+    H.ok(string.find(text, "IGUI_StoryEngine_Crisis2_trial_Desc|IGUI_StoryEngine_Faction_rats|IGUI_StoryEngine_Faction_pike", 1, true))
+    H.ok(string.find(text, "IGUI_StoryEngine_Inq_Clue_word_refuted|IGUI_StoryEngine_Faction_doc|IGUI_StoryEngine_Inq_Answer_murder", 1, true))
+    rows = CC.rows(e)
+    H.eq(#rows, 3)
+    H.ok(string.find(rows[1].label, "IGUI_StoryEngine_Inq_Judge|IGUI_StoryEngine_Inq_Answer_murder", 1, true))
+    -- 유도신문: 떠보는 사람에게 메뉴로 대답
+    e = { fx = {}, probe = { days = 5, hints = 1, max = 2, open = { fid = "doc", hours = 20 } } }
+    text = CC.textOf(e)
+    H.ok(string.find(text, "IGUI_StoryEngine_Inq_Probe|5|1|2", 1, true))
+    H.ok(string.find(text, "IGUI_StoryEngine_Inq_Probe_Open|IGUI_StoryEngine_Faction_doc|20", 1, true))
+    rows = CC.rows(e)
+    H.eq(#rows, 3)
+    H.eq(rows[2].inquiry.choice, "vague")
+    local msg, good = CC.inquiryText({ kind = "exposed", quote = "it was Ray" })
+    H.ok(string.find(msg, "IGUI_StoryEngine_Inq_Notice_quote|it was Ray", 1, true) and not good)
+    msg, good = CC.inquiryText({ kind = "clue", found = 2 })
+    H.ok(string.find(msg, "Inq_Notice_clue|2", 1, true) and good)
+    H.eq(CC.inquiryText({ kind = "nonsense" }), nil)
+end
+
 return T

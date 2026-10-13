@@ -200,6 +200,7 @@ end
 -- 혜택을 판정하는 신뢰: 개인 모드면 그 사람의 개인 신뢰, 아니면 신뢰 하나 (ch.trust)
 function Trust.of(fid, key)
     ensureMode()
+    if Factions.isOutsider(fid) then return Radio.channel(fid).trust or 0 end
     if Trust.personalMode() and key then return Trust.personal(fid, key) end
     return Radio.channel(fid).trust or 0
 end
@@ -303,6 +304,12 @@ Trust.TRADE_WEEK_MIN = 7 * 24 * 60
 function Trust.apply(fid, delta, reason, questId, byKey, src, scope)
     if not Factions.byId[fid] or delta == 0 then return 0 end
     if byKey then Trust.touch(fid, byKey) end
+    if Factions.isOutsider(fid) then
+        -- 밖에서 온 사람 (Outsiders.lua): 무리 신뢰 하나. 힘든 쪽이 되면 얻는 양이 절반
+        local Out = StoryEngine.Outsiders
+        if Out and reason ~= "debug" then delta = Out.gain(fid, delta) end
+        return applyGroup(fid, delta, reason, questId, byKey, src)
+    end
     if not Trust.personalMode() then return applyGroup(fid, delta, reason, questId, byKey, src) end
     scope = scope or Trust.SCOPE[reason] or (byKey and "personal" or "group")
     if scope == "both" then

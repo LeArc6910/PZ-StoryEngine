@@ -838,9 +838,10 @@ function Work.volunteerEnd(parent, q, state, t)
     local Life = StoryEngine.Life
     if state == "completed" then
         local mult = (parent.nightWork or q.night) and Quests.nightMult() or 1
+        if q.proxy then mult = 1 end                   -- 헤일의 대리 작전: 야간 보너스도 도제 경험치도 없다
         -- 도제 수업 (Politics.lua): 신뢰 대신 그 NPC 분야의 경험치. 일을 해 준 것으로는 친다 (신뢰 유지)
         local Pol = StoryEngine.Politics
-        local taught = Pol and Pol.apprentice(fid, player or (ps and playerOf(ps)) or nil, tier) or nil
+        local taught = Pol and not q.proxy and Pol.apprentice(fid, player or (ps and playerOf(ps)) or nil, tier) or nil
         local gain = 0
         if taught ~= nil then
             StoryEngine.Trust.deed(fid, parent.target)
@@ -848,7 +849,7 @@ function Work.volunteerEnd(parent, q, state, t)
             gain = StoryEngine.Trust.apply(fid, math.ceil(tier * Work.VOLUNTEER_TRUST * mult - 0.001), "volunteer_done",
                 parent.id, parent.target)
         end
-        if Life then
+        if Life and Life.KEY[fid] then
             Life.change(fid, Life.KEY[fid], math.floor(tier * Work.VOLUNTEER_LIFE * mult + 0.5), "volunteer")
             Life.record(fid, "volunteer", ps and ps.name or parent.targetName, gain)
         end
@@ -861,7 +862,7 @@ function Work.volunteerEnd(parent, q, state, t)
         -- 믿은 만큼 아프게 (Trust.pain, T1)
         local loss = StoryEngine.Trust.apply(fid, StoryEngine.Trust.pain(fid, parent.target, -tier), "volunteer_failed",
             parent.id, parent.target)
-        if Life then
+        if Life and Life.KEY[fid] then
             Life.change(fid, Life.KEY[fid], -5 * tier, "volunteer_failed")      -- 맡겨 둔 일이 틀어졌다 (점검 C8)
             Life.record(fid, "volunteer_failed", ps and ps.name or parent.targetName, loss)
         end

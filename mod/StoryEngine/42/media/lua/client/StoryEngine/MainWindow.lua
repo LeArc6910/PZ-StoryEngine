@@ -511,7 +511,7 @@ function StoryEngineRadioPanel:refresh()
     self.list:clear()
     -- 공용 주파수를 맨 위에
     local rows = { { id = "open", freq = "121.5", open = true } }
-    for _, f in ipairs(Factions.list) do rows[#rows + 1] = f end
+    for _, f in ipairs(Factions.all()) do rows[#rows + 1] = f end      -- 와 있는 밖에서 온 사람들도
     for i, f in ipairs(rows) do
         local unread = Cache.unread[f.id] or 0
         local sub = f.open and getText("IGUI_StoryEngine_Radio_OpenSub") or getText("IGUI_StoryEngine_Radio_ListSub", f.freq)
@@ -548,6 +548,7 @@ function StoryEngineRadioPanel:refresh()
     self.declineButton:setVisible(proposal)
     local chSel = Cache.channels[Cache.faction]
     local trades = #(StoryEngine.Value.WANTS[Cache.faction] or {}) > 0 or StoryEngine.Value.anyWantsFn(Cache.faction)
+        or Cache.faction == "odell"         -- 오델 선장의 주문 창 (Outsiders.lua)
     self.tradeButton:setVisible(trades and not proposal and not (chSel and chSel.gone))
     self.tradeButton.tooltip = getText("IGUI_StoryEngine_TradeAsk_Tooltip")
     if UI.trustPair(Cache.faction, chSel) then
@@ -796,6 +797,7 @@ local function questTitle(q)
         return getText("IGUI_StoryEngine_QTitle_holiday_collect", getText("IGUI_StoryEngine_Holiday_" .. tostring(q.holiday)))
     end
     if q.council then return getText("IGUI_StoryEngine_QTitle_council_" .. tostring(q.kind)) end
+    if q.inquiry then return getText("IGUI_StoryEngine_QTitle_inquiry_" .. tostring(q.inquiry)) end
     if q.holiday then
         return getText("IGUI_StoryEngine_QTitle_holiday", getText("IGUI_StoryEngine_Holiday_" .. tostring(q.holiday)),
             UI.townName(q.town))
@@ -1404,7 +1406,7 @@ local function opDetail(q)
 end
 
 questDetailBase = function(q)
-    if q.op or q.saga or q.work or q.holiday or q.council then return opDetail(q) end
+    if q.op or q.saga or q.work or q.holiday or q.council or q.inquiry then return opDetail(q) end
     if q.kind == "named" then return namedDetail(q) end
     if q.kind == "choice" then return choiceDetail(q) end
     if q.kind == "market" then return marketDetail(q) end
@@ -2601,16 +2603,62 @@ function StoryEnginePoliticsPanel:createChildren()
     self.electionButton = newButton(PAD * 3 + 440, self.height - PAD - BUTTON_H, 200, getText("IGUI_StoryEngine_Politics_ElectionButton"),
         self, StoryEnginePoliticsPanel.onElection)
     self:addChild(self.electionButton)
+    self.outsiderButton = newButton(PAD * 4 + 640, self.height - PAD - BUTTON_H, 200, getText("IGUI_StoryEngine_Out_Button"),
+        self, StoryEnginePoliticsPanel.onOutsiders)
+    self.outsiderButton.tooltip = getText("IGUI_StoryEngine_Out_Button_Tip")
+    self:addChild(self.outsiderButton)
+end
+
+-- 밖에서 온 사람들 (OutsidersClient.lua): 사람 -> 특기·선물·일거리·편들기
+function StoryEnginePoliticsPanel:onOutsiders()
+    local d = Cache.politics
+    local OC = StoryEngine.OutsidersClient
+    if not (d and d.on and OC) then return end
+    local context = ISContextMenu.get(0, getMouseX(), getMouseY())
+    local function tipOf(option, text)
+        if not text then return end
+        local tip = ISToolTip:new()
+        tip:initialise()
+        tip:setVisible(false)
+        tip.description = text
+        option.toolTip = tip
+    end
+    for _, row in ipairs(OC.rows(d.outsiders)) do
+        local top = context:addOption(row.label, nil, nil)
+        local sub = ISContextMenu:getNew(context)
+        context:addSubMenu(top, sub)
+        for _, item in ipairs(row.items) do
+            local option
+            if item.sub then
+                option = sub:addOption(item.label, nil, nil)
+                local jobs = ISContextMenu:getNew(sub)
+                sub:addSubMenu(option, jobs)
+                for _, j in ipairs(item.sub) do
+                    local o2 = jobs:addOption(j.label, j, OC.act)
+                    if not j.ok then o2.notAvailable = true end
+                end
+            else
+                option = sub:addOption(item.label, item, OC.act)
+            end
+            if not item.ok then option.notAvailable = true end
+            tipOf(option, item.tip)
+        end
+    end
 end
 
 function StoryEnginePoliticsPanel:refresh()
     local d = Cache.politics
     local PC = StoryEngine.PoliticsClient
-    self.text:setText(PC and PC.textOf(d) or "")
+    local OC = StoryEngine.OutsidersClient
+    local CC = StoryEngine.CrisesClient
+    self.text:setText((PC and PC.textOf(d) or "") .. ((CC and d and d.on) and CC.textOf(d.event) or "")
+        .. ((OC and d and d.on) and OC.textOf(d.outsiders) or ""))
     self.text:paginate()
+    self.outsiderButton:setVisible(d ~= nil and d.on == true and OC ~= nil and #OC.rows(d.outsiders) > 0)
     self.proposeButton:setVisible(d ~= nil and d.on == true)
     self.lobbyButton:setVisible(d ~= nil and d.on == true and d.bill ~= nil)
-    self.electionButton:setVisible(d ~= nil and d.on == true and PC ~= nil and #PC.electionRows(d) > 0)
+    self.electionButton:setVisible(d ~= nil and d.on == true and PC ~= nil
+        and (#PC.electionRows(d) > 0 or (CC ~= nil and #CC.rows(d.event) > 0)))
 end
 
 -- 선거(지지·출마)와 의장의 일(법안 고르기·동수일 때 한 표)
@@ -2619,6 +2667,19 @@ function StoryEnginePoliticsPanel:onElection()
     local PC = StoryEngine.PoliticsClient
     if not (d and d.on and PC) then return end
     local context = ISContextMenu.get(0, getMouseX(), getMouseY())
+    -- 정치 위기의 선택지 (CrisesClient.lua)
+    local CC = StoryEngine.CrisesClient
+    for _, row in ipairs(CC and CC.rows(d.event) or {}) do
+        local o = context:addOption(row.label, row, CC.act)
+        if row.ok == false then o.notAvailable = true end
+        if row.tip then
+            local tip = ISToolTip:new()
+            tip:initialise()
+            tip:setVisible(false)
+            tip.description = row.tip
+            o.toolTip = tip
+        end
+    end
     for _, row in ipairs(PC.electionRows(d)) do
         local o = context:addOption(row.label, row.args, function(args) request("politicsElection", args) end)
         if not row.ok then o.notAvailable = true end

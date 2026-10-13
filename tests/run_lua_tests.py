@@ -118,8 +118,12 @@ def line_key_errors() -> list[str]:
     only_body = re.search(r"^Lines.ONLY = \{(.*?)^\}", lines, re.S | re.M).group(1)
     for kind, body in re.findall(r"(\w+) = \{ ((?:\w+ = true,? ?)+)\}", only_body):
         only[kind] = set(re.findall(r"(\w+) = true", body))
-    fids = re.findall(r'\{ id = "(\w+)",\s+freq', (LUA_ROOT / "shared" / "StoryEngine" / "Factions.lua").read_text(encoding="utf-8"))
+    rows = re.findall(r'\{ id = "(\w+)",\s+freq(.*)', (LUA_ROOT / "shared" / "StoryEngine" / "Factions.lua").read_text(encoding="utf-8"))
+    fids = [fid for fid, rest in rows if "outsider = true" not in rest]
     keys = []
+    # 밖에서 온 사람들 (Outsiders.lua): 정해 둔 종류만, 한 줄씩
+    for fid in [fid for fid, rest in rows if "outsider = true" in rest]:
+        keys += [f"IGUI_StoryEngine_Line_{fid}_{kind}_1" for kind in table("Lines.OUTSIDER_COUNT")]
     for fid in fids:
         for kind, n in table("Lines.COUNT").items():
             if kind in only and fid not in only[kind]:

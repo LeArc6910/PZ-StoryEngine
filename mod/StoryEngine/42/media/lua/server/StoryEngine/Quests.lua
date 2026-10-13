@@ -154,7 +154,8 @@ end
 function Quests.isManaged(q)
     return Quests.isOp(q) or Quests.isSaga(q) or Quests.isWork(q) or (q ~= nil and q.kind == "volunteer")
         or (q ~= nil and q.origin ~= nil and (q.origin.holiday ~= nil or q.origin.source == "recover"
-            or q.origin.council ~= nil or (q.kind == "collect" and q.origin.politics ~= nil)))
+            or q.origin.council ~= nil or q.origin.inquiry ~= nil
+            or (q.kind == "collect" and q.origin.politics ~= nil)))
 end
 
 -- 상태가 바뀔 때 부르는 함수들 (명절·유품 회수 등 다른 모듈이 등록한다). fn(q, state, outcome, trustDelta)
@@ -2188,6 +2189,7 @@ end
 
 -- 이 퀘스트의 보상·신뢰 배율: 야간 작전과 정화 작업은 곱하지 않고 더한다 (둘 다면 2배, 2026-10-13 확정)
 function Quests.bonusMult(q)
+    if q.proxy then return 1 end           -- 헤일의 대리 작전으로 끝낸 일 (Outsiders.lua)
     local m = 1
     if q.night then m = m + (Quests.nightMult() - 1) end
     if q.purge then m = m + q.purge end
@@ -2584,6 +2586,8 @@ function Quests.listFor(psKey, now)
             if q.kind == "named" then item.person, item.slain = q.person, q.slain end
             if q.origin and q.origin.holiday then item.holiday = q.origin.holiday end
             if q.origin and q.origin.council then item.council = true end
+            -- 정치 위기의 조사 (Inquiry.lua): 현장 | 물증 자리
+            if q.origin and q.origin.inquiry then item.inquiry = (q.origin.clue or 1) <= 2 and "site" or "item" end
             if q.siege then
                 item.siege = { total = q.siege.total, sent = q.siege.sent, held = q.siege.held, waves = q.siege.waves }
                 item.siegeHelpers = StoryEngine.Council and StoryEngine.Council.helpers() or nil

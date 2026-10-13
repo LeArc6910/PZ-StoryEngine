@@ -67,6 +67,19 @@ Politics.LOBBY_MAX = 3                 -- 법안 하나에 움직일 수 있는 
 Politics.PERSUADE_TRUST, Politics.PERSUADE_NUDGE, Politics.PERSUADE_DAYS = 60, 15, 7
 Politics.PROMISE_TRUST, Politics.PROMISE_TIER = 40, 2
 Politics.LOBBY_LEAN = 5
+Politics.DEAL_HOURS = 12               -- 큰 사건: 파벌의 제안에 답할 시간
+Politics.DEAL_WAIT_HOURS = 6           -- 받은 파벌의 특기 대기 (사건 동안)
+Politics.DEAL_LEAN, Politics.DEAL_TIER = 10, 3
+Politics.GOUGE = 1.25                  -- 사건 동안 장터 파벌의 값
+Politics.CREDIT_NEED, Politics.CREDIT_MAX = 5, 2
+Politics.SAGA_BAD = { none = true, lost = true, death = true, patched = true }
+Politics.OFFER = {
+    field = "your people will treat their wounded, steady their nerves and send supplies for as long as it lasts.",
+    gun = "your people will send a squad and cover them with rifles for as long as it lasts.",
+    market = "your people will scout for them, draw the dead away and fix their vehicle for as long as it lasts, and "
+        .. "you will not raise your prices on them the way you will on everyone else.",
+}
+Politics.SIDE = { field = "the Fields", gun = "the Guns", market = "the Market" }
 Politics.TERM_DAYS = 60                -- 의장 임기
 Politics.ELECTION_FIRST_DAYS = 2       -- 정치가 열린 뒤 첫 선거까지
 Politics.ELECTION_DAYS = 7
@@ -104,6 +117,9 @@ Politics.SKILLS = {
 
 -- drain: 매일 깎는 자원 (res = "key" 는 그 NPC 의 핵심 자원). 시행 중 그 자원은 저절로 회복하지 않는다.
 Politics.BILLS = {
+    -- 의회가 스스로 올리는 표결 (Politics.systemBill): 법으로 남지 않는다
+    admit = { system = true }, expel = { system = true },
+    refuse = { system = true },         -- 군법회의를 의회 이름으로 거부 (Crises.lua E16)
     workshop = { bloc = "market", gain = { "dewey", "casey", "hunter" }, lose = { "rats" },
                  drain = { { fid = "dewey", res = "key", n = 4 } }, block = { dewey = "tools", casey = "tools" } },
     post = { bloc = "market", gain = { "casey", "dewey", "ray" }, lose = { "rats" }, post = true },
@@ -319,6 +335,12 @@ function Politics.mod(key, fid, a)
             end
         end
     end
+    -- 큰 사건 (6단계): 장터 사람들은 값을 올린다 (장터의 제안을 받았으면 올리지 않는다)
+    local crisis = s.crisis
+    if key == "price" and fid and crisis and not crisis.done and crisis.deal ~= "market"
+        and Politics.blocOf(fid) == "market" then
+        v = v * Politics.GOUGE
+    end
     -- 의장의 색 (5단계)
     local chair = s.chair
     if chair and Sensor.now().t < (chair.untilT or 0) then
@@ -333,25 +355,118 @@ function Politics.mod(key, fid, a)
             if key == "price" then v = v * Politics.CHAIR_PRICE end
         end
     end
+    -- 국면 (9단계): 독주하는 파벌은 기세가 오르고 밀려난 파벌은 시든다. 견제 국면은 손이 많이 간다
+    local phase = s.phase
+    if phase then
+        if phase.kind == "rule" and fid then
+            local mine = Politics.blocOf(fid) == phase.bloc
+            if key == "baseBonus" and a == "morale" then v = v + (mine and Politics.RULE_BASE or -Politics.RULE_BASE) end
+            if key == "specWait" and not mine then v = v * Politics.RULE_WAIT end
+        elseif phase.kind == "balance" and key == "upkeep" then
+            v = v * Politics.BALANCE_UPKEEP
+        end
+    end
     -- 편들기의 대가
     if fid and (key == "specWait" or key == "price") and Politics.against(fid) then
         v = v * (key == "specWait" and Politics.LEAN_WAIT or Politics.LEAN_PRICE)
     end
+    -- 밖에서 온 사람과의 충성 시험에서 치르는 값 (Outsiders.lua E10~E13)
+    local Out = StoryEngine.Outsiders
+    if Out and fid then
+        local extra = Out.mod(key, fid, a)
+        if extra == true then
+            v = true
+        elseif extra and MULT[key] then
+            v = v * extra
+        end
+    end
+    -- 정치 위기가 남긴 것 (Crises.lua: 격리 중인 닥, 강을 올라간 케이시, 영창의 휘태커)
+    local Cr = StoryEngine.Crises
+    if Cr and fid and Cr.mod(key, fid, a) == true then v = true end
     local cap = Politics.CAPS[key]
     if cap then v = math.max(cap[1], math.min(cap[2], v)) end
     return v
+end
+
+-- ---------------------------------------------------------------- 국면 (9단계)
+
+-- PHASE_DAYS(60일)마다 정치가 어디로 흘렀는지 본다. 파벌마다 무게를 센다:
+--   의장 자리 +2, 지난 국면 동안 통과시킨 법안 하나에 +1, 큰 사건의 공과(credit), 플레이어 무리의 기울기 20 이상 +1·40 이상 +2.
+-- 가장 무거운 파벌이 둘째보다 PHASE_GAP(3) 이상 앞서면 그 파벌의 독주(rule), 아니면 견제(balance).
+--   독주: 그 파벌 사람들의 기호품 기준 +10. 밀려난 파벌 사람들은 기호품 기준 -10, 특기 대기 1.25배.
+--   견제: 모두 남지만 손이 많이 간다 (높은 신뢰를 지키는 기한이 0.8배).
+Politics.PHASE_DAYS = 60
+Politics.PHASE_GAP = 3
+Politics.RULE_BASE = 10
+Politics.RULE_WAIT = 1.25
+Politics.BALANCE_UPKEEP = 0.8
+
+function Politics.weights(now)
+    local s = state()
+    local out = {}
+    local since = s.phase and s.phase.day or 0
+    for _, b in ipairs(Politics.BLOCS) do
+        local w = 0
+        local chair = s.chair
+        if chair and not chair.player and chair.bloc == b and now.t < (chair.untilT or 0) then w = w + 2 end
+        for _, h in ipairs(s.history or {}) do
+            if h.pass and h.bloc == b and (h.day or 0) >= since then w = w + 1 end
+        end
+        w = w + ((s.credit or {})[b] or 0)
+        local lean = s.lean[b] or 0
+        if lean >= 40 then w = w + 2 elseif lean >= 20 then w = w + 1 end
+        out[b] = w
+    end
+    return out
+end
+
+function Politics.phase()
+    local s = Store.data().politics
+    return s and s.phase or nil
+end
+
+-- 국면을 다시 정한다. 반환: phase
+function Politics.judgePhase(now)
+    local s = state()
+    now = now or Sensor.now()
+    local w = Politics.weights(now)
+    local order = {}
+    for _, b in ipairs(Politics.BLOCS) do order[#order + 1] = b end
+    table.sort(order, function(a, b) return w[a] > w[b] end)
+    local top, second = order[1], order[2]
+    local before = s.phase
+    local phase = { kind = "balance", sinceT = now.t, day = Store.serverDays(), weights = w }
+    if #Politics.members(top) > 0 and w[top] - w[second] >= Politics.PHASE_GAP then
+        phase.kind, phase.bloc = "rule", top
+    end
+    s.phase = phase
+    s.nextPhaseT = now.t + Politics.PHASE_DAYS * 24 * 60
+    local changed = not before or before.kind ~= phase.kind or before.bloc ~= phase.bloc
+    if changed then
+        local text = phase.kind == "rule"
+            and ("County politics has tipped: " .. tostring(phase.bloc) .. " now runs the council, and the other camps are being pushed aside.")
+            or "County politics is balanced for now: no camp runs the council alone, and everyone wants a little more from the players."
+        if StoryEngine.Social and StoryEngine.Social.news then StoryEngine.Social.news("all", text) end
+        for _, ps in pairs(Store.data().players) do
+            if not ps.dead then Store.addNote(ps, { kind = "op", text = text, clock = now.clock }) end
+        end
+        notify("phase", { phase = phase.kind, bloc = phase.bloc })
+        -- 기호품 기준이 바뀐다: 지금 값이 새 기준보다 높으면 그대로 두고 날마다 기준 쪽으로 간다
+    end
+    log("politics phase", phase.kind, tostring(phase.bloc), "weights", tostring(w.field), tostring(w.gun), tostring(w.market))
+    return phase
 end
 
 -- ---------------------------------------------------------------- 법안: 표
 
 local function gainOf(bill)
     if bill.id == "vouch" then return { bill.target } end
-    return Politics.BILLS[bill.id].gain or {}
+    return bill.gain or Politics.BILLS[bill.id].gain or {}
 end
 
 local function loseOf(bill)
     if bill.id == "vouch" then return bill.lose or {} end
-    return Politics.BILLS[bill.id].lose or {}
+    return bill.lose or Politics.BILLS[bill.id].lose or {}
 end
 
 -- 이 NPC 의 찬성 기준
@@ -368,20 +483,35 @@ function Politics.need(bill, fid)
     elseif bill.rival and bloc == bill.rival then
         need = need + Politics.PARTY
     end
+    -- 큰 사건의 공과 (6단계): 낸 파벌의 공이 있으면 모두의 기준이 내려가고, 책임이 있으면 올라간다
+    local s = Store.data().politics
+    local credit = bill.bloc and s and s.credit and s.credit[bill.bloc] or 0
+    need = need - credit * Politics.CREDIT_NEED
     return need + ((bill.nudge or {})[fid] or 0)
 end
 
 -- 지금 표를 세면: { rows = { { fid, yes, need, trust } }, yes, no, pass }
 function Politics.forecast(bill)
     local rows, yes, no = {}, 0, 0
+    local Out = StoryEngine.Outsiders
     for _, fid in ipairs(living()) do
         local need, trust = Politics.need(bill, fid), trustOf(fid)
         local vote = (bill.pledged or {})[fid] == true or trust >= need
         if (bill.pledged or {})[fid] == false then vote = false end
-        rows[#rows + 1] = { fid = fid, yes = vote, need = need, trust = trust, bloc = Politics.blocOf(fid) }
-        if vote then yes = yes + 1 else no = no + 1 end
+        -- 등 돌림 (Outsiders.lua R5): 밖에서 온 사람을 꺼리는 NPC 의 신뢰가 바닥이면 표결에 나오지 않는다.
+        -- 그 사람을 내보내자는 표결에는 나온다
+        local absent = bill.id ~= "expel" and Out ~= nil and Out.absent(fid) or nil
+        rows[#rows + 1] = { fid = fid, yes = vote, need = need, trust = trust, bloc = Politics.blocOf(fid), absent = absent }
+        if not absent then
+            if vote then yes = yes + 1 else no = no + 1 end
+        end
     end
-    return { rows = rows, yes = yes, no = no, pass = yes > (yes + no) / 2 }
+    -- 갈라선 의회 (Crises.lua E3): 셋 가운데 둘이 찬성해야 통과한다
+    local Cr = StoryEngine.Crises
+    local two3 = Cr ~= nil and Cr.mod("supermajority") == true
+    local pass = yes > (yes + no) / 2
+    if two3 then pass = yes > 0 and yes * 3 >= (yes + no) * 2 end
+    return { rows = rows, yes = yes, no = no, pass = pass, two3 = two3 or nil }
 end
 
 local function rivalOf(bill)
@@ -444,7 +574,7 @@ Politics.TEXT = {
 }
 
 function Politics.describe(bill)
-    local text = Politics.TEXT[bill.id] or bill.id
+    local text = bill.text or Politics.TEXT[bill.id] or bill.id
     if bill.id == "vouch" then
         text = nameOf(bill.guarantor) .. " vouching for " .. nameOf(bill.target) .. " before the council"
     end
@@ -457,6 +587,28 @@ local function newBill(id, bloc, by, now)
     local bill = { seq = s.seq, id = id, bloc = bloc, by = by, t = now.t,
                    voteT = now.t + Politics.PREP_DAYS * 24 * 60, nudge = {}, pledged = {} }
     bill.rival = rivalOf(bill)
+    return bill
+end
+
+-- 의회가 스스로 올리는 표결 (밖에서 온 사람을 받아들일지 admit, 내보낼지 expel: Outsiders.lua).
+-- 법으로 남지 않고 결과만 Outsiders.onVote 로 넘긴다. 걸린 법안이 있으면 nil (나중에 다시)
+function Politics.systemBill(id, opts, now)
+    if not Politics.on() then return nil end
+    local s = state()
+    if s.bill then return nil end
+    opts = opts or {}
+    now = now or Sensor.now()
+    local bill = newBill(id, nil, "council", now)
+    bill.target, bill.text, bill.system, bill.owner = opts.target, opts.text, true, opts.owner
+    bill.gain, bill.lose = opts.gain or {}, opts.lose or {}
+    bill.rival = nil
+    s.bill = bill
+    if StoryEngine.Social and StoryEngine.Social.news then
+        StoryEngine.Social.news("all", "The county council will vote in " .. StoryEngine.intToString(Politics.PREP_DAYS)
+            .. " days on " .. Politics.describe(bill))
+    end
+    notify("bill", { id = id, by = "council", target = bill.target })
+    log("politics system bill", id, tostring(bill.target))
     return bill
 end
 
@@ -568,6 +720,8 @@ function Politics.lobby(player, fid, how, side)
     local bill = s.bill
     if not bill then return false, "no_bill" end
     if not Factions.byId[fid] or Factions.isGone(fid) then return false, "no_target" end
+    if Factions.isOutsider(fid) then return false, "no_target" end      -- 밖에서 온 사람은 표가 없다
+    if bill.id == "expel" then return false, "no_lobby" end             -- 추방 표결은 뜻을 밝히는 것으로만 (Outsiders.stance)
     side = side == "against" and "against" or "for"
     bill.lobby = bill.lobby or {}
     local used = 0
@@ -754,6 +908,8 @@ function Politics.vote(now)
     local bill = s.bill
     if not bill then return nil end
     local tally = Politics.forecast(bill)
+    local credit = bill.bloc and s.credit and s.credit[bill.bloc] or 0
+    if credit ~= 0 then s.credit[bill.bloc] = credit + (credit > 0 and -1 or 1) end
     if tally.yes == tally.no and bill.cast and Politics.chair() and Politics.chair().player then
         tally.pass = bill.cast == "for"
         tally.cast = bill.cast
@@ -771,7 +927,13 @@ function Politics.vote(now)
             firstNo = firstNo or r.fid
         end
     end
-    if tally.pass then
+    if bill.system then
+        local Owner = bill.owner == "crises" and StoryEngine.Crises or StoryEngine.Outsiders
+        if Owner then
+            local okO, errO = pcall(Owner.onVote, bill, tally.pass, now)
+            if not okO then log("politics system vote error:", tostring(errO)) end
+        end
+    elseif tally.pass then
         enact(bill, now)
     else
         s.failed[bill.id] = now.t
@@ -1000,6 +1162,102 @@ end
 function Politics.winterReady()
     local s = Store.data().politics
     return s ~= nil and s.winterUntil ~= nil and Sensor.now().t < s.winterUntil
+end
+
+-- ---------------------------------------------------------------- 큰 사건에 끼어드는 정치 (6단계)
+
+-- 의회 이후의 큰 사건(Saga)은 모두가 뭉쳐 막지 않는다. 시작되면 파벌마다 그 파벌의 대표(우리를 가장 믿는 사람)가
+-- 조건을 단 제안을 한다. DEAL_HOURS 안에 하나를 받거나, 아무것도 받지 않고 혼자 간다.
+--   받으면: 그 파벌 사람들의 1차 특기가 사건 동안 DEAL_WAIT_HOURS 마다, 자원을 쓰지 않고 온다. 기울기 +DEAL_LEAN.
+--           대신 대표에게 빚을 진다 (Work.owe, 이틀쯤 뒤 큰 부탁).
+--   장터는 사건 동안 값을 올린다 (GOUGE). 장터의 제안을 받았으면 올리지 않는다.
+-- 끝나면 공과 정산: 받은 파벌은 사건이 잘 끝나면 공(+1), 나쁘게 끝나면 책임(-1). 공은 그 파벌이 내는 다음 법안의
+-- 찬성 기준을 CREDIT_NEED 만큼 내리고(책임이면 올리고) 한 번 쓰이면 닳는다.
+
+local function crisisNow()
+    local s = Store.data().politics
+    local c = s and s.openT and s.crisis or nil
+    if not c or c.done then return nil end
+    return c
+end
+
+function Politics.crisis() return crisisNow() end
+
+-- 이 NPC 의 파벌과 거래를 맺었는가 (Specialty: 사건 동안 대기가 짧고 자원을 쓰지 않는다)
+function Politics.dealt(fid)
+    local c = crisisNow()
+    return c ~= nil and c.deal ~= nil and c.deal == Politics.blocOf(fid)
+end
+
+local function leaderOf(bloc)
+    local best, top = nil, -1
+    for _, fid in ipairs(Politics.members(bloc)) do
+        if trustOf(fid) > top then best, top = fid, trustOf(fid) end
+    end
+    return best
+end
+
+function Politics.onSaga(event, sg)
+    if not Politics.on() or not sg then return end
+    local s = state()
+    local now = Sensor.now()
+    if event == "start" then
+        local c = { id = sg.id, kind = sg.kind, t = now.t, untilT = now.t + Politics.DEAL_HOURS * 60, offers = {} }
+        for _, b in ipairs(Politics.BLOCS) do c.offers[b] = leaderOf(b) end
+        s.crisis = c
+        for _, b in ipairs(Politics.BLOCS) do
+            local fid = c.offers[b]
+            if fid then
+                Radio.react(fid, "event", "Trouble has started in the county (" .. tostring(sg.kind) .. "). Nobody is pulling together "
+                    .. "the way they did at the church. Make the players an offer on behalf of your side: " .. Politics.OFFER[b]
+                    .. " In return they will owe you a favour you will call in afterwards. They can take one side's offer only, "
+                    .. "in the Council tab, within " .. StoryEngine.intToString(Politics.DEAL_HOURS) .. " hours.",
+                    { text = "We can help. It will cost you a favour.", lt = { key = "IGUI_StoryEngine_Politics_Say_Offer_" .. b } }, nil)
+            end
+        end
+        notify("crisis", { saga = sg.kind })
+        log("politics crisis offers", sg.id, sg.kind)
+    elseif event == "done" then
+        local c = s.crisis
+        if not c or c.id ~= sg.id then return end
+        c.done = true
+        local good = not Politics.SAGA_BAD[tostring(sg.result)]
+        if c.deal and c.deal ~= "none" then
+            s.credit = s.credit or {}
+            local v = (s.credit[c.deal] or 0) + (good and 1 or -1)
+            s.credit[c.deal] = math.max(-Politics.CREDIT_MAX, math.min(Politics.CREDIT_MAX, v))
+            local text = good and ("When the trouble was over, people gave the credit to " .. Politics.SIDE[c.deal] .. ", who had stepped in.")
+                or ("When the trouble ended badly, people blamed " .. Politics.SIDE[c.deal] .. ", who had promised to handle it.")
+            if StoryEngine.Social and StoryEngine.Social.news then StoryEngine.Social.news("all", text) end
+            notify("settled", { bloc = c.deal, good = good })
+        end
+        log("politics crisis settled", sg.id, tostring(c.deal), good and "good" or "bad")
+        s.crisis = nil
+    end
+end
+
+-- 제안을 받는다 (bloc = "none" 이면 혼자 간다). 반환: true | false, 이유
+function Politics.deal(player, bloc)
+    local c = crisisNow()
+    if not c then return false, "no_crisis" end
+    if c.deal then return false, "done" end
+    local now = Sensor.now()
+    if now.t >= c.untilT then return false, "late" end
+    local ps = Store.player(player)
+    if bloc ~= "none" then
+        local fid = c.offers[bloc]
+        if not fid or Factions.isGone(fid) then return false, "no_target" end
+        local Work = StoryEngine.Work
+        if not Work or not Work.owe(fid, ps.key, ps.name, Politics.DEAL_TIER, now.t) then return false, "owed" end
+        addLean(bloc, Politics.DEAL_LEAN)
+        Radio.react(fid, "event", tostring(ps.name) .. " took your side's offer of help in the trouble, and owes you for it. "
+            .. "Tell them your people are on it, and that you will be calling the favour in.",
+            { text = "Then it's settled. My people are on it.", lt = { key = "IGUI_StoryEngine_Politics_Say_Deal" } }, ps)
+    end
+    c.deal, c.by = bloc, ps.name
+    notify("deal", { bloc = bloc, name = ps.name })
+    log("politics crisis deal", bloc, "by", ps.name)
+    return true
 end
 
 -- ---------------------------------------------------------------- 의장 선거 (5단계, 위기 E1)
@@ -1365,6 +1623,15 @@ function Politics.tick(now)
         if now.t >= law.untilT then Politics.repeal(law.id, now, "expired") end
     end
     if #Sensor.players() == 0 then return end
+    -- 국면: 60일마다 다시 본다
+    s.nextPhaseT = s.nextPhaseT or (s.openT + Politics.PHASE_DAYS * 24 * 60)
+    if now.t >= s.nextPhaseT then
+        local okPh, errPh = pcall(Politics.judgePhase, now)
+        if not okPh then
+            log("politics phase error:", tostring(errPh))
+            s.nextPhaseT = now.t + 24 * 60
+        end
+    end
     -- 의장 선거
     if s.election and now.t >= s.election.voteT then Politics.electionVote(now) end
     if not s.election and now.t >= (s.nextElectionT or (s.openT + Politics.ELECTION_FIRST_DAYS * 24 * 60)) then
@@ -1399,14 +1666,28 @@ function Politics.payload(psKey, now)
         if Politics.against(fid) then against[#against + 1] = fid end
     end
     out.against = against
+    if s.phase then
+        out.phase = { kind = s.phase.kind, bloc = s.phase.bloc, weights = s.phase.weights,
+                      days = math.max(0, math.ceil(((s.nextPhaseT or now.t) - now.t) / 60 / 24)) }
+    else
+        out.phaseIn = math.max(0, math.ceil(((s.nextPhaseT or (s.openT + Politics.PHASE_DAYS * 24 * 60)) - now.t) / 60 / 24))
+    end
+    if StoryEngine.Outsiders then
+        local okO, info = pcall(StoryEngine.Outsiders.payload, psKey, now)
+        if okO then out.outsiders = info else log("politics outsiders payload error:", tostring(info)) end
+    end
+    if StoryEngine.Crises then
+        local okC2, info = pcall(StoryEngine.Crises.payload, psKey, now)
+        if okC2 then out.event = info else log("politics crises payload error:", tostring(info)) end
+    end
     if s.bill then
         local t = Politics.forecast(s.bill)
         out.bill = { id = s.bill.id, bloc = s.bill.bloc, by = s.bill.by, who = s.bill.who, target = s.bill.target,
                      guarantor = s.bill.guarantor, hours = math.max(0, math.ceil((s.bill.voteT - now.t) / 60)),
-                     rows = t.rows, yes = t.yes, no = t.no, pass = t.pass, lobby = s.bill.lobby,
+                     rows = t.rows, yes = t.yes, no = t.no, pass = t.pass, two3 = t.two3, lobby = s.bill.lobby,
                      cast = s.bill.cast,
                      lobbyLeft = Politics.lobbyMax() - (function() local n = 0 for _ in pairs(s.bill.lobby or {}) do n = n + 1 end return n end)(),
-                     gain = gainOf(s.bill), lose = loseOf(s.bill) }
+                     gain = gainOf(s.bill), lose = loseOf(s.bill), system = s.bill.system, stance = s.bill.stance }
     else
         out.nextIn = math.max(0, math.ceil(((s.nextBillT or now.t) - now.t) / 60 / 24))
     end
@@ -1433,6 +1714,12 @@ function Politics.payload(psKey, now)
             end
         end
     end
+    local cr = crisisNow()
+    if cr then
+        out.crisis = { saga = cr.kind, hours = math.max(0, math.ceil((cr.untilT - now.t) / 60)), offers = cr.offers,
+                       deal = cr.deal, by = cr.by, open = cr.deal == nil and now.t < cr.untilT }
+    end
+    out.credit = s.credit
     if s.election then
         local e = s.election
         local f = Politics.electionForecast(e)
@@ -1462,6 +1749,7 @@ function Politics.context(fid)
     if not Politics.on() then return nil end
     local s = state()
     local out = { bloc = Politics.blocOf(fid), lean = {}, laws = {}, against = Politics.against(fid) or nil }
+    if s.phase then out.phase = { kind = s.phase.kind, bloc = s.phase.bloc } end
     for _, b in ipairs(Politics.BLOCS) do out.lean[b] = Politics.lean(b) end
     for _, law in ipairs(s.laws) do out.laws[#out.laws + 1] = Politics.TEXT[law.id] or law.id end
     if s.bill then
@@ -1479,6 +1767,7 @@ end
 function Politics.debug(args, player)
     local now = Sensor.now()
     local s = state()
+    if args.phase then Politics.judgePhase(Sensor.now()) end
     if args.open then
         if not s.openT then open(now) end
     elseif args.reset then

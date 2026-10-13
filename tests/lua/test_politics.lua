@@ -700,4 +700,142 @@ function T.a_failed_run_leaves_the_chair_to_a_candidate()
     H.eq(Pol.chair().player, nil)
 end
 
+-- 큰 사건에 끼어드는 정치 (6단계): 파벌의 제안, 하나만 받기, 공과 정산
+function T.camps_offer_help_at_a_price_when_trouble_starts()
+    local p, ps = setup(true)
+    local Pol, Sp, Work = P(), StoryEngine.Specialty, StoryEngine.Work
+    trustAll(50)
+    setTrust("pike", 70)
+    setTrust("hunter", 60)
+    setTrust("rats", 65)
+    local sg = { id = "SG9", kind = "migration" }
+    Pol.onSaga("start", sg)
+    local c = Pol.crisis()
+    H.ok(c, "offers are on the table")
+    H.eq(c.offers.field, "pike", "each camp speaks through the one who trusts them most")
+    H.eq(c.offers.gun, "hunter")
+    H.eq(c.offers.market, "rats")
+    local view = Pol.payload(ps.key).crisis
+    H.eq(view.open, true)
+    H.eq(view.hours, 12)
+    -- 받기 전: 장터는 값을 올리고, 특기는 평소대로
+    H.near(Pol.mod("price", "rats", "tools"), 1.25, 0.001)
+    H.eq(Pol.mod("price", "ray", "food"), 1)
+    H.ok(not Pol.dealt("hunter"))
+    H.eq(Sp.costOf("hunter", 1).n, 10)
+    -- 총의 제안을 받는다
+    H.ok(Pol.deal(p, "gun"))
+    H.ok(Pol.dealt("hunter") and Pol.dealt("guard"))
+    H.ok(not Pol.dealt("ray"))
+    H.eq(Sp.costOf("hunter", 1).n, 0, "their help costs them nothing while it lasts")
+    H.eq(Pol.lean("gun"), 10)
+    H.ok(Work.owed("hunter", ps.key), "a favour is owed to the one who made the offer")
+    H.eq(Work.owed("hunter", ps.key).tier, 3)
+    local again, why = Pol.deal(p, "field")
+    H.eq(why, "done", "one offer only")
+    -- 대기가 6시간으로
+    setTrust("hunter", 85)
+    local Store = StoryEngine.Store
+    Sp.commit("hunter", ps, 3, {})
+    local safety = StoryEngine.Life.npc("hunter").res.safety
+    H.ok(Sp.status("hunter", ps.key).wait <= 6)
+    Sp.commit("hunter", ps, 3, {})
+    H.eq(StoryEngine.Life.npc("hunter").res.safety, safety, "no resources spent")
+    -- 잘 끝나면 공이 그 파벌에: 다음 법안의 찬성 기준이 내려간다
+    sg.result = "both"
+    Pol.onSaga("done", sg)
+    H.eq(Pol.crisis(), nil)
+    H.eq(Pol.state().credit.gun, 1)
+    H.eq(Pol.mod("price", "rats", "tools"), 1, "prices settle")
+    H.ok(not Pol.dealt("hunter"))
+    Pol.debug({ bill = "purge" })
+    local bill = Pol.state().bill
+    H.eq(Pol.need(bill, "ray"), 55, "opposing camp (60), five easier for the credit")
+    H.eq(Pol.need(bill, "casey"), 45, "everyone is five easier on the Guns' bill")
+    Pol.vote(now())
+    H.eq(Pol.state().credit.gun, 0, "spent on that vote")
+end
+
+function T.going_alone_or_ending_badly()
+    local p, ps = setup(true)
+    local Pol = P()
+    trustAll(60)
+    local sg = { id = "SG1", kind = "epidemic" }
+    Pol.onSaga("start", sg)
+    H.ok(Pol.deal(p, "none"))
+    H.eq(StoryEngine.Work.owed("pike", ps.key), nil, "nobody is owed")
+    sg.result = "cured"
+    Pol.onSaga("done", sg)
+    H.eq(Pol.state().credit, nil, "no credit and no blame when nobody stepped in")
+    -- 받았는데 나쁘게 끝나면 책임
+    local sg2 = { id = "SG2", kind = "epidemic" }
+    Pol.onSaga("start", sg2)
+    H.ok(Pol.deal(p, "field"))
+    sg2.result = "death"
+    Pol.onSaga("done", sg2)
+    H.eq(Pol.state().credit.field, -1)
+    Pol.debug({ bill = "canteen" })
+    H.eq(Pol.need(Pol.state().bill, "guard"), 85, "loses and opposes (80), five harder for the blame")
+    H.eq(Pol.need(Pol.state().bill, "dewey"), 55, "everyone is five harder on the Fields' bill")
+    local blamed = false
+    for _, n in ipairs(H.sentOf("politicsNotice")) do if n.kind == "settled" and n.good == false then blamed = true end end
+    H.ok(blamed)
+    -- 답할 시간이 지나면 못 받는다
+    local sg3 = { id = "SG3", kind = "blackout" }
+    Pol.onSaga("start", sg3)
+    H.clockMin = H.clockMin + 13 * 60
+    local late, why = Pol.deal(p, "gun")
+    H.eq(why, "late")
+    H.eq(Pol.payload(ps.key).crisis.open, false)
+    -- 정치가 열리기 전의 사건에는 아무 일도 없다
+    Pol.debug({ reset = true })
+    Pol.onSaga("start", { id = "SG4", kind = "crash" })
+    H.eq(Pol.crisis(), nil)
+end
+
+-- 국면 (9단계): 60일마다 쏠림을 본다. 견제 / 한 파벌의 독주
+function T.the_county_settles_into_balance_or_one_camp_rules()
+    local p, ps = setup(true)
+    local Pol = P()
+    local s = Pol.state()
+    s.bill, s.nextBillT, s.nextElectionT = nil, now().t + 999 * 1440, now().t + 999 * 1440
+    H.eq(Pol.phase(), nil, "not judged in the first sixty days")
+    H.ok(Pol.payload("tester").phaseIn > 0)
+    local upkeep = Pol.mod("upkeep")
+    -- 아무도 앞서지 않으면 견제: 손이 많이 간다
+    H.advanceDays(Pol.PHASE_DAYS + 1)
+    s.nextBillT, s.nextElectionT = now().t + 999 * 1440, now().t + 999 * 1440
+    Pol.tick()
+    H.eq(Pol.phase().kind, "balance")
+    H.eq(Pol.mod("upkeep"), upkeep * Pol.BALANCE_UPKEEP)
+    H.eq(Pol.mod("specWait", "guard"), 1)
+    H.eq(Pol.payload("tester").phase.kind, "balance")
+    local notices = H.sentOf("politicsNotice")
+    H.eq(notices[#notices].kind, "phase")
+    -- 한 파벌이 자리와 법안과 공을 다 가져가면 독주
+    s.chair = { fid = "ray", bloc = "field", untilT = now().t + 60 * 1440 }
+    s.history[#s.history + 1] = { id = "canteen", bloc = "field", pass = true, day = StoryEngine.Store.serverDays() }
+    s.credit = { field = 1 }
+    local w = Pol.weights(now())
+    H.eq(w.field, 4)
+    H.eq(w.gun, 0)
+    local base = StoryEngine.Life.base("ray", "morale")
+    local guardBase = StoryEngine.Life.base("guard", "morale")
+    Pol.judgePhase(now())
+    H.eq(Pol.phase().kind, "rule")
+    H.eq(Pol.phase().bloc, "field")
+    H.eq(Pol.mod("upkeep"), upkeep, "the pressure of balance is gone")
+    H.eq(Pol.mod("specWait", "guard"), Pol.RULE_WAIT, "the camps pushed aside drag their feet")
+    H.eq(Pol.mod("specWait", "ray"), 1)
+    H.ok(StoryEngine.Life.base("ray", "morale") > base, "the ruling camp is in good heart")
+    H.eq(StoryEngine.Life.base("guard", "morale"), guardBase - Pol.RULE_BASE)
+    H.eq(Pol.context("guard").phase.bloc, "field")
+    -- 앞선 차이가 줄면 다시 견제로
+    s.chair, s.credit = nil, {}
+    H.advanceDays(Pol.PHASE_DAYS + 1)
+    s.nextBillT, s.nextElectionT = now().t + 999 * 1440, now().t + 999 * 1440
+    Pol.tick()
+    H.eq(Pol.phase().kind, "balance", "laws passed in an earlier phase no longer count")
+end
+
 return T

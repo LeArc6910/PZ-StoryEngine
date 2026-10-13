@@ -601,6 +601,8 @@ function Saga.start(kind, why)
     }
     log("saga start", s.current.id, kind, why or "")
     Saga.enterStage(1)
+    -- 의회 이후: 파벌마다 조건을 단 제안을 한다 (Politics.lua 6단계)
+    if s.current and StoryEngine.Politics then pcall(StoryEngine.Politics.onSaga, "start", s.current) end
     return true, s.current
 end
 
@@ -623,6 +625,7 @@ function Saga.finish(why)
     s.nextT = now.t + (Saga.GAP_DAYS[1] + ZombRand(Saga.GAP_DAYS[2] - Saga.GAP_DAYS[1] + 1)) * 24 * 60
     notice("done", sg)
     log("saga finish", sg.id, sg.kind, tostring(sg.result))
+    if StoryEngine.Politics then pcall(StoryEngine.Politics.onSaga, "done", sg) end       -- 공과 정산
 end
 
 -- 10분마다 (접속자가 있을 때)

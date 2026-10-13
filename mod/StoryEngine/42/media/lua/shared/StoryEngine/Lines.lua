@@ -149,8 +149,22 @@ function Lines.intentOf(text, extra)
     return nil
 end
 
+-- 밖에서 온 사람들의 준비된 대사 (한 줄씩). 여기 없는 종류는 공통 문장(alt)이나 영어 대체 문장으로
+Lines.OUTSIDER_COUNT = {
+    q_accepted = 1, q_declined = 1, q_ignored = 1, q_thanks = 1, q_failed = 1, request = 1, reward = 1,
+    offline_reply = 1, chat_checkin = 1, volunteer_ask = 1, volunteer_done = 1,
+    out_hello = 1, out_bye = 1, out_spec = 1, out_gift = 1, out_appeal = 1, out_cold = 1,
+}
+
 function Lines.lt(fid, kind, args)
     local alt = Lines.ALT[kind]
+    local F = StoryEngine.Factions
+    if F and F.isOutsider and F.isOutsider(fid) then
+        if Lines.OUTSIDER_COUNT[kind] then
+            return { key = "IGUI_StoryEngine_Line_" .. tostring(fid) .. "_" .. kind .. "_1", alt = alt, args = args }
+        end
+        return alt and { key = alt, args = args } or nil
+    end
     local voice = StoryEngine.Factions and StoryEngine.Factions.voice and StoryEngine.Factions.voice[fid]
     local vonly = Lines.VOICE_ONLY[kind]
     if voice and Lines.VOICE_COUNT[kind] and (not vonly or vonly[voice]) then

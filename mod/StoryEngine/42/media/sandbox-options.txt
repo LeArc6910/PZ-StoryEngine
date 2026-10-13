@@ -364,6 +364,18 @@ option StoryEngine.Politics
 	page = StoryEngineNPC, translation = StoryEngine_Politics,
 }
 
+option StoryEngine.Outsiders
+{
+	type = boolean, default = true,
+	page = StoryEngineNPC, translation = StoryEngine_Outsiders,
+}
+
+option StoryEngine.PoliticalCrises
+{
+	type = boolean, default = true,
+	page = StoryEngineNPC, translation = StoryEngine_PoliticalCrises,
+}
+
 option StoryEngine.BillDays
 {
 	type = integer, min = 3, max = 60, default = 10,

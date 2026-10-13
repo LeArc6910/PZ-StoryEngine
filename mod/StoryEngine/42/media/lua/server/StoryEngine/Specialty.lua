@@ -161,6 +161,9 @@ end
 function Specialty.waitMinutes(fid, psKey, now)
     local s = state()
     local days = Specialty.cooldownDays(fid) * 24 * 60
+    -- 큰 사건에서 이 파벌의 제안을 받았으면 사건 동안은 금방 다시 온다 (Politics.lua 6단계)
+    local Pol = StoryEngine.Politics
+    if Pol and Pol.dealt and Pol.dealt(fid) then days = math.min(days, Pol.DEAL_WAIT_HOURS * 60) end
     local function left(last, gap)
         if not last then return 0 end
         return math.max(0, gap - (now - last))
@@ -213,6 +216,9 @@ function Specialty.status(fid, psKey)
         reason = "off"
     elseif StoryEngine.Politics and StoryEngine.Politics.mod("recess") then
         reason = "recess"                              -- 위령제: 그날은 모두 쉰다
+    elseif StoryEngine.Politics and StoryEngine.Politics.mod("specBlock", fid) then
+        -- 밖에서 온 사람 편을 들었다 (Outsiders.lua E11·E13) 또는 정치 위기로 자리를 비웠다 (Crises.lua). 저절로 오는 지원은 그대로
+        reason = (StoryEngine.Crises and StoryEngine.Crises.blockReason(fid)) or "sided"
     elseif tier == 0 then
         reason = "low_trust"
     elseif wait > 0 then
@@ -232,6 +238,7 @@ function Specialty.costOf(fid, tier)
     if fid == "ray" then n, res = Specialty.RAY_COST, "food" end
     local P = StoryEngine.Politics
     if P then n = math.floor(n * P.mod("specCost", fid) + 0.5) end
+    if P and P.dealt(fid) then n = 0 end
     return { res = res, n = n, min = Life.SELF_MIN }
 end
 
@@ -264,6 +271,7 @@ function Specialty.commit(fid, ps, tier, info)
     end
     local cost = info.cost or Specialty.COST[tier] or 10
     if StoryEngine.Politics then cost = math.floor(cost * StoryEngine.Politics.mod("specCost", fid) + 0.5) end   -- 특기 품앗이: 두 배
+    if StoryEngine.Politics and StoryEngine.Politics.dealt(fid) then cost = 0 end       -- 큰 사건의 거래: 그 파벌이 제 몫으로 한다
     Life.change(fid, info.costRes or Life.KEY[fid] or "morale", -cost, "specialty")
     Life.record(fid, "specialty", ps and ps.name or nil, 0, { spec = fid })
     if ps then

@@ -81,6 +81,38 @@ function Politics.textOf(d)
             or getText("IGUI_StoryEngine_Politics_Chair_" .. tostring(ch.bloc))
         line(parts, getText("IGUI_StoryEngine_Politics_Chair", who, num(ch.days)) .. "  " .. tail, "0.85,0.8,0.6")
     end
+    -- 국면 (60일마다 다시 본다)
+    if d.phase then
+        local ph = d.phase
+        if ph.kind == "rule" then
+            line(parts, getText("IGUI_StoryEngine_Politics_Phase_rule", getText("IGUI_StoryEngine_Politics_Bloc_" .. tostring(ph.bloc)),
+                num(ph.days)), "0.95,0.7,0.5")
+        else
+            line(parts, getText("IGUI_StoryEngine_Politics_Phase_balance", num(ph.days)), "0.7,0.85,0.9")
+        end
+    elseif d.phaseIn then
+        line(parts, getText("IGUI_StoryEngine_Politics_Phase_none", num(d.phaseIn)), "0.6,0.6,0.6")
+    end
+    -- 큰 사건: 파벌의 제안
+    local cr = d.crisis
+    if cr then
+        parts[#parts + 1] = " <LINE> "
+        if cr.deal then
+            line(parts, cr.deal == "none" and getText("IGUI_StoryEngine_Politics_Deal_Alone", tostring(cr.by or "?"))
+                or getText("IGUI_StoryEngine_Politics_Deal_With", getText("IGUI_StoryEngine_Politics_Bloc_" .. tostring(cr.deal)),
+                    tostring(cr.by or "?")), "0.75,0.95,0.75")
+        elseif cr.open then
+            line(parts, getText("IGUI_StoryEngine_Politics_Crisis", hoursText(cr.hours)), "1,0.6,0.4")
+            for _, b in ipairs({ "field", "gun", "market" }) do
+                local fid = (cr.offers or {})[b]
+                if fid then
+                    line(parts, getText("IGUI_StoryEngine_Politics_Offer_" .. b, UI.npcName(fid)))
+                end
+            end
+        else
+            line(parts, getText("IGUI_StoryEngine_Politics_Deal_Late"), "0.6,0.6,0.6")
+        end
+    end
     local el = d.election
     if el then
         parts[#parts + 1] = " <LINE> "
@@ -111,10 +143,13 @@ function Politics.textOf(d)
         line(parts, getText("IGUI_StoryEngine_Politics_Bill", Politics.billName(bill.id)), "1,0.86,0.55")
         if bill.id == "vouch" then
             line(parts, getText("IGUI_StoryEngine_Politics_Vouch", UI.npcName(bill.guarantor), UI.npcName(bill.target)))
+        elseif bill.system then
+            line(parts, getText("IGUI_StoryEngine_Bill_" .. bill.id .. "_Desc", UI.npcName(bill.target)))
         else
             line(parts, getText("IGUI_StoryEngine_Bill_" .. bill.id .. "_Desc"))
         end
         local by = (bill.by == "player" or bill.by == "chair") and getText("IGUI_StoryEngine_Politics_ByPlayers", tostring(bill.who or "?"))
+            or (bill.system and getText("IGUI_StoryEngine_Politics_ByCouncil"))
             or getText("IGUI_StoryEngine_Politics_By", UI.npcName(bill.by),
                 getText("IGUI_StoryEngine_Politics_Bloc_" .. tostring(bill.bloc)))
         line(parts, by .. "  |  " .. getText("IGUI_StoryEngine_Politics_VoteIn", hoursText(bill.hours)), "0.7,0.8,0.9")
@@ -123,10 +158,12 @@ function Politics.textOf(d)
         line(parts, getText("IGUI_StoryEngine_Politics_Forecast", num(bill.yes), num(bill.no),
             getText(bill.pass and "IGUI_StoryEngine_Politics_Pass" or "IGUI_StoryEngine_Politics_Fail")),
             bill.pass and "0.55,0.9,0.55" or "0.95,0.5,0.4")
+        if bill.two3 then line(parts, getText("IGUI_StoryEngine_Politics_Two3"), "0.95,0.7,0.5") end
         for _, r in ipairs(bill.rows or {}) do
             local row = getText("IGUI_StoryEngine_Politics_Row", UI.npcName(r.fid),
                 getText("IGUI_StoryEngine_Politics_Bloc_" .. tostring(r.bloc)), num(r.trust), num(r.need),
-                getText(r.yes and "IGUI_StoryEngine_Politics_Yes" or "IGUI_StoryEngine_Politics_No"))
+                getText(r.absent and "IGUI_StoryEngine_Politics_Absent"
+                    or (r.yes and "IGUI_StoryEngine_Politics_Yes" or "IGUI_StoryEngine_Politics_No")))
             local moved = (bill.lobby or {})[r.fid]
             if moved then
                 row = row .. "  [" .. getText("IGUI_StoryEngine_Politics_Lobbied_" .. tostring(moved.how), tostring(moved.who or "?")) .. "]"
@@ -170,6 +207,18 @@ end
 -- 선거·의장 메뉴의 줄: { { label, ok, tip, args } } (args 는 politicsElection 에 그대로 보낸다)
 function Politics.electionRows(d)
     local rows = {}
+    local cr = d and d.crisis
+    if cr and cr.open then
+        for _, b in ipairs({ "field", "gun", "market" }) do
+            local fid = (cr.offers or {})[b]
+            if fid then
+                rows[#rows + 1] = { label = getText("IGUI_StoryEngine_Politics_Deal_Take", getText("IGUI_StoryEngine_Politics_Bloc_" .. b)),
+                    ok = true, tip = getText("IGUI_StoryEngine_Politics_Offer_" .. b, UI.npcName(fid)), args = { what = "deal", bloc = b } }
+            end
+        end
+        rows[#rows + 1] = { label = getText("IGUI_StoryEngine_Politics_Deal_None"), ok = true,
+                            tip = getText("IGUI_StoryEngine_Politics_Deal_None_Tip"), args = { what = "deal", bloc = "none" } }
+    end
     local el = d and d.election
     if el then
         local free = not el.backed and not el.running
@@ -258,6 +307,12 @@ end
 function Politics.noticeText(args)
     local kind = tostring(args.kind)
     if kind == "open" then return getText("IGUI_StoryEngine_Politics_Notice_open"), true end
+    if kind == "phase" then
+        if args.phase == "rule" then
+            return getText("IGUI_StoryEngine_Politics_Notice_rule", getText("IGUI_StoryEngine_Politics_Bloc_" .. tostring(args.bloc))), false
+        end
+        return getText("IGUI_StoryEngine_Politics_Notice_balance"), true
+    end
     if kind == "bill" then return getText("IGUI_StoryEngine_Politics_Notice_bill", Politics.billName(args.id)), true end
     if kind == "vote" then
         return getText(args.pass and "IGUI_StoryEngine_Politics_Notice_pass" or "IGUI_StoryEngine_Politics_Notice_fail",
@@ -266,6 +321,16 @@ function Politics.noticeText(args)
     if kind == "ended" then
         return getText(args.why == "broken" and "IGUI_StoryEngine_Politics_Notice_broken" or "IGUI_StoryEngine_Politics_Notice_ended",
             Politics.billName(args.id)), args.why ~= "broken"
+    end
+    if kind == "crisis" then return getText("IGUI_StoryEngine_Politics_Notice_crisis"), true end
+    if kind == "deal" then
+        if args.bloc == "none" then return getText("IGUI_StoryEngine_Politics_Notice_deal_none", tostring(args.name)), true end
+        return getText("IGUI_StoryEngine_Politics_Notice_deal", tostring(args.name),
+            getText("IGUI_StoryEngine_Politics_Bloc_" .. tostring(args.bloc))), true
+    end
+    if kind == "settled" then
+        return getText(args.good and "IGUI_StoryEngine_Politics_Notice_credit" or "IGUI_StoryEngine_Politics_Notice_blame",
+            getText("IGUI_StoryEngine_Politics_Bloc_" .. tostring(args.bloc))), args.good == true
     end
     if kind == "election" then return getText("IGUI_StoryEngine_Politics_Notice_election"), true end
     if kind == "run" then return getText("IGUI_StoryEngine_Politics_Notice_run", tostring(args.name)), true end
@@ -313,7 +378,8 @@ function Client.handlers.politicsResult(args)
             HaloTextHelper.addBadText(player, getText("IGUI_StoryEngine_Workshop_Error_" .. tostring(args.error), num(args.wait)))
         end
         refresh()
-    elseif args.what == "back" or args.what == "run" or args.what == "choose" or args.what == "cast" then
+    elseif args.what == "back" or args.what == "run" or args.what == "choose" or args.what == "cast"
+        or args.what == "deal" then
         if args.ok then
             HaloTextHelper.addGoodText(player, getText("IGUI_StoryEngine_Politics_Election_Done_" .. tostring(args.what)))
         else

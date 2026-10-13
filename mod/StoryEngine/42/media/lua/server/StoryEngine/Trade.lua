@@ -953,6 +953,7 @@ end
 
 -- 메뉴에 보여 줄 것: 취급 품목과 등급별 필요 신뢰도, 지금 막힌 이유
 function Trade.options(fid, ps)
+    if Factions.isOutsider(fid) then return StoryEngine.Outsiders.orderOptions(ps) end
     local key = ps and ps.key or nil
     local ctx = Trade.context(fid, ps)
     local out = { faction = fid, reason = ctx.reason, trust = ctx.trust, need = ctx.need, items = {} }
@@ -1018,6 +1019,11 @@ end
 
 -- 반환: true | false, 오류 코드
 function Trade.ask(player, fid, category, tier, bundle)
+    if fid == "odell" and StoryEngine.Outsiders then
+        if Factions.isGone(fid) then return false, "gone" end
+        local okO, whyO = StoryEngine.Outsiders.order(player, category, tier, bundle)
+        return okO and true or false, (not okO) and whyO or nil
+    end
     if not Factions.byId[fid] or not Trade.FACTIONS[fid] then return false, "no_trader" end
     if not Factions.canTalk(player) then return false, "no_radio" end
     if Factions.isGone(fid) then return false, "gone" end

@@ -68,7 +68,7 @@ local function drawRow(self, y, item, alt)
     local mark = data.selected and "[v] " or "[  ] "
     self:drawText(mark .. data.name, 10, y + 5, 0.9, 0.9, 0.9, 1, UIFont.Small)
     local v = data.points and getText("IGUI_StoryEngine_Project_Points", fmt(data.points))
-        or (resName(data.resource) .. "  " .. getText("IGUI_StoryEngine_Trade_Value", fmt(data.value)))
+        or ((data.label or resName(data.resource)) .. "  " .. getText("IGUI_StoryEngine_Trade_Value", fmt(data.value)))
     local w = getTextManager():MeasureStringX(UIFont.Small, v)
     self:drawText(v, self:getWidth() - w - 24, y + 5, 0.75, 0.85, 0.6, 1, UIFont.Small)
     return y + h
@@ -165,6 +165,8 @@ function StoryEngineDonateWindow:onToggle(data)
         local byRes, _, points = self:totals()
         if self.mode == "project" then
             if points >= win.points then return end
+        elseif self.mode == "gift" then
+            -- 선물 (밖에서 온 사람): 자원 한도가 없다
         elseif data.resource and (byRes[data.resource] or 0) * MULT >= (win.res[data.resource] or 0) then
             return
         end
@@ -179,7 +181,11 @@ function StoryEngineDonateWindow:onSend()
     end
     local player = getSpecificPlayer(0)
     if player and #ids > 0 then
-        StoryEngine.Net.toServer(player, "lifeDonate", { faction = self.npc.id, items = ids, mode = self.mode })
+        if self.mode == "gift" then
+            StoryEngine.Net.toServer(player, "outsiderGift", { id = self.npc.id, items = ids })
+        else
+            StoryEngine.Net.toServer(player, "lifeDonate", { faction = self.npc.id, items = ids, mode = self.mode })
+        end
     end
     self:close()
 end
@@ -197,6 +203,19 @@ function StoryEngineDonateWindow:fill()
             if i > 300 then break end
             local data = { id = r.item:getID(), name = r.item:getDisplayName(), resource = "project", value = r.value,
                            points = r.points, selected = false, ft = r.item:getFullType() }
+            self.list:addItem(data.name, data)
+        end
+        return
+    end
+    if self.mode == "gift" then
+        -- 선물: 거래 품목이면 무엇이든, 값진 것부터
+        local gifts = Value.giftItems(player)
+        table.sort(gifts, function(a, b) return a.value > b.value end)
+        for i, r in ipairs(gifts) do
+            if i > 300 then break end
+            local data = { id = r.item:getID(), name = r.item:getDisplayName(), resource = "gift", value = r.value,
+                           label = getText("IGUI_StoryEngine_Cat_" .. tostring(r.category)), selected = false,
+                           ft = r.item:getFullType() }
             self.list:addItem(data.name, data)
         end
         return
@@ -226,7 +245,8 @@ function StoryEngineDonateWindow:new(x, y, w, h, npc, mode)
     self.__index = self
     o.npc = npc
     o.mode = mode
-    o.title = getText(mode == "project" and "IGUI_StoryEngine_Project_Title" or "IGUI_StoryEngine_Life_DonateTitle",
+    o.title = getText(mode == "project" and "IGUI_StoryEngine_Project_Title"
+        or (mode == "gift" and "IGUI_StoryEngine_Out_Gift_Title" or "IGUI_StoryEngine_Life_DonateTitle"),
         StoryEngine.Factions.name(npc.id))
     o.resizable = true
     o.minimumWidth = 380

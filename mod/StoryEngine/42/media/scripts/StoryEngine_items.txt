@@ -38,6 +38,28 @@ module StoryEngine
         WorldStaticModel = SheetOfPaper,
     }
 
+    item Evidence
+    {
+        DisplayName = Piece of Evidence,
+        DisplayCategory = Memento,
+        ItemType = base:normal,
+        Weight = 0.1,
+        Icon = Paperwork1,
+        StaticModel = Paperwork1,
+        WorldStaticModel = Paperwork1,
+    }
+
+    item Scrip
+    {
+        DisplayName = River Scrip,
+        DisplayCategory = Junk,
+        ItemType = base:normal,
+        Weight = 0.01,
+        Icon = Money,
+        StaticModel = Money,
+        WorldStaticModel = Money,
+    }
+
     item Charter
     {
         DisplayName = County Charter,

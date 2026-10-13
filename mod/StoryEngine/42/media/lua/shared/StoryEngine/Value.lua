@@ -22,6 +22,9 @@ Value.BASE = {
 -- 기본값과 다른 아이템. 지금은 없다: 음식·의약품·도구·근접 무기·총·탄약·전자기기·차량 부품은 등급이 가치를 정한다
 -- (2026-10-04, 예전 발전기 60·햄 라디오 40·차량 배터리 15 등은 등급 값으로)
 Value.SPECIAL = {}
+-- 오델 선장의 화폐 (Outsiders.lua): 한 장이 가치 1. 거래 대가로만, 어느 품목 자리에든 낸다
+Value.SCRIP = "StoryEngine.Scrip"
+Value.SPECIAL[Value.SCRIP] = 1
 
 -- 폭발물 (2026-10-03 점검): 군용 수류탄만 가치 20, 직접 만드는 화염병·폭죽·트랩 류는 3
 Value.MILITARY_EXPLOSIVES = { ["Base.BombBig"] = true, ["Base.BombSmall"] = true }
@@ -332,7 +335,32 @@ function Value.payable(player, item, category)
     if Value.ratio(item) <= 0 then return false end
     if player and player:isEquippedClothing(item) then return false end
     if instanceof(item, "Food") and item:isRotten() then return false end
-    return Value.categoryOf(item:getFullType()) == category
+    local ft = item:getFullType()
+    if ft == Value.SCRIP then return category ~= nil end          -- 화폐는 무엇의 값으로든
+    if category == "any" then return Value.categoryOf(ft) ~= "misc" end   -- 오델의 주문: 아무 품목이나
+    return Value.categoryOf(ft) == category
+end
+
+-- 밖에서 온 사람에게 선물로 보낼 수 있는 물건 (Outsiders.gift): 거래 품목이면 무엇이든. 화폐는 안 된다
+function Value.giftable(player, item)
+    local mod = item:getModData()
+    if mod and mod.storyQuest then return false end
+    local ft = item:getFullType()
+    if ft == Value.SCRIP or Value.isRaw(ft) then return false end
+    if Value.ratio(item) <= 0 then return false end
+    if player and player:isEquippedClothing(item) then return false end
+    if instanceof(item, "Food") and item:isRotten() then return false end
+    return Value.categoryOf(ft) ~= "misc"
+end
+
+function Value.giftItems(player)
+    local out = {}
+    local list = player:getInventory():getAllEvalRecurse(function(item) return Value.giftable(player, item) end)
+    for i = 0, list:size() - 1 do
+        local it = list:get(i)
+        out[#out + 1] = { item = it, value = Value.itemValue(it), category = Value.categoryOf(it:getFullType()) }
+    end
+    return out
 end
 
 -- 플레이어 인벤토리(가방 속까지)에서 해당 분류로 낼 수 있는 아이템들

@@ -35,6 +35,9 @@ require "StoryEngine/Voices"
 require "StoryEngine/Council"
 require "StoryEngine/Era"
 require "StoryEngine/Politics"
+require "StoryEngine/Outsiders"
+require "StoryEngine/Crises"
+require "StoryEngine/Inquiry"
 require "StoryEngine/AiTales"
 require "StoryEngine/Tuning"
 require "StoryEngine/Grid"
@@ -114,6 +117,9 @@ function Commands.hello(player, args)
     -- 후임 목소리 이름표 (Voices.lua)
     pcall(StoryEngine.Voices.apply)
     pcall(StoryEngine.Voices.sendTo, player)
+    -- 밖에서 온 사람들: 누가 와 있는지, 걸려 있는 효과 (Outsiders.lua)
+    pcall(StoryEngine.Outsiders.broadcast, player)
+    pcall(StoryEngine.Outsiders.resend, player)
     -- 서버의 아이템 조정(items.txt)을 멀티 클라이언트에게 (점검 D1)
     if isServer() then
         local ok, lines = pcall(StoryEngine.ItemPool.overrideLinesForClients)
@@ -219,6 +225,9 @@ end
 -- 2차 특기 쓰기. 약 조제는 args.med·count
 function Commands.spec2Use(player, args)
     local fid = tostring(args.faction or "")
+    if StoryEngine.Factions.isOutsider(fid) then        -- 조준 창에서 고른 자리: 헤일의 공수 작전
+        return Commands.outsiderUse(player, { id = fid, n = 2, x = args.x, y = args.y })
+    end
     local ok, info, wait = StoryEngine.Specialty2.use(player, fid, { med = args.med, count = args.count,
                                                                      x = args.x, y = args.y })
     reply(player, "spec2Result", { ok = ok, faction = fid, used = ok or nil, error = (not ok) and tostring(info) or nil,
@@ -229,6 +238,11 @@ end
 -- 2차 특기 좀비 피 위장: 전력 질주·공격으로 풀렸다 (위장한 클라이언트가 알린다)
 -- 조준 창: 지도에서 고른 자리의 형편 (포격·대리 털이)
 function Commands.spec2Scan(player, args)
+    if StoryEngine.Factions.isOutsider(tostring(args.faction or "")) then
+        local okO, infoO = pcall(StoryEngine.Outsiders.scan, player, args.x, args.y)
+        if okO then reply(player, "spec2ScanResult", infoO) end
+        return
+    end
     local ok, info = pcall(StoryEngine.Specialty2.scan, player, tostring(args.faction or ""), args.x, args.y,
         args.again == true)
     if not ok then
@@ -614,7 +628,7 @@ end
 -- 버튼 거래 (Trade.ask): 메뉴에 보일 품목·등급, 그리고 요청
 function Commands.tradeOptions(player, args)
     local fid = tostring(args.faction or "")
-    if not StoryEngine.Trade.FACTIONS[fid] then return end
+    if not StoryEngine.Trade.FACTIONS[fid] and fid ~= "odell" then return end
     reply(player, "tradeOptions", StoryEngine.Trade.options(fid, StoryEngine.Store.player(player)))
 end
 
@@ -930,7 +944,8 @@ function Commands.politicsElection(player, args)
     if what == "back" then ok, why = Politics.back(player, tostring(args.bloc or ""))
     elseif what == "run" then ok, why, extra = Politics.run(player)
     elseif what == "choose" then ok, why = Politics.choose(player, tostring(args.id or ""))
-    elseif what == "cast" then ok, why = Politics.cast(player, args.side) end
+    elseif what == "cast" then ok, why = Politics.cast(player, args.side)
+    elseif what == "deal" then ok, why = Politics.deal(player, tostring(args.bloc or "")) end
     reply(player, "politicsResult", { what = what, ok = ok, error = not ok and why or nil, faction = extra })
     reply(player, "politicsState", { politics = Politics.payload(StoryEngine.Store.playerKey(player)) })
 end
@@ -940,6 +955,88 @@ function Commands.politicsWorkshop(player, args)
     local ok, why, wait = StoryEngine.Politics.workshop(player, args.item)
     reply(player, "politicsResult", { what = "workshop", ok = ok, hours = ok and why or nil,
                                       error = not ok and why or nil, wait = wait })
+end
+
+-- ---------------------------------------------------------------- 밖에서 온 사람들 (Outsiders.lua)
+
+local function outsiderState(player)
+    reply(player, "politicsState", { politics = StoryEngine.Politics.payload(StoryEngine.Store.playerKey(player)) })
+end
+
+-- 특기: args = { id, n (1|2), quest (대리 작전), x, y (공수 작전) }
+function Commands.outsiderUse(player, args)
+    local id = tostring(args.id or "")
+    local ok, info, wait = StoryEngine.Outsiders.use(player, id, args.n, { quest = args.quest, x = args.x, y = args.y })
+    reply(player, "outsiderResult", { what = "use", id = id, n = args.n, ok = ok, kind = ok and info.kind or nil,
+                                      info = ok and info.info or nil, error = (not ok) and tostring(info) or nil, wait = wait })
+    outsiderState(player)
+end
+
+function Commands.outsiderGift(player, args)
+    local ids = {}
+    for _, v in pairs(args.items or {}) do ids[#ids + 1] = v end
+    local id = tostring(args.id or "")
+    local ok, info, wait = StoryEngine.Outsiders.gift(player, id, ids)
+    reply(player, "outsiderResult", { what = "gift", id = id, ok = ok, trust = ok and info.trust or nil,
+                                      value = ok and info.value or nil, error = (not ok) and tostring(info) or nil, wait = wait })
+    outsiderState(player)
+end
+
+-- 충성 시험: side = out | home
+function Commands.outsiderSide(player, args)
+    local id = tostring(args.id or "")
+    local ok, why = StoryEngine.Outsiders.side(player, id, tostring(args.side or ""))
+    reply(player, "outsiderResult", { what = "side", id = id, ok = ok, error = (not ok) and why or nil })
+    outsiderState(player)
+end
+
+-- 추방 표결에서 밝히는 뜻: stance = keep | expel | abstain
+function Commands.outsiderStance(player, args)
+    local id = tostring(args.id or "")
+    local ok, why = StoryEngine.Outsiders.stance(player, id, tostring(args.stance or ""))
+    reply(player, "outsiderResult", { what = "stance", id = id, ok = ok, error = (not ok) and why or nil })
+    outsiderState(player)
+end
+
+-- 기적: 체력이 바닥에 닿았다고 클라이언트가 알린다
+function Commands.outsiderMiracle(player, args)
+    pcall(StoryEngine.Outsiders.miracle, player)
+end
+
+-- 정치 위기 (Crises.lua): 택일은 option, 배분은 shares = { [npc] = 몫 }
+function Commands.crisisChoose(player, args)
+    local what = args.option
+    if type(args.shares) == "table" then what = args.shares end
+    local ok, why = StoryEngine.Crises.choose(player, what)
+    reply(player, "crisisResult", { ok = ok, error = (not ok) and tostring(why) or nil })
+    outsiderState(player)
+end
+
+-- 조사 (Inquiry.lua): what = ask | confront (fid) / judge (answer, how) / answer (choice: safe | vague | frank)
+function Commands.inquiryAct(player, args)
+    local I = StoryEngine.Inquiry
+    local what = tostring(args.what or "")
+    local ok, why = false, "how"
+    if what == "ask" then ok, why = I.ask(player, tostring(args.fid or ""))
+    elseif what == "confront" then ok, why = I.confront(player, tostring(args.fid or ""))
+    elseif what == "judge" then ok, why = I.judge(player, tostring(args.answer or ""), args.how and tostring(args.how) or nil)
+    elseif what == "answer" then ok, why = I.answer(player, tostring(args.choice or "")) end
+    reply(player, "crisisResult", { ok = ok, error = (not ok) and tostring(why) or nil })
+    outsiderState(player)
+end
+
+function Commands.debugCrises(player, args)
+    if not canUseDebug(player) then return end
+    local text = StoryEngine.Crises.debug(args or {})
+    reply(player, "debugStatus", { text = text })
+    outsiderState(player)
+end
+
+function Commands.debugOutsiders(player, args)
+    if not canUseDebug(player) then return end
+    local text = StoryEngine.Outsiders.debug(args or {}, player)
+    reply(player, "debugStatus", { text = text })
+    outsiderState(player)
 end
 
 -- 디버그: 정치 열기, 법안 내기·표결·바로 시행·거두기

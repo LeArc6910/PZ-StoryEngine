@@ -36,6 +36,8 @@ Tuning.DEFAULTS = {
     CouncilSiege = 1000,    -- 카운티 회의 날 교회로 몰려오는 망자 수 (Council.lua, x ZombieMult)
     CouncilRetryDays = 30,  -- 의회가 못 섰을 때 회의를 다시 여는 간격 (Council.lua, 0 = 다시 열지 않음)
     Politics = true,        -- 의회가 선 뒤의 정치: 파벌·법안·표결 (Politics.lua)
+    Outsiders = true,       -- 정치가 열린 뒤 밖에서 찾아오는 네 무리 (Outsiders.lua)
+    PoliticalCrises = true, -- 정치가 열린 뒤 열흘쯤마다 오는 정치 위기 (Crises.lua)
     BillDays = 10,          -- 파벌이 법안을 내는 간격
     BillWeeks = 2,          -- 통과된 법안이 시행되는 주 수
     -- 개인 신뢰 (2026-10-09, docs/DESIGN_PER_PLAYER_TRUST.md): 1 서버 공유 / 2 개인 (멀티에서만)

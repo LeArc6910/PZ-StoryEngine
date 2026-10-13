@@ -304,8 +304,15 @@ function Radio.request(fid, lang, opts)
         if okP2 then politics = info end
     end
 
+    -- 밖에서 온 사람들 (Outsiders.lua): 누가 와 있고 이 사람이 그들을 어떻게 보는지
+    local outsiders = nil
+    if StoryEngine.Outsiders then
+        local okO, info = pcall(StoryEngine.Outsiders.context, fid)
+        if okO then outsiders = info end
+    end
+
     Bridge.request("radio", {
-        council = council, politics = politics,
+        council = council, politics = politics, outsiders = outsiders,
         speakerState = speakerState, specialty = specialty,
         story = story, life = life, newcomer = newcomer,
         faction = fid, lang = lang, trust = ch.trust, memory = ch.memory, personal = person,
@@ -567,6 +574,11 @@ function Radio.say(player, fid, text, intent)
         if StoryEngine.Social then StoryEngine.Social.onOpenSay(ps, text, intent) end
         return true
     end
+    -- 유도신문 (Inquiry.lua): 덮어 준 일을 떠보는 NPC 에게 한 대답은 따로 판정에 부친다
+    if StoryEngine.Inquiry then
+        local okI, errI = pcall(StoryEngine.Inquiry.onSay, ps, fid, text)
+        if not okI then log("inquiry say error:", errI) end
+    end
 
     Radio.request(fid, ps.lang or Radio.langFor(fid))
     return true
@@ -585,6 +597,14 @@ function Radio.channelList(key)
                           followUpIn = Radio.followUpIn(ch), gone = Factions.fateOf(f.id),
                           anyWants = StoryEngine.Value and StoryEngine.Value.anyWantsFn(f.id) or nil,
                           personal = personal and Trust.personal(f.id, key) or nil }
+    end
+    -- 밖에서 온 사람들 (Outsiders.lua): 와 있는 동안만 목록에
+    for _, f in ipairs(Factions.outsiders) do
+        if not Factions.isGone(f.id) then
+            local ch = Radio.channel(f.id)
+            out[#out + 1] = { id = f.id, freq = f.freq, trust = ch.trust, seq = ch.seq, busy = Radio.busy[f.id] == true,
+                              followUpIn = Radio.followUpIn(ch), outsider = true }
+        end
     end
     return out
 end

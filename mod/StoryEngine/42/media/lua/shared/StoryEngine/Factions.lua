@@ -23,6 +23,32 @@ Factions.list = {
 Factions.byId = {}
 for _, f in ipairs(Factions.list) do Factions.byId[f.id] = f end
 
+-- 밖에서 온 사람들 (Outsiders.lua, 2026-10-13): 의회의 정치가 열린 뒤 찾아오는 네 무리. 원래 여덟의 표에는 넣지 않는다
+-- (그 표를 도는 코드가 백 군데쯤이라). 와 있을 때만 present[id] 가 참이다: 서버는 Outsiders 가, 클라이언트는 outsiders 알림이 채운다
+Factions.outsiders = {
+    { id = "hale",    freq = "112.6", trust = 35, outsider = true },
+    { id = "odell",   freq = "93.8",  trust = 35, outsider = true },
+    { id = "okafor",  freq = "97.2",  trust = 35, outsider = true },
+    { id = "abigail", freq = "89.5",  trust = 35, outsider = true },
+}
+Factions.present = {}
+for _, f in ipairs(Factions.outsiders) do Factions.byId[f.id] = f end
+
+function Factions.isOutsider(id)
+    local f = Factions.byId[id]
+    return f ~= nil and f.outsider == true
+end
+
+-- 원래 여덟 + 지금 와 있는 밖에서 온 사람들 (교신 목록처럼 둘 다 보여 줄 곳에서)
+function Factions.all()
+    local out = {}
+    for _, f in ipairs(Factions.list) do out[#out + 1] = f end
+    for _, f in ipairs(Factions.outsiders) do
+        if Factions.present[f.id] then out[#out + 1] = f end
+    end
+    return out
+end
+
 -- 죽었거나 떠난 NPC 인가 (서버의 Fate.lua 가 채운다. 클라이언트는 목록의 gone 값을 본다)
 function Factions.isGone(id) return false end
 function Factions.fateOf(id) return nil end
