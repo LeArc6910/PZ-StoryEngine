@@ -1182,4 +1182,88 @@ function T.second_chronicle_in_the_journal()
     H.ok(not string.find(first, "Epilogue2", 1, true))
 end
 
+function T.council_tab_majority_split_and_rule_by_order()
+    H.addPlayer("tester", "Gerald", "Kar")
+    local PC, RC = StoryEngine.PoliticsClient, StoryEngine.RegimeClient
+    H.ok(RC, "the module loads")
+    H.eq(RC.textOf(nil), "")
+    H.eq(#RC.rows({ on = true }), 0)
+    -- 다수파: 중재와 이간, 불신임
+    local d = { era = true, on = true, secrets = { "rats", "guard" },
+        blocs = { { id = "field", members = { "ray" } }, { id = "gun", members = { "guard" } }, { id = "market", members = {} } },
+        chair = { fid = "ray", bloc = "field", days = 30 },
+        regime = { coalition = { blocs = { "field", "market" }, strain = 2, limit = 3, mendWait = 0, members = { "ray", "rats" } },
+                   noconf = { fid = "ray", wait = 0 },
+                   facility = { held = { { what = "power", bloc = "gun" } }, down = { { what = "water", days = 12 } } },
+                   blame = { saga = "migration", hours = 30 } } }
+    local text = RC.textOf(d)
+    H.ok(string.find(text, "IGUI_StoryEngine_Regime_Coalition|IGUI_StoryEngine_Politics_Bloc_field + IGUI_StoryEngine_Politics_Bloc_market", 1, true))
+    H.ok(string.find(text, "IGUI_StoryEngine_Regime_Coalition_Strain|2|3", 1, true))
+    H.ok(string.find(text, "IGUI_StoryEngine_Regime_Facility_Held|IGUI_StoryEngine_Regime_Power|IGUI_StoryEngine_Politics_Bloc_gun", 1, true))
+    H.ok(string.find(text, "IGUI_StoryEngine_Regime_Facility_Down|IGUI_StoryEngine_Regime_Water|12", 1, true))
+    H.ok(string.find(text, "IGUI_StoryEngine_Regime_Blame|", 1, true))
+    local rows = RC.rows(d)
+    local by = {}
+    for _, r in ipairs(rows) do by[r.args.what] = (by[r.args.what] or 0) + 1 end
+    H.eq(by.testify, 2, "one row for each camp that still has people")
+    H.eq(by.mend, 1)
+    H.eq(by.wedge, 1, "only a secret about someone inside the majority")
+    H.eq(by.noconf, 1)
+    for _, r in ipairs(rows) do
+        if r.args.what == "wedge" then H.eq(r.args.fid, "rats") end
+        if r.args.what == "noconf" then H.ok(r.ok) end
+    end
+    d.bill = { id = "canteen", rows = {} }
+    for _, r in ipairs(RC.rows(d)) do
+        if r.args.what == "noconf" then H.ok(not r.ok, "a bill is already before the council") end
+    end
+    d.bill = nil
+    d.regime.blame.used, d.regime.blame.by, d.regime.blame.bloc = true, "Gerald Kar", "field"
+    H.ok(string.find(RC.textOf(d), "IGUI_StoryEngine_Regime_Blame_Used|Gerald Kar", 1, true))
+    -- 분열
+    d.phase = { kind = "split" }
+    d.regime = { split = { wait = 0, halves = {
+        { id = "a", blocs = { "gun" }, hold = "power", cut = true, avg = 30, members = { "guard" }, leader = "guard" },
+        { id = "b", blocs = { "field", "market" }, hold = "water", avg = 55, members = { "ray", "rats" }, leader = "ray" } } } }
+    text = PC.textOf(d) .. RC.textOf(d)
+    H.ok(string.find(text, "IGUI_StoryEngine_Politics_Phase_split", 1, true))
+    H.ok(string.find(text, "IGUI_StoryEngine_Politics_Shut", 1, true))
+    H.ok(string.find(text, "IGUI_StoryEngine_Regime_Split_Half|IGUI_StoryEngine_Politics_Bloc_gun|IGUI_StoryEngine_Faction_guard|IGUI_StoryEngine_Regime_Power|30", 1, true))
+    H.ok(string.find(text, "IGUI_StoryEngine_Regime_Split_Cut|IGUI_StoryEngine_Regime_Power", 1, true))
+    rows = RC.rows(d)
+    H.eq(rows[1].args.what, "reunite")
+    H.ok(rows[1].ok)
+    d.regime.split.reunion = { hours = 60, by = "Gerald Kar" }
+    H.ok(not RC.rows(d)[1].ok)
+    H.ok(string.find(RC.textOf(d), "IGUI_StoryEngine_Regime_Reunion|Gerald Kar", 1, true))
+    -- 군정
+    d.phase = { kind = "martial", by = "guard" }
+    d.regime = { martial = { by = "guard", obeyed = 1, defied = 2, days = 3, yes = 2, need = 4, settleAt = 4, backed = true } }
+    text = PC.textOf(d) .. RC.textOf(d)
+    H.ok(string.find(text, "IGUI_StoryEngine_Politics_Phase_martial|IGUI_StoryEngine_Faction_guard", 1, true))
+    H.ok(string.find(text, "IGUI_StoryEngine_Regime_Martial_Count|1|2|4", 1, true))
+    H.ok(string.find(text, "IGUI_StoryEngine_Regime_Martial_Backed", 1, true))
+    rows = RC.rows(d)
+    H.eq(rows[1].args.what, "petition")
+    H.ok(not rows[1].ok)
+    d.regime.martial.yes = 4
+    H.ok(RC.rows(d)[1].ok)
+    -- 알림
+    local msg, good = PC.noticeText({ kind = "phase", phase = "split" })
+    H.ok(string.find(msg, "IGUI_StoryEngine_Politics_Notice_split", 1, true) and good == false)
+    msg = PC.noticeText({ kind = "phase", phase = "martial", by = "guard" })
+    H.ok(string.find(msg, "IGUI_StoryEngine_Politics_Notice_martial|IGUI_StoryEngine_Faction_guard", 1, true))
+    msg, good = PC.noticeText({ kind = "coalition_broken", blocs = { "field", "market" }, laws = 2 })
+    H.ok(string.find(msg, "IGUI_StoryEngine_Regime_Notice_coalition_broken|", 1, true) and good == false)
+    H.eq(PC.noticeText({ kind = "coalition", blocs = { "gun" } }), nil, "a camp alone is not news")
+    msg = PC.noticeText({ kind = "facility_held", what = "water", bloc = "gun" })
+    H.ok(string.find(msg, "IGUI_StoryEngine_Regime_Notice_facility_held_bloc|IGUI_StoryEngine_Regime_Water", 1, true))
+    msg = PC.noticeText({ kind = "martial_order", by = "guard", sweep = true })
+    H.ok(string.find(msg, "IGUI_StoryEngine_Regime_Notice_martial_order_sweep", 1, true))
+    H.ok(PC.noticeText({ kind = "testified", name = "Gerald Kar", bloc = "field" }))
+    -- 결과
+    StoryEngine.Client.handlers.regimeResult({ what = "petition", ok = false, error = "trust", a = 1, b = 4 })
+    StoryEngine.Client.handlers.regimeResult({ what = "mend", ok = true })
+end
+
 return T

@@ -157,6 +157,8 @@ Lines.OUTSIDER_COUNT = {
     offline_reply = 1, chat_checkin = 1, volunteer_ask = 1, volunteer_done = 1,
     out_hello = 1, out_bye = 1, out_spec = 1, out_gift = 1, out_appeal = 1, out_cold = 1,
     reward_trade = 1, trade_failed = 1, reward_waived = 1, favor_call = 1,
+    -- 공용 주파수 장면에서 원래 NPC 의 말을 받는 줄 (Social.offlineLines)
+    open_reply = 1, topic_reply = 1, duo_plain_reply = 1, duo_cold_reply = 1,
 }
 
 function Lines.lt(fid, kind, args)

@@ -52,8 +52,16 @@ Saga.DEF = {
                  stages = { { id = "omen", hours = 24 }, { id = "spread", hours = 48 }, { id = "docill", hours = 48 } } },
     blackout = { npcs = { "casey" },
                  stages = { { id = "omen", hours = 12 }, { id = "silence", hours = 72 } } },
+    -- 의회 이후에만 (Regime.lua): 변전소나 급수탑에 무리가 몰린다. 지키면 그때 제안을 받은 파벌이 그 시설을 쥐고, 못 지키면 한 달 고장
+    facility = { npcs = {}, politics = true,
+                 stages = { { id = "omen", hours = 12 }, { id = "siege", hours = 48 } } },
 }
-Saga.KINDS = { "crash", "migration", "epidemic", "blackout" }
+Saga.KINDS = { "crash", "migration", "epidemic", "blackout", "facility" }
+Saga.FACILITY_MIN = 180              -- 시설 둘레에서 버텨야 하는 시간 (분)
+Saga.FACILITY_RADIUS = 20
+Saga.FACILITY_WAVE = 40              -- 머무는 동안 무리가 오는 간격 (분)
+Saga.FACILITY_WAVE_SHARE = 0.5
+Saga.FACILITY_CALLER = { power = { "casey", "dewey" }, water = { "pike", "ray" } }
 
 Saga.CRASH_CRATE = { "StoryEngine.SealedDocuments", "Base.556Box", "Base.556Box", "Base.556Box", "Base.Antibiotics",
                      "Base.Antibiotics", "Base.Bandage", "Base.Bandage", "Base.Bandage", "Base.Bandage", "Base.Bandage",
@@ -541,6 +549,96 @@ function Blackout.finish(sg, now)
     return fixed and "fixed" or "patched"
 end
 
+-- ---------------------------------------------------------------- ⑤ 시설 사건 (의회 이후)
+
+local Facility = {}
+
+local function facilityCaller(what)
+    for _, fid in ipairs(Saga.FACILITY_CALLER[what] or {}) do
+        if alive(fid) then return fid end
+    end
+    for _, f in ipairs(Factions.list) do
+        if alive(f.id) then return f.id end
+    end
+    return nil
+end
+
+local function facilityName(what) return what == "power" and "substation" or "water tower" end
+
+function Facility.omen(sg, now)
+    local R = StoryEngine.Regime
+    local kinds = R and R.facilityKinds() or {}
+    if #kinds == 0 then return false end
+    local what = kinds[ZombRand(#kinds) + 1]
+    local ax, ay = anchor()
+    local site = Sites.byDistance(what == "power" and Sites.SUBSTATIONS or Sites.WATER_TOWERS, ax, ay)[1]
+    if not site then return false end
+    sg.data.what, sg.data.site, sg.data.caller = what, { x = site.x, y = site.y }, facilityCaller(what)
+    say(sg.data.caller, "The dead are drifting toward the " .. facilityName(what) .. " that feeds the county its " .. what
+        .. ". If they tear into it the county loses its " .. what .. " for a month. Nobody on the council has agreed who "
+        .. "will go and hold it. Warn the players.", "facility_omen", targetPs(sg))
+    noteAll("word came that the dead were closing on the county's " .. facilityName(what), now)
+    spread({ sg.data.caller }, "The dead are closing on the county's " .. facilityName(what)
+        .. ", and the council cannot agree who should go and hold it.")
+end
+
+function Facility.siege(sg, now)
+    local what, site = sg.data.what, sg.data.site
+    if not what or not site then return false end
+    remember(sg, "facility", Quests.createSite("defend", targetPs(sg),
+        { x = site.x, y = site.y, name = what == "power" and "substation" or "water_tower" }, now,
+        Saga.origin(sg, "facility", sg.data.caller),
+        { needMin = Saga.FACILITY_MIN, radius = Saga.FACILITY_RADIUS, tier = 4, deadlineT = sg.endT }))
+    say(sg.data.caller, "The dead have reached the " .. facilityName(what) .. ". Someone has to stand there and hold it for "
+        .. "a few hours while it is shut down safely and the fences are closed. Ask the players to go.", "facility_siege", targetPs(sg))
+    noteAll("the dead reached the county's " .. facilityName(what) .. " and someone had to hold it", now)
+end
+
+-- 머무는 동안 무리가 몰려온다
+function Facility.tick(sg, now)
+    local q = questOf(sg, "facility")
+    if not q or not Quests.isActive(q) or (q.present or 0) <= 0 or now.t < (q.nextWaveT or 0) then return end
+    local target = nearestPlayer(q.cx, q.cy)
+    if not target or not StoryEngine.Hunt then return end
+    local size = math.max(4, math.floor(StoryEngine.Hunt.sizeNow() * Saga.FACILITY_WAVE_SHARE + 0.5))
+    local angle = ZombRandFloat(0, math.pi * 2)
+    local d = ZombRand(45, 66)
+    StoryEngine.Hunt.start(target, size, q.cx + math.cos(angle) * d, q.cy + math.sin(angle) * d, "saga_facility")
+    q.waves = (q.waves or 0) + 1
+    q.nextWaveT = now.t + Saga.FACILITY_WAVE
+    log("saga facility wave", sg.id, q.waves, size)
+end
+
+function Facility.done(sg)
+    local q = questOf(sg, "facility")
+    return q ~= nil and q.state == "completed"
+end
+
+function Facility.finish(sg, now)
+    local what = sg.data.what
+    if not what then return "none" end
+    local R = StoryEngine.Regime
+    local held = Facility.done(sg)
+    if held then
+        local Pol = StoryEngine.Politics
+        local c = Pol and Pol.crisis and Pol.crisis() or nil
+        if R then pcall(R.holdFacility, what, c and c.deal or nil, now) end
+        for _, f in ipairs(Factions.list) do lifeChange(f.id, "morale", 5, "saga") end
+        say(sg.data.caller, "The " .. facilityName(what) .. " held, thanks to the players. The county keeps its " .. what
+            .. ". Tell them, relieved.", "facility_end", targetPs(sg))
+    else
+        if R then pcall(R.breakFacility, what, now) end
+        for _, f in ipairs(Factions.list) do lifeChange(f.id, "morale", -5, "saga") end
+        say(sg.data.caller, "Nobody held the " .. facilityName(what) .. " and the dead tore through it. The county has lost its "
+            .. what .. " for a month, until it can be rebuilt. Tell the players, bitter.", "facility_end", targetPs(sg))
+    end
+    spread({ sg.data.caller }, held and ("The county's " .. facilityName(what) .. " was held against the dead.")
+        or ("The county's " .. facilityName(what) .. " was overrun, and the " .. what .. " is out for a month."))
+    noteAll(held and ("the county's " .. facilityName(what) .. " was held") or ("the county's " .. facilityName(what)
+        .. " was overrun and the " .. what .. " went out"), now)
+    return held and "held" or "lost"
+end
+
 -- ---------------------------------------------------------------- 엔진
 
 Saga.ENTER = {
@@ -548,11 +646,13 @@ Saga.ENTER = {
     migration = { omen = Migration.omen, pressure = Migration.pressure, horde = Migration.horde },
     epidemic = { omen = Epidemic.omen, spread = Epidemic.spread, docill = Epidemic.docill },
     blackout = { omen = Blackout.omen, silence = Blackout.silence },
+    facility = { omen = Facility.omen, siege = Facility.siege },
 }
-Saga.TICK = { migration = Migration.tick, epidemic = Epidemic.tick }
+Saga.TICK = { migration = Migration.tick, epidemic = Epidemic.tick, facility = Facility.tick }
 Saga.ON_QUEST = { migration = Migration.onQuest, epidemic = Epidemic.onQuest }
-Saga.DONE = { blackout = { silence = Blackout.done } }
-Saga.FINISH = { crash = Crash.finish, migration = Migration.finish, epidemic = Epidemic.finish, blackout = Blackout.finish }
+Saga.DONE = { blackout = { silence = Blackout.done }, facility = { siege = Facility.done } }
+Saga.FINISH = { crash = Crash.finish, migration = Migration.finish, epidemic = Epidemic.finish, blackout = Blackout.finish,
+                facility = Facility.finish }
 
 -- 통신 두절 중 막힌 무전 (케이시 말고 전부, 공용 주파수 포함)
 function Saga.radioDown(fid)
@@ -670,6 +770,10 @@ function Saga.candidates()
     for _, kind in ipairs(Saga.KINDS) do
         local ok = true
         for _, fid in ipairs(Saga.DEF[kind].npcs) do if not alive(fid) then ok = false end end
+        if Saga.DEF[kind].politics then
+            local R = StoryEngine.Regime
+            if not (R and #R.facilityKinds() > 0) then ok = false end
+        end
         local last = s.lastDay[kind]
         if last and days - last < Saga.REPEAT_DAYS then ok = false end
         if ok then out[#out + 1] = kind end

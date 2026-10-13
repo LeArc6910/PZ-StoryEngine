@@ -2720,14 +2720,16 @@ function StoryEnginePoliticsPanel:refresh()
     local PC = StoryEngine.PoliticsClient
     local OC = StoryEngine.OutsidersClient
     local CC = StoryEngine.CrisesClient
-    self.text:setText((PC and PC.textOf(d) or "") .. ((CC and d and d.on) and CC.textOf(d.event) or "")
+    local RC = StoryEngine.RegimeClient
+    self.text:setText((PC and PC.textOf(d) or "") .. (RC and RC.textOf(d) or "")
+        .. ((CC and d and d.on) and CC.textOf(d.event) or "")
         .. ((OC and d and d.on) and OC.textOf(d.outsiders) or ""))
     self.text:paginate()
     self.outsiderButton:setVisible(d ~= nil and d.on == true and OC ~= nil and #OC.rows(d.outsiders) > 0)
     self.proposeButton:setVisible(d ~= nil and d.on == true)
     self.lobbyButton:setVisible(d ~= nil and d.on == true and d.bill ~= nil)
     self.electionButton:setVisible(d ~= nil and d.on == true and PC ~= nil
-        and (#PC.electionRows(d) > 0 or (CC ~= nil and #CC.rows(d.event) > 0)))
+        and (#PC.electionRows(d) > 0 or (CC ~= nil and #CC.rows(d.event) > 0) or (RC ~= nil and #RC.rows(d) > 0)))
 end
 
 -- 선거(지지·출마)와 의장의 일(법안 고르기·동수일 때 한 표)
@@ -2748,6 +2750,17 @@ function StoryEnginePoliticsPanel:onElection()
             tip.description = row.tip
             o.toolTip = tip
         end
+    end
+    -- 연립·불신임·분열·군정·증언 (RegimeClient.lua)
+    local RC = StoryEngine.RegimeClient
+    for _, row in ipairs(RC and RC.rows(d) or {}) do
+        local o = context:addOption(row.label, row.args, function(args) request("regimeAct", args) end)
+        if not row.ok then o.notAvailable = true end
+        local tip = ISToolTip:new()
+        tip:initialise()
+        tip:setVisible(false)
+        tip.description = row.tip
+        o.toolTip = tip
     end
     for _, row in ipairs(PC.electionRows(d)) do
         local o = context:addOption(row.label, row.args, function(args) request("politicsElection", args) end)

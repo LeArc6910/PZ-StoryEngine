@@ -36,6 +36,7 @@ require "StoryEngine/Council"
 require "StoryEngine/Era"
 require "StoryEngine/Politics"
 require "StoryEngine/Offices"
+require "StoryEngine/Regime"
 require "StoryEngine/Outsiders"
 require "StoryEngine/Crises"
 require "StoryEngine/Inquiry"
@@ -950,6 +951,21 @@ function Commands.politicsElection(player, args)
     elseif what == "office" then ok, why = StoryEngine.Offices.back(player, tostring(args.bloc or "")) end
     reply(player, "politicsResult", { what = what, ok = ok, error = not ok and why or nil, faction = extra })
     reply(player, "politicsState", { politics = Politics.payload(StoryEngine.Store.playerKey(player)) })
+end
+
+-- 연립·불신임·분열·군정·증언 (Regime.lua): args = { what = mend|wedge|noconf|reunite|petition|testify, fid, bloc }
+function Commands.regimeAct(player, args)
+    local R = StoryEngine.Regime
+    local what = tostring(args.what or "")
+    local ok, why, a, b = false, "how", nil, nil
+    if what == "mend" then ok, why, a, b = R.mend(player)
+    elseif what == "wedge" then ok, why = R.wedge(player, tostring(args.fid or ""))
+    elseif what == "noconf" then ok, why = R.noConfidence(player)
+    elseif what == "reunite" then ok, why = R.reunite(player)
+    elseif what == "petition" then ok, why, a, b = R.petition(player)
+    elseif what == "testify" then ok, why = R.testify(player, tostring(args.bloc or "")) end
+    reply(player, "regimeResult", { what = what, ok = ok, error = (not ok) and tostring(why) or nil, a = a, b = b })
+    reply(player, "politicsState", { politics = StoryEngine.Politics.payload(StoryEngine.Store.playerKey(player)) })
 end
 
 -- 공동 작업장에 물건을 보낸다: args = { item = 아이템 ID }

@@ -193,8 +193,19 @@ local function quietCut(kind)
 end
 
 local function giveBack(kind)
+    -- 시설 고장이나 갈라선 의회의 한쪽이 끊어 둔 것은 잇지 않는다 (Regime.lua)
+    local R = StoryEngine.Regime
+    if R and R.gridBlocked and R.gridBlocked(kind) then return end
     local Era = StoryEngine.Era
     pcall(StoryEngine.Grid.restore, kind, Era and Era.FOREVER_DAYS or 36500, "council")
+end
+
+-- 지금 위기의 효과로 끊겨 있는가 (Regime.lua 가 이으려 할 때 묻는다)
+function Crises.holding(kind)
+    local sp = fxOn("split")
+    if sp and sp.hold == kind then return true end
+    local n = fxOn("night")
+    return kind == "power" and n ~= nil and n.on == false
 end
 
 -- ---------------------------------------------------------------- 위기별: 조건, 열기, 고르기, 무시
@@ -210,6 +221,7 @@ local function splitApart(snubbed, now, why)
     news("The county council has split in two: the farms and the church on one side, the soldiers and hunters on the other. "
         .. "For a month nothing passes without two votes in three" .. (hold and (", and one side has shut off the " .. hold) or "") .. ".", now)
     notify("split", { snubbed = snubbed, hold = hold, why = why })
+    if StoryEngine.Regime and StoryEngine.Regime.onE3 then StoryEngine.Regime.onE3(why) end
     log("crisis split", tostring(snubbed), tostring(hold), tostring(why))
 end
 

@@ -90,6 +90,10 @@ function Politics.textOf(d)
             if #(ph.cold or {}) > 0 then
                 line(parts, getText("IGUI_StoryEngine_Politics_Phase_cold", names(ph.cold)), "0.95,0.5,0.4")
             end
+        elseif ph.kind == "split" then
+            line(parts, getText("IGUI_StoryEngine_Politics_Phase_split"), "0.95,0.6,0.4")
+        elseif ph.kind == "martial" then
+            line(parts, getText("IGUI_StoryEngine_Politics_Phase_martial", UI.npcName(ph.by)), "0.95,0.6,0.4")
         else
             line(parts, getText("IGUI_StoryEngine_Politics_Phase_balance", num(ph.days)), "0.7,0.85,0.9")
         end
@@ -209,6 +213,8 @@ function Politics.textOf(d)
             line(parts, row, r.yes and "0.7,0.9,0.7" or "0.9,0.7,0.65")
         end
         line(parts, getText("IGUI_StoryEngine_Politics_LobbyLeft", num(bill.lobbyLeft or 0)), "0.7,0.8,0.9")
+    elseif d.phase and (d.phase.kind == "split" or d.phase.kind == "martial") then
+        line(parts, getText("IGUI_StoryEngine_Politics_Shut"), "0.6,0.6,0.6")
     else
         line(parts, getText("IGUI_StoryEngine_Politics_NextIn", num(d.nextIn)), "0.7,0.8,0.9")
     end
@@ -380,6 +386,8 @@ function Politics.noticeText(args)
         if args.phase == "rule" then
             return getText("IGUI_StoryEngine_Politics_Notice_rule", getText("IGUI_StoryEngine_Politics_Bloc_" .. tostring(args.bloc))), false
         end
+        if args.phase == "split" then return getText("IGUI_StoryEngine_Politics_Notice_split"), false end
+        if args.phase == "martial" then return getText("IGUI_StoryEngine_Politics_Notice_martial", UI.npcName(args.by)), false end
         return getText("IGUI_StoryEngine_Politics_Notice_balance"), true
     end
     if kind == "bill" then return getText("IGUI_StoryEngine_Politics_Notice_bill", Politics.billName(args.id)), true end
@@ -443,6 +451,9 @@ function Politics.noticeText(args)
         return getText(args.ready and "IGUI_StoryEngine_Politics_Notice_winter_ready" or "IGUI_StoryEngine_Politics_Notice_winter_short"),
             args.ready == true
     end
+    -- 연립·분열·군정·시설·증언 (RegimeClient.lua)
+    local RC = StoryEngine.RegimeClient
+    if RC then return RC.noticeText(args) end
     return nil, true
 end
 

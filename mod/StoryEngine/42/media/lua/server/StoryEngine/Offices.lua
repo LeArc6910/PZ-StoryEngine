@@ -1,4 +1,4 @@
--- 의회의 자리 셋 (2026-10-14, docs/PLAN_COUNCIL_POLITICS.md 5단계의 나머지). 의장은 Politics.lua 가 맡는다.
+-- 의회의 자리 셋 (2026-10-13, docs/PLAN_COUNCIL_POLITICS.md 5단계의 나머지). 의장은 Politics.lua 가 맡는다.
 --
 --   store   창고지기  : 우리를 믿으면(WARM 이상) 주마다 작은 보급 / 미워하면(COLD 미만) 모든 거래 값 x1.1
 --   captain 경비대장  : 믿으면 방위대·행크 특기 대기 x0.5 / 미워하면 x2

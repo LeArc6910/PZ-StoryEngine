@@ -50,6 +50,8 @@ Social.NEAR_DIST = 600                   -- 이 거리 안에 다녀가면 그 N
 Social.SILENT_MIN = 3 * 24 * 60
 Social.SCENE_LOG = 20      -- 장면에 보여 주는 최근 줄 (2026-10-04: 12 -> 20, 앞서 들은 대답이 너무 빨리 밀려났다)
 Social.MAX_SCENE_LINES = 6
+Social.GUEST_CHANCE = 35                -- 밖에서 온 사람이 와 있을 때 예약 장면에 낄 확률 (%)
+Social.GUEST_REPLY_CHANCE = 20          -- 플레이어의 말에 답하는 장면에 낄 확률
 Social.SCENE_LINE_GAP = { 20, 40 }       -- 공용 주파수 장면은 한 줄씩 이 간격으로 (게임 분), 사이에 끼어들 수 있다
 Social.REPLY_LINE_GAP = { 8, 12 }        -- 플레이어에게 답하는 장면: 첫 줄은 바로, 나머지는 조금 빨리
 -- 1년 이야기 (2026-10-07, docs/STORY_YEAR_PLAN.md): 부탁 몰림 방지, 곁가지, 이야기 속도
@@ -1119,7 +1121,30 @@ function Social.classifySaid(text, intent)
     return StoryEngine.Lines.intentOf(text)
 end
 
+-- 밖에서 온 사람과 원래 NPC 사이: 꺼리는 사이면 -1, 아니면 0 (둘 중 누가 밖에서 왔든). 둘 다 원래 NPC 면 nil
+local function guestBond(a, b)
+    local Out = StoryEngine.Outsiders
+    local g = (Factions.isOutsider(a) and a) or (Factions.isOutsider(b) and b) or nil
+    if not g or not Out or not Out.DEFS[g] then return nil end
+    local other = g == a and b or a
+    for _, x in ipairs(Out.DEFS[g].dislike) do
+        if x == other then return -1 end
+    end
+    return 0
+end
+
+-- 밖에서 온 사람이 이 장면에 끼는가 (와 있는 사람 가운데 하나, 없으면 nil). 와 있는 사람이 없으면 주사위를 굴리지 않는다
+function Social.pickGuest(reply)
+    local Out = StoryEngine.Outsiders
+    local here = Out and Out.hereList and Out.hereList() or {}
+    if #here == 0 then return nil end
+    if ZombRand(100) >= (reply and Social.GUEST_REPLY_CHANCE or Social.GUEST_CHANCE) then return nil end
+    return here[ZombRand(#here) + 1]
+end
+
 local function moodOf(a, b)
+    local g = guestBond(a, b)
+    if g ~= nil then return g < 0 and "cold" or "plain" end
     local v = StoryEngine.Bonds and StoryEngine.Bonds.get(a, b) or 0
     if v >= 1 then return "warm" end
     if v <= -1 then return "cold" end
@@ -1149,7 +1174,18 @@ end
 
 function Social.offlineLines(ids, said, key, arg)
     local Lines = StoryEngine.Lines
-    local a, b = ids[1], ids[2]
+    local a, b, guest = nil, nil, nil
+    for _, id in ipairs(ids) do
+        if Factions.isOutsider(id) then
+            guest = guest or id
+        elseif not a then
+            a = id
+        elseif not b then
+            b = id
+        end
+    end
+    if guest and a then b = guest end       -- 준비된 대사는 원래 NPC 가 말을 꺼내고 밖에서 온 사람이 받는다
+    if not a then a, b = ids[1], ids[2] end
     local function line(fid, kind, args)
         return { npc = fid, text = "(prepared line, no AI)", lt = Lines.lt(fid, kind, args), quiet = true }
     end
@@ -1264,19 +1300,44 @@ function Social.scene(said, cut)
             queued, queuedKey, queuedArg = qt.topic, qt.key, qt.arg
         end
     end
+    -- 밖에서 온 사람 (Outsiders.lua): 와 있으면 가끔 장면에 낀다 (정해 둔 화제가 있으면 그 사람들끼리)
+    if not queued then
+        local guest = Social.pickGuest(said ~= nil)
+        if guest then
+            if #ids >= 3 then ids[#ids] = guest else ids[#ids + 1] = guest end
+        end
+    end
     local parts = {}
     for _, fid in ipairs(ids) do
-        local ctx = Social.context(fid) or {}
+        local isGuest = Factions.isOutsider(fid)
+        local ctx = (not isGuest) and Social.context(fid) or {}
         local rel = {}
         local Bonds = StoryEngine.Bonds
         for _, other in ipairs(ids) do
-            local note = Stories.relationsOf(fid)[other]
-            local bond = Bonds and Bonds.get(fid, other) or 0
-            local recent = Bonds and Bonds.recent(fid, other) or nil
-            if other ~= fid and (note or bond ~= 0 or recent) then
-                rel[#rel + 1] = { id = other, note = note, bond = bond, shift = recent and recent.text or nil }
+            local gb = other ~= fid and guestBond(fid, other) or nil
+            if gb ~= nil then
+                -- 한쪽이 밖에서 온 사람: 꺼리는 사이인지만 안다
+                if not isGuest then
+                    rel[#rel + 1] = { id = other, bond = gb, note = gb < 0
+                        and "an outsider the council took in; you did not want them here and you are wary of them"
+                        or "an outsider the council took in; you have no quarrel with them" }
+                elseif gb < 0 then
+                    rel[#rel + 1] = { id = other, bond = gb, note = "one of the locals who did not want you and yours here" }
+                end
+            else
+                local note = Stories.relationsOf(fid)[other]
+                local bond = Bonds and Bonds.get(fid, other) or 0
+                local recent = Bonds and Bonds.recent(fid, other) or nil
+                if other ~= fid and (note or bond ~= 0 or recent) then
+                    rel[#rel + 1] = { id = other, note = note, bond = bond, shift = recent and recent.text or nil }
+                end
             end
         end
+        if isGuest then
+            local Out = StoryEngine.Outsiders
+            parts[#parts + 1] = { id = fid, trust = Radio.channel(fid).trust, relations = rel,
+                                  guest = { sided = Out.sided(fid) or nil, hard = Out.hard(fid) or nil } }
+        else
         local life = StoryEngine.Life and StoryEngine.Life.npc(fid).res or nil
         local spec = nil
         if said and StoryEngine.Specialty then
@@ -1285,6 +1346,7 @@ function Social.scene(said, cut)
         end
         parts[#parts + 1] = { id = fid, trust = Radio.channel(fid).trust, beat = ctx.beat, relations = rel, state = life,
                               specialty = spec }
+        end
     end
     local players = {}
     for _, p in ipairs(Sensor.players()) do players[#players + 1] = Store.characterName(p) end

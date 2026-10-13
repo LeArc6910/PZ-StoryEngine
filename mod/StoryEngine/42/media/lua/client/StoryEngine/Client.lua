@@ -792,6 +792,10 @@ local function fillDebugMenu(context, worldobjects, playerNum)
         polSub:addOption(label("ContextMenu_StoryEngine_DebugPolitics_Enact", getText("IGUI_StoryEngine_Bill_" .. id)), worldobjects,
             toServer("debugPolitics", { enact = id, target = fid }))
     end
+    for _, w in ipairs({ "coalition", "collapse", "noconf", "split", "martial", "order", "blame", "facility", "end" }) do
+        polSub:addOption(label("ContextMenu_StoryEngine_DebugRegime_" .. w), worldobjects,
+            toServer("debugPolitics", { regime = { what = w } }))
+    end
     polSub:addOption(label("ContextMenu_StoryEngine_DebugPolitics_Reset"), worldobjects, toServer("debugPolitics", { reset = true }))
     -- 정치 위기 (Crises.lua)
     local crSub = subMenu(context, npc, label("ContextMenu_StoryEngine_DebugCrises"))
@@ -844,7 +848,7 @@ local function fillDebugMenu(context, worldobjects, playerNum)
     end
     local ssub = subMenu(context, world, label("ContextMenu_StoryEngine_Saga"))
     for _, entry in ipairs({ { "start", "crash" }, { "start", "migration" }, { "start", "epidemic" }, { "start", "blackout" },
-                             { "next" }, { "stop" } }) do
+                             { "start", "facility" }, { "next" }, { "stop" } }) do
         ssub:addOption(label("ContextMenu_StoryEngine_Saga_" .. entry[1] .. (entry[2] and ("_" .. entry[2]) or "")),
             worldobjects, toServer("debugSaga", { action = entry[1], kind = entry[2] }))
     end
