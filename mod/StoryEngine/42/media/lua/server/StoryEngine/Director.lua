@@ -475,6 +475,8 @@ local function friendFaction(key)
 end
 
 local function friendEligible(ctx, entry)
+    -- 장터의 독주: 공짜가 없다 (Regime.lua)
+    if StoryEngine.Politics and StoryEngine.Politics.mod("noGift") == true then return false end
     if StoryEngine.Trust.personalMode() then
         local last = entry.ps.friendGiftT
         if last and ctx.now.t - last < Director.FRIEND_GAP_MIN then return false end
@@ -522,6 +524,8 @@ local function threatFaction(open, key)
 end
 
 local function extortEligible(ctx, entry)
+    -- 총의 독주: 협박이 없다 (Regime.lua)
+    if StoryEngine.Politics and StoryEngine.Politics.mod("noExtort") == true and not ctx.forced then return false end
     if daysSeen() <= Director.MIN_DAYS then return false end
     if Quests.openFor(entry.ps.key, "extort") then return false end
     local open = Director.openAskers(ctx)

@@ -1266,4 +1266,26 @@ function T.council_tab_majority_split_and_rule_by_order()
     StoryEngine.Client.handlers.regimeResult({ what = "mend", ok = true })
 end
 
+function T.council_tab_rule_colours_and_shared_posts()
+    H.addPlayer("tester", "Gerald", "Kar")
+    local PC, RC = StoryEngine.PoliticsClient, StoryEngine.RegimeClient
+    local d = { era = true, on = true, blocs = {}, phase = { kind = "rule", bloc = "gun", days = 10 },
+                regime = { rule = { bloc = "gun" } },
+                offices = { list = {}, vote = { office = "store", hours = 40, cands = { market = "rats" }, votes = {}, share = "market" } } }
+    local text = RC.textOf(d)
+    H.ok(string.find(text, "IGUI_StoryEngine_Regime_Rule_gun_good", 1, true))
+    H.ok(string.find(text, "IGUI_StoryEngine_Regime_Rule_gun_bad", 1, true))
+    H.ok(string.find(PC.textOf(d), "IGUI_StoryEngine_Office_Share|IGUI_StoryEngine_Politics_Bloc_market", 1, true))
+    d.phase.bloc, d.regime.rule = "field", { bloc = "field", titheDays = 4 }
+    H.ok(string.find(RC.textOf(d), "IGUI_StoryEngine_Regime_Tithe_Next|4", 1, true))
+    d.regime.rule.tithe = "Q7"
+    H.ok(string.find(RC.textOf(d), "IGUI_StoryEngine_Regime_Tithe <", 1, true))
+    local msg, good = PC.noticeText({ kind = "curfew_caught", fid = "guard" })
+    H.ok(string.find(msg, "IGUI_StoryEngine_Regime_Notice_curfew_caught|IGUI_StoryEngine_Faction_guard", 1, true) and good == false)
+    msg, good = PC.noticeText({ kind = "tithe_paid", fid = "hunter" })
+    H.ok(msg and good == true)
+    H.ok(PC.noticeText({ kind = "post_snub", bloc = "market" }))
+    H.ok(PC.noticeText({ kind = "tithe", fid = "ray" }))
+end
+
 return T

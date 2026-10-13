@@ -893,6 +893,7 @@ local function questSub(q)
     if q.holiday then sub = getText("IGUI_StoryEngine_Holiday_Tag") .. " " .. sub end
     if q.council then sub = getText("IGUI_StoryEngine_Council_Tag") .. " " .. sub end
     if q.favorCall then sub = getText("IGUI_StoryEngine_Work_FavorTag") .. " " .. sub end
+    if q.tithe then sub = getText("IGUI_StoryEngine_Regime_TitheTag") .. " " .. sub end
     -- 다른 사람이 받은 퀘스트는 누가 받았는지 붙인다 (퀘스트는 서버 전체가 함께 본다)
     if q.owner and not q.mine then sub = sub .. "  -  " .. tostring(q.owner) end
     if q.night then sub = getText("IGUI_StoryEngine_Quest_NightTag") .. " " .. sub end

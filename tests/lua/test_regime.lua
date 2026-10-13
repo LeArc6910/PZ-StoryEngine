@@ -621,4 +621,160 @@ function T.outsiders_join_the_open_channel()
     H.eq(lines[2].lt.key, "IGUI_StoryEngine_Line_odell_open_reply_1")
 end
 
+local function rule(bloc)
+    P().state().phase = { kind = "rule", bloc = bloc, sinceT = now().t, day = StoryEngine.Store.serverDays() }
+end
+
+function T.a_county_run_by_the_fields_shares_and_tithes()
+    local p, ps = setup()
+    local Pol, Reg, Quests, Life = P(), R(), StoryEngine.Quests, StoryEngine.Life
+    H.defineItem("Base.Antibiotics", "medical", 4)
+    local price = Pol.mod("price", "doc", "medical")
+    local base = Life.base("doc", "food")
+    H.eq(Reg.ruling(), nil)
+    rule("field")
+    H.eq(Reg.ruling(), "field")
+    H.near(Pol.mod("price", "doc", "medical"), price * Reg.RULE_PRICE, 0.001)
+    H.eq(Life.base("doc", "food"), base + Reg.RULE_FOOD)
+    H.eq(Pol.mod("tradeBlock", "rats", "tools"), true, "the market is shut")
+    H.eq(Pol.mod("tradeBlock", "dewey", "tools"), false)
+    H.eq(Pol.mod("noExtort"), false)
+    -- 십일조는 한 주 뒤부터
+    Reg.daily(now())
+    H.eq(Reg.state().rule.tithe, nil)
+    H.eq(Pol.payload("tester").regime.rule.titheDays, Reg.TITHE_DAYS)
+    H.advanceDays(Reg.TITHE_DAYS)
+    quiet()
+    Reg.daily(now())
+    local quests = StoryEngine.Store.data().quests
+    local q = quests[Reg.state().rule.tithe]
+    H.ok(q and q.tithe and q.noReward, "the tithe is due")
+    H.eq(q.state, "accepted")
+    H.eq(q.origin.faction, "ray")
+    H.ok(noticed("tithe"))
+    Reg.daily(now())
+    H.eq(Reg.state().rule.tithe, q.id, "one at a time")
+    -- 안 내면 밭 사람들이 식는다 (다른 감점은 없다)
+    local before, vic = trust("pike"), trust("rats")
+    Quests.setState(q, "failed", now(), { ps = ps })
+    H.eq(trust("pike"), before - Reg.TITHE_COST)
+    H.eq(trust("ray"), 50 - Reg.TITHE_COST)
+    H.eq(trust("rats"), vic)
+    H.eq(Reg.state().rule.tithe, nil)
+    H.ok(noticed("tithe_unpaid"))
+    -- 내면 신뢰는 그대로고 가장 모자란 곳으로 간다
+    H.advanceDays(Reg.TITHE_DAYS)
+    quiet()
+    Reg.daily(now())
+    q = quests[Reg.state().rule.tithe]
+    H.ok(q)
+    Life.npc("hunter").res.food = 5
+    before = trust("ray")
+    Quests.setState(q, "completed", now(), { ps = ps })
+    H.eq(trust("ray"), before)
+    H.eq(Life.get("hunter", "food"), 5 + Reg.TITHE_SHARE)
+    H.ok(noticed("tithe_paid"))
+    -- 독주가 끝나면 사라진다
+    Pol.state().phase = { kind = "balance" }
+    Reg.daily(now())
+    H.eq(Reg.state().rule, nil)
+    H.eq(Pol.mod("tradeBlock", "rats", "tools"), false)
+end
+
+function T.a_county_run_by_the_guns_keeps_order_and_a_curfew()
+    local p, ps = setup()
+    local Pol, Reg, Quests, Life = P(), R(), StoryEngine.Quests, StoryEngine.Life
+    H.ok(Quests.nightAllowed(5))
+    rule("gun")
+    H.eq(Pol.mod("noExtort"), true)
+    H.eq(Pol.mod("squad", "guard"), Reg.RULE_SQUAD)
+    H.near(Pol.mod("specWait", "hunter"), Reg.RULE_WAIT, 0.001)
+    H.near(Pol.mod("specWait", "ray"), Pol.RULE_WAIT, 0.001)
+    H.eq(Pol.mod("tradeBlock", "rats", "firearm"), true, "only the Guard sells guns")
+    H.eq(Pol.mod("tradeBlock", "rats", "tools"), false)
+    H.eq(Pol.mod("tradeBlock", "guard", "firearm"), false)
+    H.eq(Pol.mod("noRegen", "ray", "food"), true)
+    H.eq(Pol.mod("noRegen", "hunter", "food"), false)
+    -- 날마다 밭 쪽 식량을 징발한다
+    local food, own = Life.get("ray", "food"), Life.get("hunter", "food")
+    Reg.daily(now())
+    H.ok(Life.get("ray", "food") < food)
+    H.eq(Life.get("hunter", "food"), own)
+    -- 야간 작전이 없다
+    H.eq(Quests.nightAllowed(5), false)
+    -- 야간 통행 제한
+    ps.home = { x = p:getX(), y = p:getY(), z = 0 }
+    local far = { { player = p, ps = ps, s = { x = p:getX() + 100, y = p:getY(), outside = true, asleep = false } } }
+    local g = trust("guard")
+    Reg.curfewTick(far, now())
+    H.eq(ps.curfew, nil, "daytime")
+    H.clockMin = 301 * 1440 + 23 * 60
+    Reg.curfewTick({ { player = p, ps = ps, s = { x = p:getX() + 10, y = p:getY(), outside = true } } }, now())
+    H.eq(ps.curfew, nil, "close to home")
+    Reg.curfewTick({ { player = p, ps = ps, s = { x = p:getX() + 100, y = p:getY(), outside = false } } }, now())
+    H.eq(ps.curfew, nil, "indoors")
+    Reg.curfewTick(far, now())
+    H.eq(ps.curfew.n, 1)
+    H.eq(trust("guard"), g, "a warning first")
+    Reg.curfewTick(far, now())
+    H.eq(trust("guard"), g - Reg.CURFEW_COST)
+    Reg.curfewTick(far, now())
+    H.eq(trust("guard"), g - Reg.CURFEW_COST, "once a night")
+    H.clockMin = 302 * 1440 + 2 * 60
+    Reg.curfewTick(far, now())
+    H.eq(trust("guard"), g - Reg.CURFEW_COST, "still the same night after midnight")
+    H.clockMin = 302 * 1440 + 23 * 60
+    Reg.curfewTick(far, now())
+    H.eq(ps.curfew.n, 1, "a new night, a new warning")
+end
+
+function T.a_county_run_by_the_market_sells_everything_and_gives_nothing()
+    setup()
+    local Pol, Reg, Life, Trade, Value = P(), R(), StoryEngine.Life, StoryEngine.Trade, StoryEngine.Value
+    H.ok(not Trade.bazaar())
+    H.ok(not Value.anyWantsFn("ray"))
+    rule("market")
+    H.ok(Trade.bazaar())
+    H.eq(Pol.mod("noGift"), true)
+    H.near(Pol.mod("donate", "ray"), Reg.RULE_DONATE, 0.001)
+    H.ok(Value.anyWantsFn("ray"), "anything is taken in payment")
+    H.ok(not Value.anyWantsFn("odell"))
+    H.eq(Pol.mod("noRegen", "pike", "morale"), true)
+    H.eq(Pol.mod("noRegen", "ray", "morale"), false)
+    local pike, doc, ray = Life.get("pike", "morale"), Life.get("doc", "morale"), Life.get("ray", "morale")
+    Reg.daily(now())
+    H.ok(Life.get("pike", "morale") < pike and Life.get("doc", "morale") < doc, "the church and the clinic wither")
+    H.eq(Life.get("ray", "morale"), ray)
+    H.eq(Pol.payload("tester").regime.rule.bloc, "market")
+end
+
+function T.the_majority_shares_out_the_posts()
+    setup()
+    local Pol, Reg, Off = P(), R(), StoryEngine.Offices
+    H.eq(Reg.shareOf(), nil)
+    setBonds("field", "market", 1)
+    setBonds("field", "gun", -1)
+    setBonds("gun", "market", 0)
+    seat("ray")
+    Reg.daily(now())
+    H.eq(Reg.shareOf(), "market", "the camp without the chair is owed a post")
+    Off.debug("store")
+    local v = Pol.state().offices.vote
+    H.ok(v)
+    H.eq(v.share.bloc, "market")
+    H.eq(Off.forecast(v).winner, "market", "the whole majority votes for the promised candidate")
+    H.eq(Pol.payload("tester").offices.vote.share, "market")
+    Reg.coalition().strain = 1
+    Off.debug("store")
+    H.eq(Off.holder("store").bloc, "market")
+    H.eq(Reg.coalition().strain, 0, "a kept promise eases the strain")
+    -- 약속한 자리가 다른 데로 가면 금이 간다
+    Reg.onPost("market", "gun", now())
+    H.eq(Reg.coalition().strain, 1)
+    H.ok(noticed("post_snub"))
+    Reg.coalition().strain = Reg.COLLAPSE_DAYS - 1
+    Reg.onPost("field", "gun", now())
+    H.eq(Reg.coalition(), nil, "one snub too many")
+end
+
 return T

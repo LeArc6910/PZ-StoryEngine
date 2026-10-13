@@ -620,7 +620,9 @@ function Life.donate(player, fid, itemIds, mode)
     else
         for res, value in pairs(byRes) do
             if (n.res[res] or 0) < Life.LOW then wasLow[#wasLow + 1] = RES_WORDS[res] end
-            local add = math.min(st.res[res] or 0, math.floor(value * Life.DONATE_MULT + 0.5))
+            -- 장터의 독주: 거저 주는 것은 값을 덜 쳐 준다 (Regime.lua)
+            local weak = StoryEngine.Politics and StoryEngine.Politics.mod("donate", fid) or 1
+            local add = math.min(st.res[res] or 0, math.floor(value * Life.DONATE_MULT * weak + 0.5))
             w.res[res] = (w.res[res] or 0) + add
             gains[res] = Life.change(fid, res, add, "donation")
             if res == "medical" then Life.count(fid, "medical_help") end
@@ -629,7 +631,7 @@ function Life.donate(player, fid, itemIds, mode)
     -- 신뢰도: 이 통에서 낸 가치 합이 새 단계를 넘을 때만 (나눠 내도 한 번에 낸 것과 같다)
     local before = w.trust or 0
     w.value = (w.value or 0) + total
-    local step = trustStep(w.value)
+    local step = trustStep(w.value * (StoryEngine.Politics and StoryEngine.Politics.mod("donate", fid) or 1))
     local trust = math.max(0, step - before)
     w.trust = math.max(before, step)
     -- 개인 모드: 보낸 사람의 개인 신뢰 (DESIGN_PER_PLAYER_TRUST 5-2절). 싱글·공유 모드는 신뢰 하나 (byKey 는 상대한 날 기록)

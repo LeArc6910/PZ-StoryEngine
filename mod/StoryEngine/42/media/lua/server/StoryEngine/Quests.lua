@@ -2144,7 +2144,7 @@ function Quests.submit(player, qid, itemIds)
         -- 협박에 응하면 작은 대가(1등급)만 준다
         local rewardTier = q.kind == "extort" and 1 or q.tier
         -- 빚 독촉은 빚을 갚는 것이라 보상 보급이 없다 (점검 C1)
-        local reward = not q.favorCall and Quests.create("supply_drop", player, ps, rewardTier, now,
+        local reward = not q.favorCall and not q.noReward and Quests.create("supply_drop", player, ps, rewardTier, now,
             { source = "reward", faction = q.origin and q.origin.faction, rewardFor = q.id, rewardKind = q.kind }) or nil
         setState(q, "completed", now, { ps = ps })
         return true, reward
@@ -2206,6 +2206,8 @@ function Quests.nightStoryChance()
 end
 
 function Quests.nightAllowed(tier)
+    -- 총의 독주: 야간 통행 제한 (Regime.lua)
+    if StoryEngine.Politics and StoryEngine.Politics.mod("curfew") == true then return false end
     local min = StoryEngine.Tuning and StoryEngine.Tuning.num("NightMinTier") or 3
     return Quests.nightOn() and (tier or 1) >= min
 end
@@ -2583,6 +2585,7 @@ function Quests.listFor(psKey, now)
             end
             if q.kind == "visit" or q.kind == "defend" then item.radius = q.radius end
             item.favorCall = q.favorCall
+            item.tithe = q.tithe
             if q.kind == "named" then item.person, item.slain = q.person, q.slain end
             if q.origin and q.origin.holiday then item.holiday = q.origin.holiday end
             if q.origin and q.origin.council then item.council = true end

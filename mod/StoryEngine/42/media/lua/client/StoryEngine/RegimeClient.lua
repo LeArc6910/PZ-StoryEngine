@@ -18,9 +18,11 @@ StoryEngine.RegimeClient = RC
 RC.NOTICES = { coalition = true, coalition_broken = true, mend = true, wedge = true, split_cut = true, split_back = true,
                reunite = true, reunited = true, reunite_failed = true, martial_order = true, martial_obeyed = true,
                martial_defied = true, martial_settled = true, martial_over = true, facility_held = true, facility_lost = true,
-               facility_back = true, testify_open = true, testified = true }
+               facility_back = true, testify_open = true, testified = true, tithe = true, tithe_paid = true,
+               tithe_unpaid = true, curfew_warn = true, curfew_caught = true, post_snub = true }
 RC.GOOD = { coalition = true, mend = true, split_back = true, reunite = true, reunited = true, martial_obeyed = true,
-            martial_over = true, facility_held = true, facility_back = true, testify_open = true, testified = true }
+            martial_over = true, facility_held = true, facility_back = true, testify_open = true, testified = true,
+            tithe_paid = true }
 RC.ERRORS = { how = true, closed = true, wait = true, no_coalition = true, trust = true, no_target = true, no_secret = true,
               no_chair = true, busy = true, no_split = true, no_ask = true, no_martial = true, no_blame = true, done = true }
 
@@ -56,6 +58,17 @@ function RC.textOf(d)
     local r = d and d.on and d.regime
     if not r then return "" end
     local parts = {}
+    -- 독주의 색: 그 파벌의 모습으로 굳은 카운티
+    local ru = r.rule
+    if ru then
+        line(parts, getText("IGUI_StoryEngine_Regime_Rule_" .. tostring(ru.bloc) .. "_good"), "0.7,0.9,0.7")
+        line(parts, getText("IGUI_StoryEngine_Regime_Rule_" .. tostring(ru.bloc) .. "_bad"), "0.95,0.7,0.5")
+        if ru.tithe then
+            line(parts, getText("IGUI_StoryEngine_Regime_Tithe"), "1,0.86,0.55")
+        elseif ru.titheDays then
+            line(parts, getText("IGUI_StoryEngine_Regime_Tithe_Next", num(ru.titheDays)), "0.7,0.8,0.9")
+        end
+    end
     local sp = r.split
     if sp then
         line(parts, getText("IGUI_StoryEngine_Regime_Split"), "0.95,0.6,0.4")
@@ -199,6 +212,12 @@ function RC.noticeText(args)
         return getText(key, tostring(args.name), blocName(args.bloc)), good
     elseif kind == "reunite" then
         return getText(key, tostring(args.name)), good
+    elseif kind == "tithe" or kind == "curfew_caught" then
+        return getText(key, UI.npcName(args.fid)), good
+    elseif kind == "tithe_paid" then
+        return getText(key, args.fid and UI.npcName(args.fid) or "?"), good
+    elseif kind == "post_snub" then
+        return getText(key, blocName(args.bloc)), good
     end
     return getText(key), good
 end

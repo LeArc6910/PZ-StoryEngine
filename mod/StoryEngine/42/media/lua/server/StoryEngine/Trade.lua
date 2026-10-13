@@ -385,10 +385,12 @@ function Trade.offerContext(fid, trust, key)
     local suspicious = recent + 1 >= Trade.SUSPICIOUS_COUNT
     -- 빅 교역소(장기 프로젝트)가 완성되면 한도보다 높은 등급도 웃돈 없이 판다
     local tradingPost = fid == "rats" and StoryEngine.Projects and StoryEngine.Projects.done("rats")
+    local free = (trust >= Trade.FREE_TRUST and not suspicious and ZombRand(100) < Trade.FREE_CHANCE) and Trade.FREE_MAX_TIER or 0
+    -- 장터의 독주: 공짜가 없다 (Regime.lua)
+    if free > 0 and StoryEngine.Politics and StoryEngine.Politics.mod("noGift") == true then free = 0 end
     return {
         recentRequests = recent, suspicious = suspicious,
-        freeMaxTier = (trust >= Trade.FREE_TRUST and not suspicious and ZombRand(100) < Trade.FREE_CHANCE)
-            and Trade.FREE_MAX_TIER or 0,
+        freeMaxTier = free,
         allowed = true, trust = trust, maxTier = limit.maxTier,
         mult = limit.mult * (rules.priceMult or 1) * (StoryEngine.Tuning and StoryEngine.Tuning.num("PriceMult") or 1),
         stretchMult = (not tradingPost) and rules.stretchMult or nil, goods = goods, catalog = catalog, wants = Value.wantsOf(fid), catMult = catMult,
@@ -711,10 +713,18 @@ local function tradingPost(fid)
     return fid == "rats" and StoryEngine.Projects ~= nil and StoryEngine.Projects.done("rats")
 end
 Trade.tradingPost = tradingPost
-Value.anyWantsFn = tradingPost      -- 교역소: 어떤 품목이든 대가로 받는다
+-- 장터의 독주 (Regime.lua): 누구나 묶음이 넉넉하고 입고가 빠르며 무엇이든 대가로 받는다. 빅은 교역소가 없어도 암시장을 연다
+local function bazaar()
+    local P = StoryEngine.Politics
+    return P ~= nil and P.mod ~= nil and P.mod("bazaar") == true
+end
+Trade.bazaar = bazaar
+Value.anyWantsFn = function(fid)       -- 교역소: 어떤 품목이든 대가로 받는다
+    return tradingPost(fid) or (bazaar() and Factions.byId[fid] ~= nil and not Factions.isOutsider(fid)) or false
+end
 
-local function stockBundles(fid) return tradingPost(fid) and Trade.POST_BUNDLES or Trade.STOCK_BUNDLES end
-local STOCK_MIN = function(fid) return (tradingPost(fid) and Trade.POST_DAYS or Trade.STOCK_DAYS) * 24 * 60 end
+local function stockBundles(fid) return (tradingPost(fid) or bazaar()) and Trade.POST_BUNDLES or Trade.STOCK_BUNDLES end
+local STOCK_MIN = function(fid) return ((tradingPost(fid) or bazaar()) and Trade.POST_DAYS or Trade.STOCK_DAYS) * 24 * 60 end
 
 -- 지금 재고 (없거나 입고일이 지났으면 새로 채운다)
 function Trade.stock(fid)
@@ -799,7 +809,7 @@ end
 
 -- 암시장 물건 (빅 교역소): 일주일마다 5등급 총 또는 도구 묶음 하나. 신뢰도와 상관없이 살 수 있다. 상태 Radio.channel(fid).black
 function Trade.black(fid)
-    if not tradingPost(fid) then return nil end
+    if not (tradingPost(fid) or (fid == "rats" and bazaar())) then return nil end
     local ch = Radio.channel(fid)
     local now = Sensor.now().t
     local b = ch.black

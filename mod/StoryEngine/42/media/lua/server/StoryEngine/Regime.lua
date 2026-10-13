@@ -20,8 +20,16 @@
 --            못 지키면 FACILITY_DOWN_DAYS 동안 고장.
 --   증언     큰 사건이 끝난 뒤 TESTIFY_HOURS 동안 한 파벌의 말에 힘을 실어 준다 (Regime.testify): 그 파벌의 공 +1, 기울기 +5,
 --            사건 때 제안을 받았던 다른 파벌의 대표는 -2.
+--   독주의 색 한 파벌이 의회를 끌고 가는 국면(Politics.judgePhase 의 rule)에서 카운티가 그 파벌의 모습으로 굳는다 (Regime.mod).
+--            밭: 거래 값 x0.9, 모두 식량 기준 +10 / 주마다 십일조(음식 부탁, 안 내면 밭 사람들 -2), 빅의 장터가 닫힌다.
+--            총: 협박 없음, 방위대 분대 +2, 총 사람들 특기 대기 x0.75 / 총기·탄약은 방위대만 판다, 밭 사람들 식량을 날마다 징발,
+--                야간 통행 제한(야간 작전 없음, 밤에 집에서 멀리 나와 있다 두 번 걸리면 방위대 -1).
+--            장터: 묶음이 넉넉하고 입고가 빠르며 암시장이 열리고 무엇이든 대가로 받는다 / 물자 지원의 효과 절반, 공짜·선물 없음,
+--                파이크와 닥이 시든다 (기호품이 날마다 줄고 저절로 회복하지 않는다).
+--   자리 나누기 다수파가 두 파벌이면 자리 선거 때 자리가 적은 쪽 후보를 함께 민다 (Regime.shareOf, 표 +ELECT_SHARE).
+--            그 후보가 지면 다수파에 금이 하루 간다.
 --
--- 상태: d.politics.regime = { coalition, reformT, collapses, e3, noconfT, noconfDue, martial, blame, facility = { held, down }, reunions }
+-- 상태: d.politics.regime = { coalition, reformT, collapses, e3, noconfT, noconfDue, martial, blame, facility = { held, down }, reunions, rule }
 -- 국면은 d.politics.phase (kind = split | martial 이 여기서 온다).
 
 if isClient() then return end
@@ -83,6 +91,17 @@ Regime.FACILITY_DOWN_DAYS = 30
 Regime.TESTIFY_HOURS = 48
 Regime.TESTIFY_LEAN = 5
 Regime.TESTIFY_COST = 2
+Regime.RULE_PRICE = 0.9
+Regime.RULE_FOOD = 10
+Regime.TITHE_DAYS, Regime.TITHE_TIER, Regime.TITHE_HOURS = 7, 2, 72
+Regime.TITHE_COST, Regime.TITHE_SHARE = 2, 5
+Regime.RULE_SQUAD, Regime.RULE_WAIT = 2, 0.75
+Regime.LEVY = 3
+Regime.RULE_DONATE = 0.5
+Regime.WITHER = 2
+Regime.WITHER_FIDS = { "pike", "doc" }
+Regime.CURFEW_FROM, Regime.CURFEW_TO = 22, 4
+Regime.CURFEW_DIST, Regime.CURFEW_COST = 50, 1
 
 local NPC_ASKS = { deliver = true, horde = true, fetch = true, named = true }
 
@@ -891,12 +910,172 @@ end
 
 -- ---------------------------------------------------------------- 보정 (Politics.mod 가 얹는다)
 
+-- 반환: 곱할 값(배율 키) | 더할 값(더하기 키) | true | nil
 function Regime.mod(key, fid, a)
     local m = Regime.martial()
     if m and key == "price" and fid and not Factions.isOutsider(fid) and Politics.blocOf(fid) ~= "gun" then
         return Regime.MARTIAL_PRICE
     end
+    local rule = Regime.ruling()
+    if not rule then return nil end
+    local native = fid ~= nil and Factions.byId[fid] ~= nil and not Factions.isOutsider(fid)
+    local mine = native and Politics.blocOf(fid) or nil
+    if rule == "field" then
+        if key == "price" and native then return Regime.RULE_PRICE end
+        if key == "baseBonus" and a == "food" and native then return Regime.RULE_FOOD end
+        if key == "tradeBlock" and fid == "rats" and mine ~= "field" then return true end
+    elseif rule == "gun" then
+        if key == "noExtort" or key == "curfew" then return true end
+        if key == "squad" and fid == "guard" then return Regime.RULE_SQUAD end
+        if key == "specWait" and mine == "gun" then return Regime.RULE_WAIT end
+        if key == "tradeBlock" and native and fid ~= "guard" and (a == "firearm" or a == "ammo") then return true end
+        if key == "noRegen" and mine == "field" and a == "food" then return true end
+    elseif rule == "market" then
+        if key == "bazaar" or key == "noGift" then return true end
+        if key == "donate" then return Regime.RULE_DONATE end
+        if key == "noRegen" and a == "morale" and mine ~= "market" and has(Regime.WITHER_FIDS, fid) then return true end
+    end
     return nil
+end
+
+-- ---------------------------------------------------------------- 독주의 세 가지 색
+
+-- 지금 의회를 끌고 가는 파벌 (독주 국면이 아니면 nil)
+function Regime.ruling()
+    if not Politics.enabled() then return nil end
+    local ph = phase()
+    if ph and ph.kind == "rule" then return ph.bloc end
+    return nil
+end
+
+-- 밭의 십일조: 주마다 음식 부탁 하나가 바로 수락된 채로 온다. 보상도 신뢰도 없다. 안 내면 밭 사람들이 식는다
+local function tithe(t, now)
+    if t.tithe then
+        local q = Store.data().quests[t.tithe]
+        if q and (Quests.isActive(q) or q.state == "proposed") then return end
+        t.tithe = nil
+    end
+    t.titheT = t.titheT or (now.t + Regime.TITHE_DAYS * 24 * 60)
+    if now.t < t.titheT then return end
+    local player, ps = anyPlayer()
+    local fid = leaderOf({ "field" })
+    if not player or not fid then return end
+    t.titheT = now.t + Regime.TITHE_DAYS * 24 * 60
+    local q = Quests.propose(player, ps, fid, Regime.TITHE_TIER, now, { prefer = "food" })
+    if not q then return end
+    q.tithe, q.noTrust, q.noReward = true, true, true
+    Quests.respond(player, q.id, true)
+    q.deadlineT = now.t + Regime.TITHE_HOURS * 60
+    t.tithe = q.id
+    notify("tithe", { fid = fid })
+    log("regime tithe", q.id, fid)
+end
+
+local function ruleDaily(now)
+    local r = state()
+    local rule = Regime.ruling()
+    if not rule then
+        r.rule = nil
+        return
+    end
+    if not r.rule or r.rule.bloc ~= rule then r.rule = { bloc = rule } end
+    local Life = StoryEngine.Life
+    if rule == "field" then
+        tithe(r.rule, now)
+    elseif rule == "gun" then
+        -- 밭 쪽에서 식량을 징발한다
+        for _, fid in ipairs(Politics.members("field")) do pcall(Life.change, fid, "food", -Regime.LEVY, "levy") end
+    elseif rule == "market" then
+        for _, fid in ipairs(Regime.WITHER_FIDS) do
+            if not Factions.isGone(fid) and Politics.blocOf(fid) ~= "market" then
+                pcall(Life.change, fid, "morale", -Regime.WITHER, "wither")
+            end
+        end
+    end
+end
+
+local function titheResult(r, q, st, now)
+    if r.rule then r.rule.tithe = nil end
+    if st == "completed" then
+        -- 걷은 것은 가장 모자란 곳으로 간다
+        local Life = StoryEngine.Life
+        local low, least = nil, nil
+        for _, fid in ipairs(living()) do
+            local v = Life.get(fid, "food")
+            if least == nil or v < least then low, least = fid, v end
+        end
+        if low then pcall(Life.change, low, "food", Regime.TITHE_SHARE, "tithe") end
+        notify("tithe_paid", { fid = low })
+    else
+        for _, fid in ipairs(Politics.members("field")) do trust(fid, -Regime.TITHE_COST, "tithe_unpaid") end
+        notify("tithe_unpaid", {})
+    end
+end
+
+-- 총의 야간 통행 제한: 밤에 집에서 멀리 나와 있으면 한 번은 경고, 같은 밤에 또 걸리면 방위대가 식는다
+local function curfewTick(entries, now)
+    if not Politics.on() or Politics.mod("curfew") ~= true then return end
+    local hour = getGameTime():getHour()
+    if not (hour >= Regime.CURFEW_FROM or hour < Regime.CURFEW_TO) then return end
+    local night = Quests.nightId(now)
+    local fid = (not Factions.isGone("guard")) and "guard" or leaderOf({ "gun" })
+    for _, e in ipairs(entries or {}) do
+        local ps, s = e.ps, e.s
+        if ps and s and s.outside and not s.asleep and ps.home then
+            local dx, dy = s.x - ps.home.x, s.y - ps.home.y
+            if dx * dx + dy * dy > Regime.CURFEW_DIST * Regime.CURFEW_DIST then
+                local c = ps.curfew
+                if not c or c.night ~= night then
+                    ps.curfew = { night = night, n = 1 }
+                    pcall(Net.toClient, e.player, "politicsNotice", { kind = "curfew_warn" })
+                elseif c.n == 1 then
+                    c.n = 2
+                    trust(fid, -Regime.CURFEW_COST, "curfew")
+                    pcall(Net.toClient, e.player, "politicsNotice", { kind = "curfew_caught", fid = fid })
+                    log("regime curfew", ps.name)
+                end
+            end
+        end
+    end
+end
+Regime.curfewTick = curfewTick
+
+Sensor.listeners.tick[#Sensor.listeners.tick + 1] = function(entries, now)
+    local ok, err = pcall(curfewTick, entries, now)
+    if not ok then log("regime curfew error:", tostring(err)) end
+end
+
+-- ---------------------------------------------------------------- 다수파 안의 자리 나누기 (Offices.lua)
+
+-- 다음 자리를 받을 파벌: 다수파 두 파벌 가운데 자리(의장 포함)가 적은 쪽, 같으면 의장을 내지 않은 쪽. 반환: 파벌, 다수파 파벌들 | nil
+function Regime.shareOf()
+    local c = Regime.coalition()
+    if not c or #c.blocs < 2 then return nil end
+    local seats = {}
+    local chair = Politics.chair()
+    if chair and chair.bloc then seats[chair.bloc] = 1 end
+    local Off = StoryEngine.Offices
+    for _, id in ipairs(Off and Off.ORDER or {}) do
+        local h = Off.holder(id)
+        if h and h.bloc then seats[h.bloc] = (seats[h.bloc] or 0) + 1 end
+    end
+    local a, b = c.blocs[1], c.blocs[2]
+    return ((seats[b] or 0) <= (seats[a] or 0)) and b or a, c.blocs
+end
+
+-- 자리 선거가 끝났다: 나눠 주기로 한 쪽이 받았으면 금이 하루 풀리고, 못 받았으면 하루 간다
+function Regime.onPost(share, winner, now)
+    local r = peek()
+    local c = r and r.coalition
+    if not c or not share then return end
+    if winner == share then
+        c.strain = math.max(0, (c.strain or 0) - 1)
+    else
+        c.strain = (c.strain or 0) + 1
+        notify("post_snub", { bloc = share })
+        log("regime post not shared", tostring(share), tostring(winner))
+        if c.strain >= Regime.COLLAPSE_DAYS then Regime.collapse(now, "post") end
+    end
 end
 
 -- 국면 판정의 무게: 쥔 시설 하나에 +1
@@ -1021,6 +1200,8 @@ local function onQuest(q, st)
     local ph = s.phase
     -- 군정의 명령
     if q.martial and r.martial and r.martial.order == q.id then martialResult(r.martial, q, st, now) end
+    -- 밭의 십일조
+    if q.tithe then titheResult(r, q, st, now) end
     if not ph or ph.kind ~= "split" then return end
     -- 두 번째 카운티 회의
     if q.reuniteAsk and ph.reunion then
@@ -1060,6 +1241,8 @@ function Regime.daily(now)
     now = now or Sensor.now()
     local ok, err = pcall(coalitionDaily, now)
     if not ok then log("regime coalition error:", tostring(err)) end
+    local okU, errU = pcall(ruleDaily, now)
+    if not okU then log("regime rule error:", tostring(errU)) end
     local ph = phase()
     if ph and ph.kind == "split" then
         local ok2, err2 = pcall(splitDaily, ph, now)
@@ -1152,6 +1335,12 @@ function Regime.payload(key, now)
         if d and now.t < d then fac.down[#fac.down + 1] = { what = kind, days = math.max(0, math.ceil((d - now.t) / 60 / 24)) }; any = true end
     end
     if any then out.facility = fac end
+    local rule = Regime.ruling()
+    if rule then
+        local t = r.rule or {}
+        out.rule = { bloc = rule, tithe = t.tithe,
+                     titheDays = (rule == "field" and t.titheT) and math.max(0, math.ceil((t.titheT - now.t) / 60 / 24)) or nil }
+    end
     local b = r.blame
     if b and now.t < b.untilT then
         out.blame = { saga = b.kind, good = b.good, deal = b.deal, used = b.used or nil, bloc = b.bloc, by = b.by,

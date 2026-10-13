@@ -102,6 +102,7 @@ Politics.SIDE = { field = "the Fields", gun = "the Guns", market = "the Market" 
 Politics.TERM_DAYS = 60                -- 의장 임기
 Politics.ELECTION_FIRST_DAYS = 2       -- 정치가 열린 뒤 첫 선거까지
 Politics.ELECTION_DAYS = 7
+Politics.ELECT_SHARE = 40              -- 다수파가 자리를 나눠 주기로 한 후보 (Regime.shareOf)
 Politics.ELECT_BLOC, Politics.ELECT_BOND, Politics.ELECT_BACK = 30, 10, 0.5    -- 신뢰 60 을 넘게 믿는 사람은 지지한 후보를 따른다
 Politics.RUN_YES, Politics.RUN_ASK, Politics.RUN_TIER = 70, 50, 4
 Politics.BACK_COST, Politics.BACK_LEAN = 5, 10
@@ -159,7 +160,7 @@ Politics.BILLS = {
 Politics.ORDER = { "workshop", "post", "armory", "exchange", "canteen", "truce", "purge", "apprentice",
                    "memorial", "winter", "vouch" }
 
-local MULT = { price = true, specWait = true, specCost = true, hordeSize = true, hordeShare = true, upkeep = true }
+local MULT = { price = true, specWait = true, specCost = true, hordeSize = true, hordeShare = true, upkeep = true, donate = true }
 local ADD = { gunTier = true, squad = true, hordeBonus = true, baseBonus = true }
 
 local function state()
@@ -381,11 +382,17 @@ function Politics.mod(key, fid, a)
         local m = Off.mod(key, fid, a)
         if m then v = v * m end
     end
-    -- 군정 (Regime.lua): 총 파벌이 아닌 사람들과의 거래는 몰래 하는 것이라 값이 오른다
+    -- 군정과 독주의 색 (Regime.lua)
     local Rg = StoryEngine.Regime
-    if Rg and Rg.mod and MULT[key] then
+    if Rg and Rg.mod then
         local m = Rg.mod(key, fid, a)
-        if m then v = v * m end
+        if m == true then
+            v = true
+        elseif m and MULT[key] then
+            v = v * m
+        elseif m and ADD[key] then
+            v = v + m
+        end
     end
     -- 국면 (9단계): 독주하는 파벌은 기세가 오르고 밀려난 파벌은 시든다. 견제 국면은 손이 많이 간다
     local phase = s.phase
@@ -1486,6 +1493,7 @@ function Politics.electionForecast(e)
                     + (Bonds and c ~= fid and Bonds.get(fid, c) * Politics.ELECT_BOND or 0)
                     + (c == fid and 100 or 0)
                     + (e.backed == b and trustOf(fid) * Politics.ELECT_BACK or 0)
+                    + ((e.share and e.share.bloc == b and has(e.share.blocs, Politics.blocOf(fid))) and Politics.ELECT_SHARE or 0)
                 if not top or score > top then pick, top = b, score end
             end
         end

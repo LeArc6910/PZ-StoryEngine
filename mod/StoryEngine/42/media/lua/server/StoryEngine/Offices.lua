@@ -124,7 +124,7 @@ local function candidates(now)
 end
 
 function Offices.forecast(vote)
-    return Politics.electionForecast({ cands = vote.cands, backed = vote.backed })
+    return Politics.electionForecast({ cands = vote.cands, backed = vote.backed, share = vote.share })
 end
 
 -- 선거를 연다. 반환: vote | nil
@@ -138,6 +138,12 @@ function Offices.open(id, now)
         return nil
     end
     o.vote = { office = id, t = now.t, voteT = now.t + Offices.VOTE_DAYS * 24 * 60, cands = cands }
+    -- 다수파가 두 파벌이면 자리가 적은 쪽 후보를 함께 민다 (Regime.shareOf)
+    local R = StoryEngine.Regime
+    if R and R.shareOf then
+        local bloc, blocs = R.shareOf()
+        if bloc and cands[bloc] then o.vote.share = { bloc = bloc, blocs = blocs } end
+    end
     local names = {}
     for _, b in ipairs(Politics.BLOCS) do
         if cands[b] then names[#names + 1] = nameOf(cands[b]) end
@@ -176,6 +182,9 @@ function Offices.decide(now)
     now = now or Sensor.now()
     local f = Offices.forecast(v)
     o.vote = nil
+    if v.share and StoryEngine.Regime and StoryEngine.Regime.onPost then
+        pcall(StoryEngine.Regime.onPost, v.share.bloc, f.winner, now)
+    end
     local fid = f.winner and v.cands[f.winner] or nil
     if not fid or Factions.isGone(fid) then
         o.nextT[v.office] = now.t + Offices.VACANT_DAYS * 24 * 60
@@ -288,7 +297,8 @@ function Offices.payload(key, now)
     if v then
         local f = Offices.forecast(v)
         out.vote = { office = v.office, hours = math.max(0, math.ceil((v.voteT - now.t) / 60)), cands = v.cands,
-                     votes = f.votes, winner = f.winner, backed = v.backed, backedBy = v.backedBy }
+                     votes = f.votes, winner = f.winner, backed = v.backed, backedBy = v.backedBy,
+                     share = v.share and v.share.bloc or nil }
     end
     return out
 end

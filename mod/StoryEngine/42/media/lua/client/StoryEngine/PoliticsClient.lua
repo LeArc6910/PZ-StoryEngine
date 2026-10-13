@@ -117,6 +117,10 @@ function Politics.textOf(d)
         if v then
             line(parts, getText("IGUI_StoryEngine_Office_Vote", getText("IGUI_StoryEngine_Office_" .. tostring(v.office)),
                 hoursText(v.hours)), "1,0.86,0.55")
+            if v.share then
+                line(parts, getText("IGUI_StoryEngine_Office_Share", getText("IGUI_StoryEngine_Politics_Bloc_" .. tostring(v.share))),
+                    "0.85,0.8,0.6")
+            end
             for _, b in ipairs({ "field", "gun", "market" }) do
                 local c = (v.cands or {})[b]
                 if c then
