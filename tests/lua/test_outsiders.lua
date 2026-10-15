@@ -517,7 +517,7 @@ function T.outsiders_ask_for_things_and_the_ai_is_told()
     H.eq(#self.dislike, 3)
     -- 준비된 대사
     local lt = StoryEngine.Lines.lt("okafor", "request", {})
-    H.eq(lt.key, "IGUI_StoryEngine_Line_okafor_request_1")
+    H.ok(string.find(tostring(lt.key), "IGUI_StoryEngine_Line_okafor_request_", 1, true) == 1)
     H.eq(StoryEngine.Lines.lt("okafor", "horde_thanks", {}), nil, "kinds they have no line for fall back")
     -- 끄면 아무도 오지 않는다
     SandboxVars.StoryEngine.Outsiders = false

@@ -383,7 +383,7 @@ function StoryEngineRadioPanel:send()
     text = string.gsub(text, "\n", " ")
     if text == "" then return end
     request("radioSay", { faction = Cache.faction, text = text, lang = UI.lang(),
-                          intent = Cache.faction == "open" and UI.intentOf(text) or nil })
+                          intent = UI.intentOf(text) })
     self.entry:setText("")
 end
 

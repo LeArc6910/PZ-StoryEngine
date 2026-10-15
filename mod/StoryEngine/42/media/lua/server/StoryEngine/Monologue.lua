@@ -169,7 +169,8 @@ function Monologue.sayPrepared(player, ps, trig, lt)
 end
 
 function Monologue.fallbackText(trig, info)
-    local key = "IGUI_StoryEngine_Mono_" .. trig .. "_" .. StoryEngine.intToString(ZombRand(Monologue.FALLBACK_COUNT) + 1)
+    local key = StoryEngine.Lines and StoryEngine.Lines.monoKey(trig)
+        or ("IGUI_StoryEngine_Mono_" .. trig .. "_" .. StoryEngine.intToString(ZombRand(Monologue.FALLBACK_COUNT) + 1))
     local args = {}
     if trig == "kills" then
         args = { { t = "num", v = info and info.kills or 0 } }

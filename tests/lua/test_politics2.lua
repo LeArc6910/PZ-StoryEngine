@@ -393,7 +393,7 @@ function T.outsiders_appear_among_the_people()
     H.ok(row and row.outsider)
     H.eq(row.trust, Out.START_TRUST)
     for _, kind in ipairs({ "reward_trade", "trade_failed", "reward_waived", "favor_call" }) do
-        H.eq(StoryEngine.Lines.lt("okafor", kind, {}).key, "IGUI_StoryEngine_Line_okafor_" .. kind .. "_1")
+        H.ok(string.find(StoryEngine.Lines.lt("okafor", kind, {}).key, "IGUI_StoryEngine_Line_okafor_" .. kind .. "_", 1, true) == 1)
     end
 end
 
@@ -421,7 +421,7 @@ function T.rivals_set_conditions_that_cannot_both_be_met()
     setTrust("rats", 70)
     H.eq(Pol.electionForecast(e).player.got, 8, "only trust wins him now")
     -- AI 가 없을 때의 표결 화제
-    H.eq(StoryEngine.Lines.lt("guard", "topic_politics", {}).key, "IGUI_StoryEngine_Line_guard_topic_politics_1")
+    H.ok(string.find(StoryEngine.Lines.lt("guard", "topic_politics", {}).key, "IGUI_StoryEngine_Line_guard_topic_politics_", 1, true) == 1)
     H.ok(StoryEngine.Social.OFFLINE_TOPICS.politics)
 end
 

@@ -32,6 +32,7 @@ local Radio = {
     hourly = {},      -- playerKey -> { ms, ... }
     queue = {},       -- factionId -> { opts, ... } 채널이 바쁠 때 기다리는 반응·부탁
     speaker = {},     -- factionId -> 마지막으로 말한 플레이어의 PlayerState (거래 한도 계산용)
+    intent = {},      -- factionId -> 마지막 플레이어 말의 종류 (AI 없을 때 맞는 답, Lines.INTENTS)
 }
 StoryEngine.Radio = Radio
 
@@ -442,7 +443,12 @@ function Radio.request(fid, lang, opts)
         elseif Radio.OFFLINE_ERRORS[tostring(res.error)] then
             -- AI 가 없으면(브릿지 꺼짐) 그 NPC 의 말투로 짧게 답하고, 버튼으로 할 수 있는 일을 가끔 알려 준다
             log("radio reply offline:", fid, tostring(res.error))
-            local lt = StoryEngine.Lines.lt(fid, "offline_reply")
+            -- 말의 종류(인사·도움·거래·소식·감사)를 알면 그에 맞는 답 (2026-10-15)
+            local Lines = StoryEngine.Lines
+            local intent = Radio.intent[fid]
+            local lt = intent and Lines.INTENT_KINDS[intent] and Lines.speaks(fid, "reply_" .. intent)
+                and Lines.lt(fid, "reply_" .. intent, { { t = "s", v = tostring(speaker and speaker.name or "") } })
+                or Lines.lt(fid, "offline_reply")
             push(fid, { from = "npc", text = "(short reply, no AI)", lt = lt, quiet = true, clock = t.clock,
                         day = Store.dayIndex(t.dayKey) }, speaker)
             if not ch.offlineHintT or t.t - ch.offlineHintT >= Radio.OFFLINE_HINT_MIN then
@@ -548,6 +554,7 @@ function Radio.say(player, fid, text, intent)
     local day = Store.dayIndex(now.dayKey)
     push(fid, { from = "player", name = ps.name, text = text, clock = now.clock, day = day })
     Radio.speaker[fid] = ps
+    Radio.intent[fid] = intent
     if StoryEngine.Legacy then StoryEngine.Legacy.talked(fid, ps.name) end
     -- 일지에는 실제 발언과 답장을 넘긴다 (Radio.logLine)
     Radio.logLine(ps, fid, "player", text, now.clock, day)

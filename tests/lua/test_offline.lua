@@ -79,7 +79,7 @@ function T.story_contact_offline_tells_the_beat()
     local chat = Social.contactFallback({ fid = "casey", reason = "timely", line = "chat_morning" })
     H.ok(startsWith(chat.lt.key, "IGUI_StoryEngine_Line_casey_chat_morning_"))
     local news = Social.contactFallback({ fid = "doc", reason = "news" })
-    H.ok(startsWith(news.lt.key, "IGUI_StoryEngine_Line_doc_chat_checkin_"), "news falls back to a check-in")
+    H.ok(startsWith(news.lt.key, "IGUI_StoryEngine_Line_doc_chat_news_"), "news has its own lines (2026-10-15)")
 end
 
 function T.story_request_offline_says_the_situation_first()
@@ -141,12 +141,14 @@ function T.diary_template_has_several_sentences()
     H.ok(string.find(all, "Diary_open_combat_day_", 1, true), all)
     H.ok(string.find(all, "Diary_kills_many", 1, true))
     H.ok(string.find(all, "Diary_hurt", 1, true))
-    H.eq(keys[4], "IGUI_StoryEngine_Diary_act_read", "most done activity first")
+    H.ok(string.find(keys[4], "IGUI_StoryEngine_Diary_act_read", 1, true) == 1, "most done activity first")
     H.ok(string.find(all, "Diary_note_delivered", 1, true) and string.find(all, "Diary_note_death_of", 1, true))
     local delivered = 0
-    for _, k in ipairs(keys) do if k == "IGUI_StoryEngine_Diary_note_delivered" then delivered = delivered + 1 end end
+    for _, k in ipairs(keys) do
+        if string.find(k, "IGUI_StoryEngine_Diary_note_delivered", 1, true) == 1 then delivered = delivered + 1 end
+    end
     H.eq(delivered, 1, "same sentence once")
-    H.eq(keys[#keys], "IGUI_StoryEngine_Diary_mood_PANIC")
+    H.ok(string.find(keys[#keys], "IGUI_StoryEngine_Diary_mood_PANIC", 1, true) == 1, keys[#keys])
 end
 
 function T.memoir_template()

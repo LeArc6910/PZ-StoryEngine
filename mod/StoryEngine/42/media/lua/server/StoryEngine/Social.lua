@@ -970,7 +970,7 @@ function Social.pickContact(now)
                 local onode = Stories.node(other, ost.node)
                 add(fid, 2, "gossip", "Talk about " .. nameOf(other) .. " (" .. rel[other] .. ")."
                     .. (onode and (' What you have heard of their situation lately, in their own words ("you" means them): '
-                        .. onode.beat) or ""))
+                        .. onode.beat) or ""), other)
             end
             add(fid, 1, "checkin", "You are just calling to talk: your day, the weather, how they are holding up.")
         end
@@ -985,8 +985,41 @@ function Social.pickContact(now)
 end
 
 -- AI 없이 쓰는 먼저 거는 말 (Lines.lua): 이야기는 그 장면을 직접 말하고, 나머지는 이유별 잡담.
--- 소문·다른 NPC 이야기는 내용을 번역할 수 없어서 안부로 대신한다
-Social.CONTACT_LINES = { miss = "chat_miss", checkin = "chat_checkin", news = "chat_checkin", gossip = "chat_checkin" }
+-- 소문은 내용을 번역할 수 없어서 "요즘 도는 얘기" 정도로(chat_news), 다른 NPC 이야기는 그 사람과의 사이로(chat_other_*),
+-- 그냥 안부는 그 NPC 의 실제 형편(모자란 것·최근 도움·프로젝트)을 먼저 본다 (2026-10-15)
+Social.CONTACT_LINES = { miss = "chat_miss", checkin = "chat_checkin", news = "chat_news", gossip = "chat_checkin" }
+Social.RECENT_HELP_MIN = 3 * 24 * 60
+
+-- 그냥 안부 대신 꺼낼 사실: 종류, 인자 (없으면 nil)
+function Social.checkinFact(fid, now)
+    local Lines = StoryEngine.Lines
+    local Life = StoryEngine.Life
+    local ch = Radio.channel(fid)
+    local h = ch.lastHelp
+    if type(h) == "table" and not h.said and now and now.t - (h.t or 0) < Social.RECENT_HELP_MIN
+        and Lines.speaks(fid, "chat_recent") and ZombRand(100) < 60 then
+        h.said = true
+        return "chat_recent", { { t = "s", v = tostring(h.name or "?") } }
+    end
+    if Life then
+        local res = Life.npc(fid).res or {}
+        local low, lowV = nil, 30
+        for _, r in ipairs({ "food", "medical", "safety", "morale" }) do
+            local v = tonumber(res[r])
+            if v and v < lowV then low, lowV = r, v end
+        end
+        if low and Lines.speaks(fid, "chat_short_" .. low) and ZombRand(100) < 60 then
+            return "chat_short_" .. low, nil
+        end
+    end
+    local P = StoryEngine.Projects
+    local info = P and P.info and P.info(fid)
+    if info and not info.done and (info.points or 0) > 0 and Lines.speaks(fid, "chat_project") and ZombRand(100) < 30 then
+        local key = (info.phase == 2 and "IGUI_StoryEngine_Project2_Name_" or "IGUI_StoryEngine_Project_Name_") .. fid
+        return "chat_project", { { t = "key", v = key } }
+    end
+    return nil
+end
 
 function Social.contactFallback(c)
     local Lines = StoryEngine.Lines
@@ -996,7 +1029,19 @@ function Social.contactFallback(c)
         if node and node.say then return { text = node.say } end
         return { text = c.topic, lt = Lines.story(c.line) }
     end
+    if c.reason == "gossip" and c.extra and Factions.byId[c.extra] then
+        local b = StoryEngine.Bonds and StoryEngine.Bonds.get(c.fid, c.extra) or 0
+        local kind = "chat_other_" .. ((b >= 1 and "warm") or (b <= -1 and "cold") or "plain")
+        if Lines.speaks(c.fid, kind) then
+            return Lines.fallback(c.fid, kind, "Talking about " .. nameOf(c.extra) .. ".", { { t = "npc", v = c.extra } })
+        end
+    end
+    if c.reason == "checkin" then
+        local kind, args = Social.checkinFact(c.fid, Sensor.now())
+        if kind then return Lines.fallback(c.fid, kind, "Just checking in.", args) end
+    end
     local kind = (c.reason == "timely" and c.line) or Social.CONTACT_LINES[c.reason] or "chat_checkin"
+    if not Lines.speaks(c.fid, kind) then kind = "chat_checkin" end
     return Lines.fallback(c.fid, kind, "Just checking in.")
 end
 
@@ -1465,6 +1510,7 @@ function Social.tick()
 end
 
 function Social.hourly()
+    Social.hookHelp()
     if not Social.enabled() then return end
     local now = Sensor.now()
     for _, f in ipairs(Factions.list) do
@@ -1530,5 +1576,60 @@ if Sensor.listeners and Sensor.listeners.dayEnd then
         if not ok then log("social day end error:", err) end
     end
 end
+
+-- ---------------------------------------------------------------- prepared-line context (Lines.lua)
+-- 준비된 대사의 꼬리표가 볼 지금 형편, 다 쓰기 전엔 반복하지 않는 기억(세이브)
+local function linesContext(fid)
+    local ctx = { season = Social.season() }
+    local okH, hour = pcall(function() return getGameTime():getHour() end)
+    hour = okH and tonumber(hour) or 12
+    ctx.time = (hour >= 5 and hour < 11 and "morning") or (hour >= 11 and hour < 17 and "day")
+        or (hour >= 17 and hour < 21 and "evening") or "night"
+    local okW, cm = pcall(getClimateManager)
+    if okW and cm then
+        local snow = pcall(function() return cm:isSnowing() end) and cm:isSnowing()
+        local rain = pcall(function() return cm:isRaining() end) and cm:isRaining()
+        local fog = pcall(function() return cm:getFogIntensity() end) and (cm:getFogIntensity() or 0) > 0.3
+        ctx.weather = (snow and "snow") or (rain and "rain") or (fog and "fog") or "clear"
+    end
+    if fid and Factions.byId[fid] then
+        local t = tonumber(Radio.channel(fid).trust) or 0
+        ctx.trust = (t < 30 and "cold") or (t < 70 and "mid") or "warm"
+    end
+    local days = Store.serverDays and Store.serverDays() or 0
+    ctx.stage = (days <= 30 and "early") or (days >= 91 and "late") or "middle"
+    local W = StoryEngine.World
+    if W then
+        ctx.nopower = W.powerOff and W.powerOff() == true
+        ctx.nowater = W.waterOff and W.waterOff() == true
+    end
+    ctx.council = StoryEngine.Era and StoryEngine.Era.active and StoryEngine.Era.active() == true or false
+    return ctx
+end
+
+if StoryEngine.Lines then
+    StoryEngine.Lines.contextFn = linesContext
+    StoryEngine.Lines.memoryFn = function()
+        local d = Store.data()
+        d.lineBag = d.lineBag or {}
+        return d.lineBag
+    end
+end
+
+-- NPC 가 청한 일을 끝낸 사람을 기억한다 (먼저 거는 안부 chat_recent)
+local HELP_KINDS = { deliver = true, horde = true, fetch = true, named = true }
+local helpHooked = false
+function Social.hookHelp()
+    local Q = StoryEngine.Quests
+    if helpHooked or not Q or not Q.hooks then return end
+    helpHooked = true
+    Q.hooks[#Q.hooks + 1] = function(q, st)
+        if st ~= "completed" or not HELP_KINDS[q.kind] then return end
+        local fid = q.origin and q.origin.faction
+        if not fid or not Factions.byId[fid] or not q.targetName then return end
+        Radio.channel(fid).lastHelp = { t = Sensor.now().t, name = q.targetName }
+    end
+end
+Social.hookHelp()
 
 return Social

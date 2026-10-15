@@ -156,6 +156,24 @@ def line_key_errors() -> list[str]:
     keys += ["IGUI_StoryEngine_Diary_" + k for k in ("kills_many", "kills_some", "kills_few", "kills_none", "hurt",
                                                        "end_1", "end_2", "end_3")]
     keys += ["IGUI_StoryEngine_Memoir_" + k for k in ("kills", "friend", "voice", "place", "end_1", "end_2")]
+    # 준비된 대사 수 (shared/StoryEngine/LinesData.lua, 2026-10-15): 거기 적힌 번호가 모두 번역 파일에 있어야 한다
+    data_path = LUA_ROOT / "shared" / "StoryEngine" / "LinesData.lua"
+    if data_path.exists():
+        data = data_path.read_text(encoding="utf-8")
+        body = re.search(r"^D.COUNT = \{(.*?)^\}", data, re.S | re.M)
+        for sp, inner in re.findall(r"^    (\w+) = \{ (.*?) \},?$", body.group(1) if body else "", re.M):
+            for kind, n in re.findall(r"(\w+) = (\d+)", inner):
+                keys += [f"IGUI_StoryEngine_Line_{sp}_{kind}_{i}" for i in range(1, int(n) + 1)]
+        m = re.search(r"^D.MONO = \{(.*?)\}", data, re.M)
+        for trig, n in re.findall(r"(\w+) = (\d+)", m.group(1) if m else ""):
+            keys += [f"IGUI_StoryEngine_Mono_{trig}_{i}" for i in range(1, int(n) + 1)]
+        m = re.search(r"^D.BANTER = \{(.*?)\}", data, re.M)
+        for g, n in re.findall(r"(\w+) = (\d+)", m.group(1) if m else ""):
+            for i in range(1, int(n) + 1):
+                keys += [f"IGUI_StoryEngine_Banter_{g}_{i}_a", f"IGUI_StoryEngine_Banter_{g}_{i}_b"]
+        for base, n, from1 in re.findall(r"^    (\w+) = \{ (\d+), (true|false) \},$", data, re.M):
+            for i in range(1, int(n) + 1):
+                keys.append(f"IGUI_StoryEngine_{base}" + ("" if (i == 1 and from1 == "false") else f"_{i}"))
     for lang, d in tr.items():
         missing = [k for k in keys if k not in d]
         if missing:

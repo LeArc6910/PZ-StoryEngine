@@ -8,6 +8,7 @@
 -- 번역 키가 빠졌는지는 tests/run_lua_tests.py 가 KO/EN 모두 검사한다.
 
 require "StoryEngine/Core"
+require "StoryEngine/LinesData"
 
 local Lines = {}
 StoryEngine.Lines = Lines
@@ -114,15 +115,132 @@ Lines.BANTER_GROUP = {
 }
 -- 혼잣말 계기(Monologue.TRIGGERS)면 말을 꺼내는 쪽은 그 혼잣말 대체 문장 (Monologue.fallbackText)
 
-local function roll(n)
+local function data() return StoryEngine.LinesData or {} end
+
+-- ---------------------------------------------------------------- 고르는 방식 (2026-10-15)
+-- 1. 다 쓰기 전엔 반복하지 않는다: 말한 사람·종류마다 쓴 문장을 기억해 두고(Lines.memoryFn, 서버는 세이브),
+--    남은 것 중에서만 고른다. 다 쓰면 새로 한 바퀴 (방금 한 말은 빼고).
+-- 2. 조건 꼬리표: LinesData.TAGS 의 "winter,warm" 같은 꼬리표가 붙은 문장은 그 조건일 때만 나오고, 맞으면 더 자주 나온다.
+--    꼬리표 묶음(계절·시간·날씨·신뢰·단계)마다 하나라도 맞아야 한다. 꼬리표 없는 문장은 늘 나온다.
+Lines.TAG_GROUP = {
+    spring = "season", summer = "season", fall = "season", winter = "season",
+    morning = "time", day = "time", evening = "time", night = "time",
+    rain = "weather", snow = "weather", fog = "weather", clear = "weather",
+    cold = "trust", mid = "trust", warm = "trust", early = "stage", late = "stage",
+    nopower = "nopower", nowater = "nowater", council = "council",
+}
+Lines.TAG_WEIGHT = 3
+-- 서버가 채운다: contextFn(fid) -> { season, time, weather, trust, stage, nopower, nowater, council }, memoryFn() -> 세이브 표
+Lines.contextFn = nil
+Lines.memoryFn = nil
+local session = {}
+
+local function memory()
+    if Lines.memoryFn then
+        local ok, m = pcall(Lines.memoryFn)
+        if ok and type(m) == "table" then return m end
+    end
+    return session
+end
+
+function Lines.context(fid)
+    if not Lines.contextFn then return nil end
+    local ok, ctx = pcall(Lines.contextFn, fid)
+    return ok and type(ctx) == "table" and ctx or nil
+end
+
+-- 꼬리표가 지금 맞나: 맞음, 꼬리표가 있었나
+function Lines.fits(tags, ctx)
+    if not tags or tags == "" then return true, false end
+    local need = {}
+    for t in string.gmatch(tags, "[^,%s]+") do
+        local g = Lines.TAG_GROUP[t]
+        if g then
+            if need[g] == nil then need[g] = false end
+            local v = ctx and ctx[g]
+            if v == t or v == true then need[g] = true end
+        end
+    end
+    for _, ok in pairs(need) do
+        if not ok then return false, true end
+    end
+    return true, true
+end
+
+-- 1..n 중 하나. bagKey 마다 쓴 번호를 기억한다. tagsOf[i] = 꼬리표 문자열
+function Lines.pick(bagKey, n, tagsOf, ctx)
+    n = math.floor(tonumber(n) or 1)
     if n <= 1 then return 1 end
-    return ZombRand(n) + 1
+    local mem = memory()
+    local bag = mem[bagKey]
+    if type(bag) ~= "table" then
+        bag = { u = {} }
+        mem[bagKey] = bag
+    end
+    if type(bag.u) ~= "table" then bag.u = {} end
+    local function choose(fresh, useTags)
+        local total, list = 0, {}
+        for i = 1, n do
+            if (not fresh or not bag.u[i]) and i ~= bag.l then
+                local ok, tagged = true, false
+                if useTags then ok, tagged = Lines.fits(tagsOf and tagsOf[i], ctx) end
+                if ok then
+                    local w = tagged and Lines.TAG_WEIGHT or 1
+                    list[#list + 1] = { i, w }
+                    total = total + w
+                end
+            end
+        end
+        if total <= 0 then return nil end
+        local r = ZombRand(math.floor(total * 100)) / 100
+        for _, e in ipairs(list) do
+            r = r - e[2]
+            if r < 0 then return e[1] end
+        end
+        return list[#list][1]
+    end
+    local i = choose(true, true)
+    if not i then
+        bag.u = {}
+        i = choose(true, true) or choose(true, false) or choose(false, false) or 1
+    end
+    bag.u[i] = true
+    bag.l = i
+    return i
 end
 
 function Lines.has(fid, kind)
+    local c = data().COUNT and data().COUNT[fid]
+    if c and (c[kind] or 0) > 0 then return true end
     if not Lines.COUNT[kind] then return false end
     local only = Lines.ONLY[kind]
     return not only or only[fid] == true
+end
+
+-- 이 말한 사람(NPC·후임·밖에서 온 사람)의 이 종류 문장 수
+local function countOf(speaker, kind, fallback)
+    local c = data().COUNT and data().COUNT[speaker]
+    if c and (c[kind] or 0) > 0 then return c[kind] end
+    return fallback
+end
+
+-- 번호를 골라 키를 만든다. fid 는 신뢰도 꼬리표를 볼 채널
+local function lineKey(speaker, kind, n, fid)
+    local tags = data().TAGS and data().TAGS[speaker] and data().TAGS[speaker][kind] or nil
+    local i = Lines.pick(speaker .. ":" .. kind, n, tags, Lines.context(fid or speaker))
+    return "IGUI_StoryEngine_Line_" .. tostring(speaker) .. "_" .. kind .. "_" .. StoryEngine.intToString(i)
+end
+
+-- 지금 이 채널에서 이 종류를 그 사람 말투로 말할 수 있나 (공통 문장 alt 는 빼고)
+function Lines.speaks(fid, kind)
+    local F = StoryEngine.Factions
+    if F and F.isOutsider and F.isOutsider(fid) then
+        return countOf(fid, kind, Lines.OUTSIDER_COUNT[kind]) ~= nil
+    end
+    local voice = F and F.voice and F.voice[fid]
+    local vonly = Lines.VOICE_ONLY[kind]
+    if voice and countOf(voice, kind, Lines.VOICE_COUNT[kind]) and (not vonly or vonly[voice]) then return true end
+    return Lines.has(fid, kind)
 end
 
 -- NPC 대사 lt. 이 NPC 에게 없는 종류면 공통 문장(alt), 그것도 없으면 nil
@@ -165,23 +283,37 @@ function Lines.lt(fid, kind, args)
     local alt = Lines.ALT[kind]
     local F = StoryEngine.Factions
     if F and F.isOutsider and F.isOutsider(fid) then
-        if Lines.OUTSIDER_COUNT[kind] then
-            return { key = "IGUI_StoryEngine_Line_" .. tostring(fid) .. "_" .. kind .. "_1", alt = alt, args = args }
-        end
+        local n = countOf(fid, kind, Lines.OUTSIDER_COUNT[kind])
+        if n then return { key = lineKey(fid, kind, n, fid), alt = alt, args = args } end
         return alt and { key = alt, args = args } or nil
     end
-    local voice = StoryEngine.Factions and StoryEngine.Factions.voice and StoryEngine.Factions.voice[fid]
+    local voice = F and F.voice and F.voice[fid]
     local vonly = Lines.VOICE_ONLY[kind]
-    if voice and Lines.VOICE_COUNT[kind] and (not vonly or vonly[voice]) then
-        local key = "IGUI_StoryEngine_Line_" .. tostring(voice) .. "_" .. kind .. "_"
-            .. StoryEngine.intToString(roll(Lines.VOICE_COUNT[kind]))
-        return { key = key, alt = alt, args = args }
+    local vn = voice and countOf(voice, kind, Lines.VOICE_COUNT[kind])
+    if vn and (not vonly or vonly[voice]) then
+        return { key = lineKey(voice, kind, vn, fid), alt = alt, args = args }
     end
     if not Lines.has(fid, kind) then
         return alt and { key = alt, args = args } or nil
     end
-    local key = "IGUI_StoryEngine_Line_" .. tostring(fid) .. "_" .. kind .. "_" .. StoryEngine.intToString(roll(Lines.COUNT[kind]))
-    return { key = key, alt = alt, args = args }
+    return { key = lineKey(fid, kind, countOf(fid, kind, Lines.COUNT[kind]), fid), alt = alt, args = args }
+end
+
+-- 혼잣말 대체 문장 키 (Monologue.fallbackText)
+function Lines.monoKey(trig)
+    local n = (data().MONO or {})[trig] or 3
+    return "IGUI_StoryEngine_Mono_" .. tostring(trig) .. "_" .. StoryEngine.intToString(Lines.pick("mono:" .. tostring(trig), n))
+end
+
+-- 일기·회고록 문장 키. base = "Diary_kills_many" 처럼. 예전 키가 번호 없이 하나뿐이면 1번은 그 키,
+-- 2번부터 _2, _3 ... (from1 이면 처음부터 _1). n0·from1 은 LinesData 가 없을 때의 값
+function Lines.variant(base, n0, from1)
+    local v = (data().VARIANTS or {})[base]
+    local n = v and v[1] or n0 or 1
+    if v then from1 = v[2] == true end
+    local i = Lines.pick("var:" .. base, n)
+    if i == 1 and not from1 then return "IGUI_StoryEngine_" .. base end
+    return "IGUI_StoryEngine_" .. base .. "_" .. StoryEngine.intToString(i)
 end
 
 -- Radio.react 의 fallback 형태: { text = AI 기록용 영어, lt }
@@ -199,7 +331,7 @@ end
 -- 동료 대화 한 쌍: a, b (lt). 혼잣말 계기면 부르는 쪽이 a 를 혼잣말 문장으로 바꾼다
 function Lines.banter(event)
     local group = Lines.BANTER_GROUP[event] or "chat"
-    local n = roll(Lines.BANTER[group] or 1)
+    local n = Lines.pick("banter:" .. group, (data().BANTER or {})[group] or Lines.BANTER[group] or 1)
     local base = "IGUI_StoryEngine_Banter_" .. group .. "_" .. StoryEngine.intToString(n)
     return { key = base .. "_a" }, { key = base .. "_b" }
 end
