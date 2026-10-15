@@ -64,6 +64,8 @@
     "Sandbox_StoryEngine_QuestTimeMult_tooltip": "Multiplies quest deadlines (48 h + 10 h per 100 tiles for supply, fetch and horde quests; 48 + 24×tier h for delivering requested items).\n2 = twice the time, 0.5 = half (0.25-10). Answer windows (12 h for requests and trades) and extortion deadlines stay the same.\n\n[Difficulty] Used only when Difficulty is 'Custom'. Relaxed 1.5 / Normal 1 / Harsh 0.75.",
     "Sandbox_StoryEngine_RewardMult": "Reward amount multiplier",
     "Sandbox_StoryEngine_RewardMult_tooltip": "Multiplies the size of quest reward drops (0.1-10): the budget (value) of the food, medical, tool, melee, gun and ammo bundles and of each contact's specialty bundle. Guns come with more ammo; tiers stay the same.\n\n[Difficulty] Used only when Difficulty is 'Custom'. Relaxed 1.3 / Normal 1 / Harsh 0.75.",
+    "Sandbox_StoryEngine_RewardLockDays": "Days before reward and trade goods can be traded",
+    "Sandbox_StoryEngine_RewardLockDays_tooltip": "Goods you get as a quest reward or in a trade cannot be used as trade payment until this many in-game days after they were placed (default 7). It stops buying cheap and selling straight back.\n\n0 means at once. Donating, project support and handing things in for a request are not affected: they work as soon as the quest is over. Items of a quest still in progress can never be paid with.",
     "Sandbox_StoryEngine_StageMidDay": "Mid game starts (server day)",
     "Sandbox_StoryEngine_StageMidDay_tooltip": "From this server day the game enters mid game: quest/event max tier 2 → 4, trust penalties go from half to full, chasing hordes and raids grow.",
     "Sandbox_StoryEngine_StageLateDay": "Late game starts (server day)",

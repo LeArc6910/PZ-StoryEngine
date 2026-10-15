@@ -1,5 +1,5 @@
 -- 퀘스트 표시(modData.storyQuest) 이어 붙이기 (2026-10-03 점검).
--- 거래로 받은 물건은 표시가 남아 다시 거래 대가로 낼 수 없다 (싸게 사서 되파는 반복 방지, Value.payable).
+-- 거래로 받은 물건은 표시가 남아 한동안 거래 대가로 낼 수 없다 (싸게 사서 되파는 반복 방지, Value.questLock: 놓인 지 7일).
 -- 상자를 풀거나(탄약 상자 -> 낱발) 다시 담으면 새 아이템이 생겨 표시가 사라지므로, 손 제작(ISHandcraftAction)이
 -- 결과물을 만들 때 소모된 재료에 표시가 있었으면 같은 표시를 결과물에도 붙인다.
 -- performRecipe 는 싱글과 멀티 서버에서만 불린다 (멀티 클라이언트는 서버 결과를 받는다).
@@ -9,23 +9,23 @@ require "StoryEngine/Core"
 local QuestTags = {}
 StoryEngine.QuestTags = QuestTags
 
--- 소모된 재료 중 처음 보이는 퀘스트 표시
+-- 소모된 재료 중 처음 보이는 퀘스트 표시와 그 물건이 놓인 시각 (거래 제한의 기준, Value.questLock)
 function QuestTags.fromConsumed(recipeData)
-    local tag = nil
+    local tag, t = nil, nil
     pcall(function()
         local used = recipeData:getAllConsumedItems()
         for i = 0, used:size() - 1 do
             local mod = used:get(i):getModData()
             if mod and mod.storyQuest then
-                tag = mod.storyQuest
+                tag, t = mod.storyQuest, mod.storyQuestT
                 break
             end
         end
     end)
-    return tag
+    return tag, t
 end
 
-function QuestTags.apply(character, items, tag)
+function QuestTags.apply(character, items, tag, t)
     if not tag or not items then return 0 end
     local n = 0
     for i = 0, items:size() - 1 do
@@ -33,6 +33,7 @@ function QuestTags.apply(character, items, tag)
         local mod = item and item:getModData()
         if mod and not mod.storyQuest then
             mod.storyQuest = tag
+            mod.storyQuestT = t
             n = n + 1
             if syncItemModData and character then pcall(syncItemModData, character, item) end
         end
@@ -47,16 +48,16 @@ function QuestTags.install()
     ISHandcraftAction.__storyTags = true
     ISHandcraftAction.performRecipe = function(self, ...)
         -- 재료는 레시피가 끝나면 사라지므로 먼저 표시를 읽어 둔다
-        local tag = nil
+        local tag, stamp = nil, nil
         pcall(function()
-            if self.logic and self.logic:getRecipeData() then tag = QuestTags.fromConsumed(self.logic:getRecipeData()) end
+            if self.logic and self.logic:getRecipeData() then tag, stamp = QuestTags.fromConsumed(self.logic:getRecipeData()) end
         end)
         local result = original(self, ...)
         if tag then
             pcall(function()
                 local items = ArrayList.new()
                 self.logic:getCreatedOutputItems(items)
-                local n = QuestTags.apply(self.character, items, tag)
+                local n = QuestTags.apply(self.character, items, tag, stamp)
                 if n > 0 then StoryEngine.log("quest tag carried to", n, "crafted items", tag) end
             end)
         end

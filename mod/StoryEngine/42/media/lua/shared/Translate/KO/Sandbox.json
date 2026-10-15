@@ -64,6 +64,8 @@
     "Sandbox_StoryEngine_QuestTimeMult_tooltip": "보급·찾기·소탕 퀘스트의 기한(48시간 + 거리 100타일당 10시간)과 부탁 물건 전달 기한(48 + 등급×24시간)에 곱한다.\n2 = 두 배 여유, 0.5 = 절반 (0.25~10). 답할 시간(부탁·거래 12시간)과 협박 기한은 그대로.\n\n[난이도] '사용자 지정'일 때만 이 값을 쓴다. 편안함 1.5 / 보통 1 / 가혹 0.75.",
     "Sandbox_StoryEngine_RewardMult": "보상 양 배율",
     "Sandbox_StoryEngine_RewardMult_tooltip": "퀘스트 보상 보급의 양에 곱한다 (0.1~10). 음식·의약품·도구·근접 무기·총·탄약 묶음과 NPC 전문 묶음의 예산(가치)이 이만큼 늘거나 준다. 총은 탄약이 늘고, 등급은 그대로.\n\n[난이도] '사용자 지정'일 때만 이 값을 쓴다. 편안함 1.3 / 보통 1 / 가혹 0.75.",
+    "Sandbox_StoryEngine_RewardLockDays": "보상·거래 물건의 거래 제한 일수",
+    "Sandbox_StoryEngine_RewardLockDays_tooltip": "퀘스트 보상이나 거래로 받은 물건은 놓인 때부터 이만큼(게임 일수, 기본 7) 지나야 거래 대가로 낼 수 있다. 싸게 사서 바로 되파는 것을 막는다.\n\n0이면 바로 낼 수 있다. 물자 지원·프로젝트 지원·NPC 부탁 제출은 이 값과 상관없이 퀘스트가 끝나면 바로 된다. 진행 중인 퀘스트의 물건은 늘 낼 수 없다.",
     "Sandbox_StoryEngine_StageMidDay": "중반 시작 (서버 경과 일)",
     "Sandbox_StoryEngine_StageMidDay_tooltip": "서버(월드) 경과 일수가 이 날이 되면 '중반': 퀘스트·이벤트 최고 등급 2 → 4, 신뢰도 감점이 초반의 절반에서 기본 표로, 추적 호드·습격대 규모가 커진다.",
     "Sandbox_StoryEngine_StageLateDay": "후반 시작 (서버 경과 일)",

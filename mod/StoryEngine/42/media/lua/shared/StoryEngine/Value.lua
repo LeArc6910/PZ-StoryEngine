@@ -182,10 +182,51 @@ Value.isQuestActive = function(id)
 end
 
 -- 물자 지원·프로젝트에서 막는 퀘스트 물건: 진행 중인 퀘스트 것만 (끝난 퀘스트의 보상·거래 물건은 된다, 2026-10-03)
--- 거래 대가(Value.payable)는 끝난 퀘스트 물건도 계속 막는다 (싸게 사서 되파는 반복 방지)
+-- 즐겨찾기한 물건 (바닐라 인벤토리 우클릭 "즐겨찾기", 2026-10-15 사용자 요청): 거래 대가·부탁·지원·선물 목록에 안 나오고 자동으로 집지도 않는다
+function Value.isFavorite(item)
+    return item ~= nil and item.isFavorite ~= nil and item:isFavorite() == true
+end
+
 local function activeQuestItem(item)
     local mod = item:getModData()
     return mod ~= nil and mod.storyQuest ~= nil and Value.isQuestActive(mod.storyQuest) == true
+end
+
+-- 거래 제한 (2026-10-13): 퀘스트 보상·거래로 받은 물건은 놓인 때부터 QUEST_LOCK_DAYS(샌드박스 RewardLockDays, 기본 7일) 동안
+-- 거래 대가·밖에서 온 사람에게 주는 선물로 낼 수 없다 (싸게 사서 바로 되파는 것을 막는다). 그 뒤에는 풀린다.
+-- 물건에는 퀘스트 번호(modData.storyQuest)와 놓인 시각(modData.storyQuestT, 게임 분)이 함께 붙는다.
+-- 시각이 없는 예전 물건은 퀘스트가 끝났으면 바로 풀린 것으로 본다 (서버와 클라이언트가 같은 답을 내도록).
+Value.QUEST_LOCK_DAYS = 7
+
+function Value.nowMinutes()
+    return math.floor(getGameTime():getWorldAgeHours() * 60)
+end
+
+function Value.lockDays()
+    local T = StoryEngine.Tuning
+    local v = T and T.get and tonumber(T.get("RewardLockDays")) or nil
+    if v == nil then return Value.QUEST_LOCK_DAYS end
+    return math.max(0, v)
+end
+
+-- 아이템에 퀘스트 표시와 놓인 시각을 붙인다 (서버가 물건을 만들 때)
+function Value.stamp(item, tag)
+    if not item or not tag then return end
+    local mod = item:getModData()
+    mod.storyQuest = tag
+    mod.storyQuestT = Value.nowMinutes()
+end
+
+-- 이 물건의 거래 제한: nil(없음) | "active"(진행 중인 퀘스트의 물건) | 남은 분
+function Value.questLock(item)
+    local mod = item:getModData()
+    if not mod or mod.storyQuest == nil then return nil end
+    if Value.isQuestActive(mod.storyQuest) == true then return "active" end
+    local t = tonumber(mod.storyQuestT)
+    if not t then return nil end
+    local left = t + Value.lockDays() * 24 * 60 - Value.nowMinutes()
+    if left > 0 then return left end
+    return nil
 end
 
 -- 같은 물건은 한 번에 이만큼만 받는다 (물자 지원·프로젝트, 책 더미 방지, 2026-10-03)
@@ -329,8 +370,8 @@ end
 
 -- 대가로 낼 수 있는 아이템인가: 분류가 맞고, 퀘스트 아이템이 아니고, 입고 있는 옷이 아니고, 채집·벌목 재료가 아니다
 function Value.payable(player, item, category)
-    local mod = item:getModData()
-    if mod and mod.storyQuest then return false end
+    if Value.isFavorite(item) then return false end
+    if Value.questLock(item) then return false end
     if Value.isRaw(item:getFullType()) then return false end
     if Value.ratio(item) <= 0 then return false end
     if player and player:isEquippedClothing(item) then return false end
@@ -343,8 +384,8 @@ end
 
 -- 밖에서 온 사람에게 선물로 보낼 수 있는 물건 (Outsiders.gift): 거래 품목이면 무엇이든. 화폐는 안 된다
 function Value.giftable(player, item)
-    local mod = item:getModData()
-    if mod and mod.storyQuest then return false end
+    if Value.isFavorite(item) then return false end
+    if Value.questLock(item) then return false end
     local ft = item:getFullType()
     if ft == Value.SCRIP or Value.isRaw(ft) then return false end
     if Value.ratio(item) <= 0 then return false end
@@ -512,6 +553,7 @@ end
 -- 이 물건을 이 점수 부탁에 낼 수 있나: 진행 중인 퀘스트 물건·채집 재료·부서진 것·입은 옷·상한 음식·빈 술병이 아니고,
 -- 품목이 맞고 등급이 하한 이상
 function Value.pointPayable(player, item, kind, minTier)
+    if Value.isFavorite(item) then return false end
     if activeQuestItem(item) then return false end
     local ft = item:getFullType()
     if Value.isRaw(ft) then return false end
@@ -545,6 +587,7 @@ end
 
 -- 물자 지원으로 보낼 수 있는 아이템인가: 퀘스트 아이템·입은 옷·가방·상한 음식이 아니고 받는 자원이 있다
 function Value.donatable(player, item)
+    if Value.isFavorite(item) then return nil end
     if activeQuestItem(item) then return nil end
     if player and (player:isEquippedClothing(item) or player:isEquipped(item)) then return nil end
     if instanceof(item, "Food") and item:isRotten() then return nil end
@@ -561,11 +604,9 @@ function Value.donatable(player, item)
 end
 
 -- 아이템 툴팁용 요약 (클라이언트 ItemTooltip). 모드와 상관없는 물건이면 nil
---   { category, value, wanted = { fid... }, resource, resValue, vehicle = 듀이 프로젝트 점수, rotten, quest }
-function Value.summary(item)
+--   { category, value, wanted = { fid... }, resource, resValue, vehicle = 듀이 프로젝트 점수, rotten, quest, lock = 거래 제한 남은 일수 }
+local function summaryOf(item)
     local ft = item:getFullType()
-    local mod = item:getModData()
-    if mod and mod.storyQuest then return { quest = true } end
     local kind = Value.rawKind(ft)
     if kind and (Value.categoryOf(ft) ~= "misc" or Value.resourceOf(ft) or Value.vehicleValue(ft)) then
         return { raw = kind }
@@ -595,6 +636,14 @@ function Value.summary(item)
     if not any then return nil end
     if instanceof(item, "Food") and item:isRotten() then out.rotten = true end
     if ratio <= 0 then out.broken = true elseif ratio < 1 then out.worn = math.floor(ratio * 100 + 0.5) end
+    return out
+end
+
+function Value.summary(item)
+    local lock = Value.questLock(item)
+    if lock == "active" then return { quest = true } end
+    local out = summaryOf(item)
+    if out and lock and out.category then out.lock = math.max(1, math.ceil(lock / (24 * 60))) end
     return out
 end
 
@@ -643,6 +692,7 @@ end
 
 -- 보낼 수 없는 물건: 퀘스트 아이템·입거나 든 것·가방·상한 음식
 local function locked(player, item)
+    if Value.isFavorite(item) then return true end
     if activeQuestItem(item) then return true end
     if player and (player:isEquippedClothing(item) or player:isEquipped(item)) then return true end
     if instanceof(item, "Food") and item:isRotten() then return true end

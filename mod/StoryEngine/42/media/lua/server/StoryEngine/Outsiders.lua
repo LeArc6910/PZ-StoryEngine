@@ -895,8 +895,7 @@ function HANDLERS.jewels(player, ps, id, args, now)
     local cap = Outsiders.sided("odell") and Outsiders.JEWEL_CAP_SIDED or Outsiders.JEWEL_CAP
     local found = {}
     local list = player:getInventory():getAllEvalRecurse(function(item)
-        local mod = item:getModData()
-        if mod and mod.storyQuest then return false end
+        if StoryEngine.Value.questLock(item) then return false end
         if player:isEquippedClothing(item) then return false end
         return Outsiders.jewelValue(item:getFullType()) ~= nil
     end)

@@ -1288,4 +1288,27 @@ function T.council_tab_rule_colours_and_shared_posts()
     H.ok(PC.noticeText({ kind = "tithe", fid = "ray" }))
 end
 
+function T.item_tooltip_shows_the_trade_lock()
+    StoryEngine.Value.cache["Base.Hammer"] = { category = "tools", value = 8 }
+    StoryEngine.Cache.quests = { { id = "Q5", state = "accepted" } }
+    local item = H.newItem("Base.Hammer", { questTag = "Q5" })
+    item:getModData().storyQuestT = StoryEngine.Value.nowMinutes()
+    local lines = StoryEngine.ItemTooltip.lines(item)
+    H.eq(#lines, 1)
+    H.ok(string.find(lines[1][1], "IGUI_StoryEngine_Tip_Quest", 1, true), "still in a quest")
+    -- 퀘스트가 끝나면 거래 제한 줄과 보통 툴팁
+    StoryEngine.Cache.quests = { { id = "Q5", state = "completed" } }
+    lines = StoryEngine.ItemTooltip.lines(item)
+    H.ok(string.find(lines[1][1], "IGUI_StoryEngine_Tip_Lock|7", 1, true), lines[1][1])
+    H.ok(string.find(lines[2][1], "IGUI_StoryEngine_Tip_Trade|", 1, true), lines[2][1])
+    H.ok(not StoryEngine.Value.payable(nil, item, "tools"))
+    -- 가진 개수에는 끝난 퀘스트의 물건도 센다 (부탁에 낼 수 있다)
+    local p = H.addPlayer("tester", "Gerald", "Kar")
+    H.give(p, "Base.Hammer", { questTag = "Q5" })
+    H.give(p, "Base.Hammer", { questTag = "Q6" })
+    StoryEngine.Cache.quests = { { id = "Q5", state = "completed" }, { id = "Q6", state = "accepted" } }
+    H.eq(StoryEngine.UI.countHeld(p, "Base.Hammer"), 1)
+    StoryEngine.Cache.quests = nil
+end
+
 return T

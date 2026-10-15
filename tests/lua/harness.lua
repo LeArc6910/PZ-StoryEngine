@@ -261,6 +261,7 @@ function H.newItem(fullType, opts)
     function item:getDisplayName() return opts.name or self:getType() end
     function item:getModData() return self.mod end
     function item:isRotten() return self.opts.rotten == true end
+    function item:isFavorite() return self.opts.favorite == true end
     function item:getContainer() return self.container end
     return item
 end

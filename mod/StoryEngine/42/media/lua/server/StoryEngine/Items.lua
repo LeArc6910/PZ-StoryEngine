@@ -16,7 +16,11 @@ StoryEngine.Items = Items
 function Items.addTo(container, fullType, tag)
     local item = container:AddItem(fullType)
     if not item then return nil end
-    if tag then item:getModData().storyQuest = tag end
+    if tag then
+        local mod = item:getModData()
+        mod.storyQuest = tag
+        mod.storyQuestT = math.floor(getGameTime():getWorldAgeHours() * 60)     -- 거래 제한의 기준 (Value.questLock)
+    end
     sendAddItemToContainer(container, item)
     return item
 end

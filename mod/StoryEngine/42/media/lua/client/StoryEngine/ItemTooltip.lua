@@ -56,6 +56,9 @@ function ItemTooltip.lines(item)
         out[#out + 1] = { getText("IGUI_StoryEngine_Tip_Quest"), DIM }
         return out
     end
+    if s.lock then
+        out[#out + 1] = { getText("IGUI_StoryEngine_Tip_Lock", StoryEngine.intToString(s.lock)), DIM }
+    end
     if s.raw then
         out[#out + 1] = { getText(s.raw == "made" and "IGUI_StoryEngine_Tip_RawMade" or "IGUI_StoryEngine_Tip_Raw"), DIM }
         return out

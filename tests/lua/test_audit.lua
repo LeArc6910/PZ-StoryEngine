@@ -75,7 +75,43 @@ function T.finished_quest_items_can_be_donated_but_not_paid()
     local active = H.give(p, "Base.TestCan", { questTag = "Q91" })
     H.ok(V().donatable(p, done) ~= nil, "finished quest item can be donated")
     H.ok(V().donatable(p, active) == nil, "active quest item cannot")
-    H.ok(not V().payable(p, done, "food"), "but never as trade payment")
+    H.ok(not V().payable(p, active, "food"), "an item of a quest in progress never pays for a trade")
+    H.ok(V().payable(p, done, "food"), "an old item with no date on it is free once its quest is over")
+    -- 놓인 시각이 찍힌 물건은 7일 동안 거래 대가로 못 낸다
+    V().stamp(done, "Q90")
+    H.ok(not V().payable(p, done, "food"), "not as trade payment for a week")
+    H.ok(V().donatable(p, done) ~= nil, "donating still works")
+    H.eq(V().summary(done).lock, 7)
+    H.advanceDays(6)
+    H.ok(not V().payable(p, done, "food"))
+    H.eq(V().summary(done).lock, 1)
+    H.advanceDays(1)
+    H.ok(V().payable(p, done, "food"), "free after seven days")
+    H.eq(V().summary(done).lock, nil)
+    H.eq(V().questLock(done), nil)
+    -- 선물(밖에서 온 사람)도 같은 제한
+    V().stamp(done, "Q90")
+    H.ok(not V().giftable(p, done))
+    -- 샌드박스로 0일이면 바로
+    SandboxVars.StoryEngine.RewardLockDays = 0
+    H.ok(V().payable(p, done, "food"))
+    SandboxVars.StoryEngine.RewardLockDays = 3
+    H.eq(V().questLock(done), 3 * 1440)
+    SandboxVars.StoryEngine.RewardLockDays = nil
+    H.eq(V().questLock(done), V().QUEST_LOCK_DAYS * 1440)
+end
+
+function T.the_server_dates_what_it_hands_out()
+    local p = setup()
+    local t = StoryEngine.Sensor.now().t
+    -- 우편으로 바로 받은 보상에도 날짜가 붙는다
+    local item = StoryEngine.Items.addTo(p:getInventory(), "Base.TestCan", "post")
+    H.eq(item:getModData().storyQuest, "post")
+    H.eq(item:getModData().storyQuestT, t)
+    H.eq(V().questLock(item), V().QUEST_LOCK_DAYS * 1440, "nothing called post is ever in progress")
+    local plain = StoryEngine.Items.addTo(p:getInventory(), "Base.TestCan", nil)
+    H.eq(plain:getModData().storyQuest, nil)
+    H.eq(V().questLock(plain), nil)
 end
 
 function T.chat_trust_is_capped_per_day_and_npc_lines_do_not_move_it()
@@ -143,6 +179,7 @@ function T.quest_tag_follows_crafted_items()
     require "StoryEngine/QuestTags"
     local made = H.newItem("Base.Bullets9mm")
     local box = H.newItem("Base.Bullets9mmBox", { questTag = "Q77" })
+    box:getModData().storyQuestT = 4321
     ISHandcraftAction = { performRecipe = function(self) self.done = true end }
     ArrayList = { new = function()
         local l = H.list({})
@@ -157,6 +194,7 @@ function T.quest_tag_follows_crafted_items()
     ISHandcraftAction.performRecipe(action)
     H.ok(action.done, "original craft ran")
     H.eq(made:getModData().storyQuest, "Q77", "unpacked rounds keep the quest tag")
+    H.eq(made:getModData().storyQuestT, 4321, "and the date it was handed out")
 end
 
 return T

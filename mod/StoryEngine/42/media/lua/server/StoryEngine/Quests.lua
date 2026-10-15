@@ -592,6 +592,7 @@ local function spawnAt(q, sq, container)
             local item = target:AddWorldInventoryItem(fullType, ZombRandFloat(0.2, 0.8), ZombRandFloat(0.2, 0.8), 0)
             if item then
                 item:getModData().storyQuest = q.id
+                item:getModData().storyQuestT = now and now.t or math.floor(getGameTime():getWorldAgeHours() * 60)
                 if q.letterId and fullType == "StoryEngine.Letter" then item:getModData().storyLetter = q.letterId end
                 placed[#placed + 1] = fullType
             end
@@ -2038,7 +2039,7 @@ local function takeNeedSome(player, q, chosen)
                 local it = list:get(i)
                 local mod = it:getModData()
                 local tagged = mod and mod.storyQuest and all()[mod.storyQuest]
-                if not used[it] and not (tagged and Quests.isActive(tagged)) then
+                if not used[it] and not (tagged and Quests.isActive(tagged)) and not StoryEngine.Value.isFavorite(it) then
                     if player:isEquipped(it) then equipped[#equipped + 1] = it else free[#free + 1] = it end
                 end
             end

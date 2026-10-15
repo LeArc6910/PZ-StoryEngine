@@ -15,7 +15,7 @@ StoryEngine.Tuning = Tuning
 Tuning.DEFAULTS = {
     Difficulty = 1,
     TrustStart = 0, TrustGainMult = 1, TrustLossMult = 1, SuspiciousRequests = 3, Spillover = true,
-    RequestGapDays = 4, RequestServerGapDays = 2, QuestTimeMult = 1, RewardMult = 1,
+    RequestGapDays = 4, RequestServerGapDays = 2, QuestTimeMult = 1, RewardMult = 1, RewardLockDays = 7,
     StageMidDay = 31, StageLateDay = 91, Stage4Day = 181, Stage5Day = 271, PriceMult = 1, GiftChance = 35,
     RequestItemMode = 1, RequestPointsMult = 1.5, RequestMinTier = 3,
     -- 특기 대기 (2026-10-05): 범위 1 서버 전체 / 2 개인별 / 3 둘 다, 일수

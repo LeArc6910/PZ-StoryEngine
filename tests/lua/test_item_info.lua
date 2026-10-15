@@ -19,7 +19,15 @@ function T.summary_trade_donation_and_wants()
     H.eq(cig.category, nil, "not a trade good")
     H.eq(cig.resource, "morale", "comforts donation")
     H.eq(V.summary(H.newItem("Base.Rock")), nil, "nothing to show")
-    H.ok(V.summary(H.newItem("Base.Hammer", { questTag = "Q1" })).quest)
+    StoryEngine.Store.data().quests.Q1 = { id = "Q1", kind = "supply_drop", state = "offered" }
+    H.ok(V.summary(H.newItem("Base.Hammer", { questTag = "Q1" })).quest, "an item of a quest in progress")
+    StoryEngine.Store.data().quests.Q1.state = "completed"
+    local reward = H.newItem("Base.Hammer", { questTag = "Q1" })
+    H.eq(V.summary(reward).quest, nil)
+    H.eq(V.summary(reward).lock, nil, "no date, no lock")
+    V.stamp(reward, "Q1")
+    H.eq(V.summary(reward).lock, 7)
+    H.eq(V.summary(reward).category, "tools", "the rest of the tooltip is still there")
     -- 거래 규칙도 같은 표
     H.eq(StoryEngine.Trade.FACTIONS.rats.wants, V.WANTS.rats)
     H.eq(StoryEngine.Trade.FACTIONS.pike.priceMult, 0.8, "other trade rules kept")

@@ -295,4 +295,28 @@ function T.exact_counts_follow_the_request_multiplier()
     H.eq(Q.pointsNeed({ { "Base.NailsBox", 2 } })[1][2], 2, "no tier: as asked")
 end
 
+-- 즐겨찾기한 물건은 거래 대가·부탁·지원 목록에 안 나오고 자동으로 집지도 않는다 (2026-10-15)
+function T.favorite_items_are_never_handed_over()
+    local p, ps = setup()
+    SandboxVars.StoryEngine.RequestPointsMult = nil
+    local V = StoryEngine.Value
+    local fav = H.give(p, "Base.TinnedBeans", { favorite = true })
+    local plain = H.give(p, "Base.TinnedBeans")
+    H.ok(not V.payable(p, fav, "food"), "not as trade payment")
+    H.ok(V.payable(p, plain, "food"))
+    H.eq(#V.payableItems(p, "food"), 1)
+    H.ok(not V.pointPayable(p, fav, "food"))
+    H.eq(V.donatable(p, fav), nil, "not donated")
+    H.ok(not V.giftable(p, fav))
+    -- 정해진 물건을 청한 부탁도 즐겨찾기한 것은 꺼내지 않는다
+    SandboxVars.StoryEngine.RequestItemMode = 3
+    local q = ask(p, ps, { { "Base.TinnedBeans", 2 } })
+    local ok, _, partial = StoryEngine.Quests.submit(p, q.id)
+    H.ok(ok and partial, "only the plain can goes")
+    local left = 0
+    for _, it in ipairs(p.items) do if it == fav then left = left + 1 end end
+    H.eq(left, 1, "the favorite stays in the bag")
+    SandboxVars.StoryEngine.RequestItemMode = nil
+end
+
 return T

@@ -118,8 +118,12 @@ function UI.countHeld(player, fullType)
     local list = player:getInventory():getAllTypeRecurse(fullType)
     local n = 0
     for i = 0, list:size() - 1 do
-        local mod = list:get(i):getModData()
-        if not (mod and mod.storyQuest) then n = n + 1 end
+        -- 진행 중인 퀘스트의 물건과 즐겨찾기한 물건은 뺀다 (끝난 퀘스트의 보상은 부탁에 낼 수 있다, 서버 takeNeed 와 같게)
+        local it = list:get(i)
+        local mod = it:getModData()
+        local V = StoryEngine.Value
+        local busy = mod and mod.storyQuest and (not V or V.isQuestActive(mod.storyQuest) == true)
+        if not busy and not (V and V.isFavorite(it)) then n = n + 1 end
     end
     return n
 end

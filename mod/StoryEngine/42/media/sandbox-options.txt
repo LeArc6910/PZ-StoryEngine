@@ -194,6 +194,12 @@ option StoryEngine.RewardMult
 	page = StoryEngineBalance, translation = StoryEngine_RewardMult,
 }
 
+option StoryEngine.RewardLockDays
+{
+	type = integer, min = 0, max = 365, default = 7,
+	page = StoryEngineBalance, translation = StoryEngine_RewardLockDays,
+}
+
 option StoryEngine.StageMidDay
 {
 	type = integer, min = 2, max = 365, default = 31,

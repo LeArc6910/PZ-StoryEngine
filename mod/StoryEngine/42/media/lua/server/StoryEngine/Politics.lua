@@ -1176,7 +1176,7 @@ function Politics.post(player, ps, items, origin)
     local inv = player:getInventory()
     local given = 0
     for _, ft in ipairs(kept) do
-        local ok, item = pcall(Items.addTo, inv, ft)
+        local ok, item = pcall(Items.addTo, inv, ft, "post")
         if ok and item then given = given + 1 end
     end
     if given == 0 then return false end
@@ -1206,7 +1206,8 @@ function Politics.workshop(player, itemId)
     local Value = StoryEngine.Value
     local cat = Value and Value.categoryOf(ft) or nil
     if not Politics.WORKSHOP_CATS[cat or ""] then return false, "kind" end
-    if item:getModData().storyQuest and Value and Value.isQuestActive and Value.isQuestActive(item) then return false, "quest" end
+    local tag = item:getModData().storyQuest
+    if tag and Value and Value.isQuestActive and Value.isQuestActive(tag) then return false, "quest" end
     local okC, cond, max = pcall(function() return item:getCondition(), item:getConditionMax() end)
     if not okC or not max or max <= 0 or cond >= max then return false, "fine" end
     -- 총: 탄과 부품을 떼고 보내야 한다 (새 총으로 바꿔 주므로 함께 사라진다)
