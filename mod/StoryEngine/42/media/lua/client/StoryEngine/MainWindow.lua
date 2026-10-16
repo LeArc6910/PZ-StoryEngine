@@ -2677,6 +2677,27 @@ function StoryEnginePoliticsPanel:createChildren()
         self, StoryEnginePoliticsPanel.onOutsiders)
     self.outsiderButton.tooltip = getText("IGUI_StoryEngine_Out_Button_Tip")
     self:addChild(self.outsiderButton)
+    -- 의회가 서기 전: 이야기 끝을 기다리지 않고 회의를 바로 연다 (경고 창을 거쳐서)
+    self.openButton = newButton(PAD, self.height - PAD - BUTTON_H, 240, getText("IGUI_StoryEngine_Politics_EarlyButton"),
+        self, StoryEnginePoliticsPanel.onOpenEarly)
+    self.openButton.tooltip = getText("IGUI_StoryEngine_Politics_EarlyButton_Tip")
+    self:addChild(self.openButton)
+end
+
+-- [카운티 회의 열기] -> 난이도·이야기 어긋남 경고 -> 예를 고르면 서버에 요청
+function StoryEnginePoliticsPanel:onOpenEarly()
+    local d = Cache.politics
+    if not (d and d.era == false and d.council and d.council.canOpen) then return end
+    local w, h = 520, 260
+    local modal = ISModalDialog:new(getCore():getScreenWidth() / 2 - w / 2, getCore():getScreenHeight() / 2 - h / 2, w, h,
+        getText("IGUI_StoryEngine_Politics_EarlyWarn"), true, self, StoryEnginePoliticsPanel.onOpenEarlyAnswer)
+    modal:initialise()
+    modal:addToUIManager()
+    modal:setAlwaysOnTop(true)
+end
+
+function StoryEnginePoliticsPanel:onOpenEarlyAnswer(button)
+    if button and button.internal == "YES" then request("councilOpen", {}) end
 end
 
 -- 밖에서 온 사람들 (OutsidersClient.lua): 사람 -> 특기·선물·일거리·편들기
@@ -2727,6 +2748,7 @@ function StoryEnginePoliticsPanel:refresh()
         .. ((OC and d and d.on) and OC.textOf(d.outsiders) or ""))
     self.text:paginate()
     self.outsiderButton:setVisible(d ~= nil and d.on == true and OC ~= nil and #OC.rows(d.outsiders) > 0)
+    self.openButton:setVisible(d ~= nil and d.era == false and d.council ~= nil and d.council.canOpen == true)
     self.proposeButton:setVisible(d ~= nil and d.on == true)
     self.lobbyButton:setVisible(d ~= nil and d.on == true and d.bill ~= nil)
     self.electionButton:setVisible(d ~= nil and d.on == true and PC ~= nil

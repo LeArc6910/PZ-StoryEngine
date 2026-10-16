@@ -1974,7 +1974,10 @@ function Politics.payload(psKey, now)
     local s = Store.data().politics
     local Era = StoryEngine.Era
     if not Politics.enabled() then return { off = true } end
-    if not (Era and Era.active and Era.active()) then return { era = false } end
+    if not (Era and Era.active and Era.active()) then
+        local C = StoryEngine.Council
+        return { era = false, council = C and C.payload and C.payload() or nil }
+    end
     if not s or not s.openT then
         return { era = true, openIn = math.ceil((Politics.openIn(now) or 0) / 60 / 24) }
     end

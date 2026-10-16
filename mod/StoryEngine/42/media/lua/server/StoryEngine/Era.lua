@@ -460,6 +460,7 @@ function Era.writeEpilogue(now)
         lang = lang, day = ep.day, result = ep.result, held = ep.held, prep = ep.prep, siege = ep.siege,
         era = Era.active() or nil, npcs = ep.npcs, players = ep.players, signers = signed,
         round = (s.round or 1) > 1 and s.round or nil,
+        council_day = s.early and s.doneDay or nil,
     }, function(res)
         local json = res.ok and res.json
         if type(json) == "table" and type(json.text) == "string" and json.text ~= "" then
@@ -624,8 +625,15 @@ function Era.onFinish(hq, now)
     end
     local okC, errC = pcall(Era.writeCharter, now)
     if not okC then log("era charter error:", tostring(errC)) end
-    local okE, errE = pcall(Era.writeEpilogue, now)
-    if not okE then log("era epilogue error:", tostring(errE)) end
+    -- 이른 회의: 큰 이야기들이 아직 끝나지 않았으면 연대기는 그때 쓴다 (Council.tick)
+    if s.early and not StoryEngine.Council.storiesDone() then
+        s.epiloguePending = true
+        log("era epilogue waits for the stories to end")
+    else
+        s.epiloguePending = nil
+        local okE, errE = pcall(Era.writeEpilogue, now)
+        if not okE then log("era epilogue error:", tostring(errE)) end
+    end
     Era.deliver()
     return givers
 end
@@ -636,6 +644,7 @@ function Era.reset()
     if s.era and StoryEngine.Grid then pcall(StoryEngine.Grid.reset, nil, "era reset") end
     s.era, s.owed, s.defenders, s.epilogue, s.charterId, s.givers, s.giftCar, s.giftAnimals = nil, nil, nil, nil, nil, nil, nil, nil
     s.giftsGiven, s.charterGot, s.round, s.epilogue2 = nil, nil, nil, nil
+    s.early, s.epiloguePending, s.doneDay = nil, nil, nil
     log("era reset")
 end
 
@@ -644,7 +653,8 @@ function Era.statusText()
     local owed = 0
     for _ in pairs(s.owed or {}) do owed = owed + 1 end
     return "era " .. (s.era and ("since day " .. StoryEngine.intToString(s.era.day)) or "none")
-        .. " epilogue " .. tostring(s.epilogue and s.epilogue.status or "none")
+        .. " epilogue " .. tostring(s.epilogue and s.epilogue.status or (s.epiloguePending and "waiting" or "none"))
+        .. (s.early and " early" or "")
         .. " charter " .. tostring(s.charterId or "none") .. " owed " .. StoryEngine.intToString(owed)
 end
 

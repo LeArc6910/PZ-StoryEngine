@@ -670,4 +670,75 @@ function T.successors_have_their_own_needs_notes_people_and_lines()
     H.ok(string.find(Lines.lt("rats", "extort").key, "Line_" .. v .. "_extort_", 1, true), "the Coalfield successor threatens in their own words")
 end
 
+-- 이른 회의 (2026-10-16): 의회 탭의 [카운티 회의 열기]로 이야기와 상관없이 바로 열고, 난이도는 그대로,
+-- 누르지 않으면 원래대로 이야기 끝에, 연대기는 이야기가 끝난 뒤
+function T.the_council_can_be_called_early_from_the_council_tab()
+    local p = setup()
+    mockAnyBuilding()
+    local Social, Council = StoryEngine.Social, StoryEngine.Council
+    at("casey", "casey2a_1")
+    H.advanceDays(40)
+    H.ok(not Council.shouldStart(now()), "left alone, the council waits for the stories")
+    Council.tick(now())
+    H.eq(Council.state().stage, nil)
+    -- 의회 탭에 버튼이 보일 상태
+    local pay = StoryEngine.Politics.payload("tester")
+    H.eq(pay.era, false)
+    H.ok(pay.council and pay.council.canOpen, "the tab offers to call the council")
+    H.sent = {}
+    StoryEngine.Commands.councilOpen(p, {})
+    local res = H.sentOf("politicsResult")[1]
+    H.ok(res and res.what == "council_open" and res.ok)
+    local s = Council.state()
+    H.eq(s.stage, "collect")
+    H.ok(s.early)
+    H.eq(Social.story("casey").node, "casey2a_1", "Casey's story is left where it is")
+    H.eq(StoryEngine.Politics.payload("tester").council.why, "running")
+    -- 두 번은 안 된다
+    H.sent = {}
+    StoryEngine.Commands.councilOpen(p, {})
+    H.eq(H.sentOf("politicsResult")[1].error, "running")
+    -- 난이도는 그대로: 공성전 천 마리
+    StoryEngine.Store.data().quests[s.collectId].state = "completed"
+    Council.tick(now())
+    local hq = StoryEngine.Store.data().quests[s.hordeId]
+    H.eq(hq.siege.total, 1000)
+    for _, f in ipairs(StoryEngine.Factions.list) do StoryEngine.Radio.channel(f.id).trust = 60 end
+    s.prep = 1
+    hq.state = "completed"
+    H.bridge = {}
+    Council.tick(now())
+    H.eq(s.result, "formed")
+    H.ok(StoryEngine.Era.active(), "the council era starts right away")
+    H.eq(H.lastBridge("epilogue"), nil, "the chronicle waits for the stories")
+    H.ok(s.epiloguePending)
+    H.ok(not Council.storiesDone())
+    -- 케이시가 나중에 5장에 오면 결과 장면으로
+    at("casey", "casey5_1")
+    Council.tick(now())
+    H.eq(Social.story("casey").node, "casey5_9a")
+    -- 이야기가 다 끝나면 연대기
+    local real = Council.storiesDone
+    Council.storiesDone = function() return true end
+    Council.tick(now())
+    Council.storiesDone = real
+    local b = H.lastBridge("epilogue")
+    H.ok(b, "the chronicle is written once the stories end")
+    H.eq(b.payload.council_day, s.doneDay)
+    H.ok(not s.epiloguePending)
+end
+
+function T.an_early_council_still_needs_casey_or_pike()
+    local p = setup()
+    local Council, Factions = StoryEngine.Council, StoryEngine.Factions
+    local old = Factions.isGone
+    Factions.isGone = function(fid) return fid == "casey" or fid == "pike" end
+    local ok, why = Council.earlyStatus()
+    H.ok(not ok)
+    H.eq(why, "nohost")
+    H.ok(not Council.openEarly(p))
+    Factions.isGone = old
+    H.ok(Council.earlyStatus())
+end
+
 return T

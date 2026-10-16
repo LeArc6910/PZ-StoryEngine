@@ -55,7 +55,15 @@ function Politics.textOf(d)
         return table.concat(parts)
     end
     if not d.era then
-        line(parts, getText("IGUI_StoryEngine_Politics_NoEra"), "0.6,0.6,0.6")
+        local c = d.council or {}
+        if c.stage == "collect" or c.stage == "horde" then
+            line(parts, getText("IGUI_StoryEngine_Politics_CouncilRunning"), "0.85,0.8,0.6")
+        elseif c.stage == "done" then
+            line(parts, getText("IGUI_StoryEngine_Politics_CouncilFailed"), "0.95,0.6,0.4")
+        else
+            line(parts, getText("IGUI_StoryEngine_Politics_NoEra"), "0.6,0.6,0.6")
+            if c.canOpen then line(parts, getText("IGUI_StoryEngine_Politics_EarlyHint"), "0.75,0.75,0.75") end
+        end
         return table.concat(parts)
     end
     if not d.on then
@@ -488,6 +496,12 @@ function Client.handlers.politicsResult(args)
         else
             HaloTextHelper.addBadText(player, getText("IGUI_StoryEngine_Politics_Election_Error_" .. tostring(args.error),
                 args.faction and UI.npcName(args.faction) or ""))
+        end
+    elseif args.what == "council_open" then
+        if args.ok then
+            HaloTextHelper.addGoodText(player, getText("IGUI_StoryEngine_Politics_Early_Done"))
+        else
+            HaloTextHelper.addBadText(player, getText("IGUI_StoryEngine_Politics_Early_Error_" .. tostring(args.error)))
         end
     elseif args.what == "lobby" then
         if args.ok then

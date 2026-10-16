@@ -921,6 +921,13 @@ function Commands.politicsState(player, args)
     reply(player, "politicsState", { politics = StoryEngine.Politics.payload(StoryEngine.Store.playerKey(player)) })
 end
 
+-- 의회 탭의 [카운티 회의 열기] (2026-10-16): 이야기가 끝나기 전에 회의를 바로 연다
+function Commands.councilOpen(player, args)
+    local ok, why = StoryEngine.Council.openEarly(player)
+    reply(player, "politicsResult", { what = "council_open", ok = ok, error = not ok and why or nil })
+    reply(player, "politicsState", { politics = StoryEngine.Politics.payload(StoryEngine.Store.playerKey(player)) })
+end
+
 -- 특별 법안 발의: args = { id, target }
 function Commands.politicsPropose(player, args)
     local Politics = StoryEngine.Politics

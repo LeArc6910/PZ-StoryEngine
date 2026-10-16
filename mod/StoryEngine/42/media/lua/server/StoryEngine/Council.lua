@@ -17,7 +17,11 @@
 -- 케이시·파이크의 이야기는 단계마다 <npc>5_2 / 5_3 / 5_9a|5_9b 로 함께 움직인다 (처음 사람만, 늦게 5장에 온 쪽은 결과로 바로).
 -- 다시 열기 (2026-10-13, docs/PLAN_COUNCIL_POLITICS.md 1단계): 의회가 못 섰으면 RETRY_DAYS(샌드박스 CouncilRetryDays, 30일)
 --   뒤에 준비 모금부터 다시 한다 (될 때까지). 헌장은 같은 기록을 고쳐 쓰고, 선물은 한 번만, 의회 시대는 선 회의에서 한 번.
--- 상태: d.council = { stage, startT, collectId, hordeId, prep, cleared, result, doneT, firstFinalT, round }
+-- 이른 회의 (2026-10-16): 의회의 정치를 먼저 해 보고 싶은 사람은 의회 탭의 [카운티 회의 열기]로 이야기가 끝나기 전에
+--   회의를 바로 연다 (Council.openEarly, 케이시나 파이크 중 하나가 살아 있어야 한다). 누르지 않으면 원래대로 이야기 끝에 열린다.
+--   공성전 규모·결말 조건·재도전·의회 시대·선물은 그대로라 초반엔 아주 어렵다. 케이시·파이크의 이야기는 나중에 5장 대기 장면에
+--   오면 결과 장면으로 넘어가고(catchUp), 카운티 연대기는 큰 이야기들이 다 끝났을 때(또는 EPILOGUE_WAIT_DAYS 뒤) 쓴다.
+-- 상태: d.council = { stage, startT, collectId, hordeId, prep, cleared, result, doneT, doneDay, firstFinalT, round, early }
 
 if isClient() then return end
 
@@ -67,6 +71,7 @@ Council.TRUST_AVG = 50
 Council.NEED = { { "Base.TinnedSoup", 6 }, { "Base.Candle", 6 }, { "Base.Battery", 4 }, { "Base.Sheet", 4 } }
 Council.HOSTS = { casey = "casey5_", pike = "pike5_" }
 Council.RETRY_DAYS = 30               -- 의회가 못 섰으면 이만큼 뒤에 다시 연다 (0 이면 다시 열지 않음)
+Council.EPILOGUE_WAIT_DAYS = 300      -- 이른 회의 뒤 이야기가 끝나지 않아도 이만큼 지나면 연대기를 쓴다
 
 local function state()
     local d = Store.data()
@@ -127,6 +132,25 @@ local function noteFirstFinal(now)
     end
 end
 
+local function hostOf()
+    for _, fid in ipairs({ "pike", "casey" }) do
+        if not Factions.isGone(fid) then return fid end
+    end
+    return nil
+end
+
+-- 살아 있는 모든 채널의 큰 이야기가 끝났는가 (결말 장면이고 다음 장이 없음)
+function Council.storiesDone()
+    for _, f in ipairs(Factions.list) do
+        if not Factions.isGone(f.id) then
+            local st = Social().story(f.id)
+            local node = Stories.node(f.id, st.ep and st.ep.node or st.node)
+            if not node or not node.final or Social().sequelOf(f.id, node) then return false end
+        end
+    end
+    return true
+end
+
 function Council.shouldStart(now)
     local s = state()
     if s.stage then return false end
@@ -135,6 +159,32 @@ function Council.shouldStart(now)
     if done >= math.min(Council.READY_MIN, living) then return true end
     local pace = Social().pace and Social().pace() or 1
     return s.firstFinalT ~= nil and now.t - s.firstFinalT >= Council.LATE_DAYS * pace * 24 * 60
+end
+
+-- 의회 탭에서 회의를 바로 열 수 있는가. 반환: 열 수 있나, 이유 (off | running | held | nohost)
+function Council.earlyStatus()
+    if not StoryEngine.option("Social", true) then return false, "off" end
+    local s = state()
+    if s.stage then return false, s.stage == "done" and "held" or "running" end
+    if not hostOf() then return false, "nohost" end
+    return true
+end
+
+-- 의회 탭의 [카운티 회의 열기]: 이야기가 끝나기를 기다리지 않고 지금 회의 준비를 시작한다
+function Council.openEarly(player, now)
+    now = now or Sensor.now()
+    local ok, why = Council.earlyStatus()
+    if not ok then return false, why end
+    Council.start(now, true)
+    log("council opened early by", player and player:getUsername() or "?", "day", Store.serverDays())
+    return true
+end
+
+-- 의회 탭에 넘기는 회의 상태 (의회가 서기 전)
+function Council.payload()
+    local s = state()
+    local ok, why = Council.earlyStatus()
+    return { canOpen = ok or nil, why = why, stage = s.stage, result = s.result, round = s.round, early = s.early or nil }
 end
 
 -- 케이시·파이크(처음 사람)의 이야기를 이 단계 장면으로
@@ -146,13 +196,6 @@ local function moveHosts(step, now)
             if node and node.chapter == 5 and not node.final then Social().moveTo(fid, prefix .. step, now) end
         end
     end
-end
-
-local function hostOf()
-    for _, fid in ipairs({ "pike", "casey" }) do
-        if not Factions.isGone(fid) then return fid end
-    end
-    return nil
 end
 
 local function anyPlayer()
@@ -190,8 +233,9 @@ function Council.shouldRetry(now)
     return hostOf() ~= nil
 end
 
-function Council.start(now)
+function Council.start(now, early)
     local s = state()
+    if early then s.early = true end
     s.round = (s.round or (s.result and 1 or 0)) + 1
     local again = s.round > 1
     s.stage, s.startT = "collect", now.t
@@ -449,7 +493,7 @@ function Council.finish(now)
     if s.cleared then score = score + 1 end
     if Council.avgTrust() >= Council.TRUST_AVG then score = score + 1 end
     s.result = score >= 2 and "formed" or "failed"
-    s.stage, s.doneT = "done", now.t
+    s.stage, s.doneT, s.doneDay = "done", now.t, Store.serverDays()
     local Life, Bonds = StoryEngine.Life, StoryEngine.Bonds
     for _, f in ipairs(Factions.list) do
         if not Factions.isGone(f.id) and Life then
@@ -549,6 +593,13 @@ function Council.tick(now)
     if not s.stage then
         if Council.shouldStart(now) and #Sensor.players() > 0 then Council.start(now) end
         return
+    end
+    -- 이른 회의의 연대기: 큰 이야기들이 끝나면 (Era.onFinish 가 미뤄 둠)
+    if s.stage == "done" and s.epiloguePending and StoryEngine.Era
+        and (Council.storiesDone() or now.t - (s.doneT or now.t) >= Council.EPILOGUE_WAIT_DAYS * 24 * 60) then
+        s.epiloguePending = nil
+        local okE, errE = pcall(StoryEngine.Era.writeEpilogue, now)
+        if not okE then log("era epilogue error:", tostring(errE)) end
     end
     if s.stage == "done" and Council.shouldRetry(now) and #Sensor.players() > 0 then
         Council.start(now)

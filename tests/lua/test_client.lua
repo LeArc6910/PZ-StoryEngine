@@ -685,6 +685,11 @@ function T.council_tab_tells_the_state_of_politics()
     H.ok(has(PC.textOf(nil), "IGUI_StoryEngine_Politics_Loading"))
     H.ok(has(PC.textOf({ off = true }), "IGUI_StoryEngine_Politics_Off"))
     H.ok(has(PC.textOf({ era = false }), "IGUI_StoryEngine_Politics_NoEra"))
+    -- 의회가 서기 전 (2026-10-16): 바로 열 수 있으면 안내, 진행 중·실패면 그 상태
+    H.ok(has(PC.textOf({ era = false, council = { canOpen = true } }), "IGUI_StoryEngine_Politics_EarlyHint"))
+    H.ok(not has(PC.textOf({ era = false, council = { why = "nohost" } }), "IGUI_StoryEngine_Politics_EarlyHint"))
+    H.ok(has(PC.textOf({ era = false, council = { stage = "horde" } }), "IGUI_StoryEngine_Politics_CouncilRunning"))
+    H.ok(has(PC.textOf({ era = false, council = { stage = "done", result = "failed" } }), "IGUI_StoryEngine_Politics_CouncilFailed"))
     H.ok(has(PC.textOf({ era = true, openIn = 9 }), "IGUI_StoryEngine_Politics_OpenIn|9"))
     local d = {
         era = true, on = true,
