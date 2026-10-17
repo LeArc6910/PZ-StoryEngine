@@ -105,8 +105,10 @@ function Out.rows(o)
             local st = (row.spec or {})[n]
             if st then
                 local text, ok = Out.specState(st)
+                local waitText = st.days and (" " .. getText(st.kind == "miracle" and "IGUI_StoryEngine_Out_WaitAfterFire"
+                    or "IGUI_StoryEngine_Spec_WaitDays", UI.daysText(st.days))) or ""
                 local item = { label = getText("IGUI_StoryEngine_Out_Use", Out.specName(st.kind), text), ok = ok,
-                               tip = getText("IGUI_StoryEngine_Out_Spec_" .. tostring(st.kind) .. "_Tip") .. " <LINE> "
+                               tip = getText("IGUI_StoryEngine_Out_Spec_" .. tostring(st.kind) .. "_Tip") .. waitText .. " <LINE> "
                                    .. getText("IGUI_StoryEngine_Out_Cost", names(row.dislike)),
                                what = "use", args = { id = row.id, n = n } }
                 if st.kind == "proxy" then

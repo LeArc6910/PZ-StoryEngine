@@ -425,4 +425,52 @@ function T.debug_personal_trust_refuses_outside_personal_mode()
     H.ok(string.find(st[#st].text, "not in personal trust mode", 1, true) ~= nil)
 end
 
+-- 무리에게 맡긴 일의 보상을 사양하면 무리 신뢰와 모든 캐릭터의 개인 신뢰가 함께 오른다 (2026-10-18)
+function T.waiving_a_group_reward_lifts_everyone()
+    local a, b, pa, pb = setup()
+    mockAnywhereBuildings()
+    local Q = StoryEngine.Quests
+    local d = StoryEngine.Store.data()
+    local fid = "ray"
+    Tr().ensure(fid, pa.key)
+    Tr().ensure(fid, pb.key)
+    local g0, a0, b0 = ch(fid).trust, Tr().personal(fid, pa.key), Tr().personal(fid, pb.key)
+    d.quests.QG1 = { id = "QG1", kind = "deliver", state = "completed", tier = 3,
+                     origin = { source = "story", faction = fid, story = { faction = fid, node = "ray_2" } } }
+    local reward = Q.create("supply_drop", a, pa, 1, now(),
+        { source = "reward", faction = fid, rewardFor = "QG1", rewardKind = "deliver" }, { "Base.TinnedBeans" })
+    H.ok(Q.waiveForAll(reward), "a job for the whole group")
+    local ok, gain = Q.waiveReward(a, reward.id)
+    H.ok(ok)
+    H.eq(gain, 3, "the waiver hears their own share")
+    H.eq(ch(fid).trust, g0 + 3, "group trust")
+    H.eq(Tr().personal(fid, pa.key), a0 + 3, "the one who waived")
+    H.eq(Tr().personal(fid, pb.key), b0 + 3, "everyone else too")
+    -- 받은 사람이 정해진 개인별 부탁은 예전처럼 그 사람만
+    local g1, b1 = ch(fid).trust, Tr().personal(fid, pb.key)
+    d.quests.QP1 = { id = "QP1", kind = "deliver", state = "completed", tier = 2, addressed = pa.key, target = pa.key,
+                     origin = { source = "director", faction = fid } }
+    local mine = Q.create("supply_drop", a, pa, 1, now(),
+        { source = "reward", faction = fid, rewardFor = "QP1", rewardKind = "deliver" }, { "Base.TinnedBeans" })
+    H.ok(not Q.waiveForAll(mine))
+    H.ok(Q.waiveReward(a, mine.id))
+    H.eq(ch(fid).trust, g1, "no group trust for a personal ask")
+    H.eq(Tr().personal(fid, pb.key), b1, "the others are left out")
+end
+
+-- 공유 모드는 예전 그대로 (신뢰 하나)
+function T.waiving_in_shared_mode_is_unchanged()
+    local a, b, pa = setup(false)
+    mockAnywhereBuildings()
+    local Q = StoryEngine.Quests
+    local d = StoryEngine.Store.data()
+    local g0 = ch("ray").trust
+    d.quests.QG2 = { id = "QG2", kind = "deliver", state = "completed", tier = 2, origin = { source = "director", faction = "ray" } }
+    local reward = Q.create("supply_drop", a, pa, 1, now(),
+        { source = "reward", faction = "ray", rewardFor = "QG2", rewardKind = "deliver" }, { "Base.TinnedBeans" })
+    H.ok(not Q.waiveForAll(reward))
+    H.ok(Q.waiveReward(a, reward.id))
+    H.eq(ch("ray").trust, g0 + 2)
+end
+
 return T

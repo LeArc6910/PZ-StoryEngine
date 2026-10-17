@@ -156,6 +156,23 @@ end
 
 -- 특기를 쓰면 드는 자원 (툴팁 한 줄). cost = 서버 Specialty.costOf / Specialty2.status 의 { res, n, min },
 -- res = 그 NPC 의 지금 자원 표 (거점 목록). 예전 서버가 cost 를 안 보내면 nil
+-- 일수 글자 (소수 한 자리까지, 정수면 정수)
+function UI.daysText(d)
+    d = math.floor((tonumber(d) or 0) * 10 + 0.5) / 10
+    if d == math.floor(d) then return StoryEngine.intToString(d) end
+    return tostring(d)
+end
+
+-- 2차 특기 설명 + 지금 설정의 대기 일수 (샌드박스 Spec2Days_<특기> x 특기 대기 배율)
+function UI.spec2Desc(opt)
+    local desc = getText("IGUI_StoryEngine_Spec2_Desc_" .. tostring(opt))
+    local Tuning = StoryEngine.Tuning
+    if Tuning and Tuning.spec2Days then
+        desc = desc .. " " .. getText("IGUI_StoryEngine_Spec_WaitDays", UI.daysText(Tuning.spec2Days(opt)))
+    end
+    return desc
+end
+
 function UI.specCostText(cost, res)
     if not cost or not cost.res or not cost.n then return nil end
     local name = getText("IGUI_StoryEngine_Life_Res_" .. tostring(cost.res))

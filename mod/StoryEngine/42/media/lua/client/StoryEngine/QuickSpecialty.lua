@@ -373,7 +373,7 @@ function Q.rows2Of(life)
                 else
                     row.right, row.color = getText("IGUI_StoryEngine_Quick_ShortNo"), GREY
                 end
-                local tip = getText("IGUI_StoryEngine_Spec2_Desc_" .. s2.choice)
+                local tip = UI.spec2Desc(s2.choice)
                 if s2.active then tip = getText("IGUI_StoryEngine_Spec2_Active", num(s2.active)) .. " <LINE> " .. tip end
                 if s2.reason then
                     local key = "IGUI_StoryEngine_Spec2_Error_" .. tostring(s2.reason)

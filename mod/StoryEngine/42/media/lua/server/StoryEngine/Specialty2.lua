@@ -192,7 +192,9 @@ end
 function Specialty2.waitMinutes(fid, opt, key, now)
     local last = (state().usedBy[key] or {})[fid]
     if not last or not opt then return 0 end
-    local gap = (Specialty2.DAYS[opt] or 7) * cooldownMult() * 24 * 60
+    local Tuning = StoryEngine.Tuning
+    local days = Tuning and Tuning.spec2Days and Tuning.spec2Days(opt) or (Specialty2.DAYS[opt] or 7) * cooldownMult()
+    local gap = days * 24 * 60
     return math.max(0, gap - (now - last))
 end
 

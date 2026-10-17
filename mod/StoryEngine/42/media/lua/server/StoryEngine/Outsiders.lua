@@ -571,6 +571,9 @@ end
 
 local function waitMinutes(kind, id)
     local Tuning = StoryEngine.Tuning
+    if Tuning and Tuning.outsiderDays then
+        return math.floor(Tuning.outsiderDays(kind, Outsiders.sided(id)) * 24 * 60)   -- 샌드박스 OutsiderDays_<특기>
+    end
     local mult = Tuning and Tuning.num("SpecialtyCooldownMult") or 1
     if mult <= 0 then mult = 1 end
     return math.floor(sidedWait(kind, id) * 24 * 60 * mult)
@@ -615,6 +618,7 @@ function Outsiders.status(id, n, key, now)
     now = now or Sensor.now().t
     local kind = Outsiders.SPECS[id] and Outsiders.SPECS[id][n]
     local out = { kind = kind, n = n, need = Outsiders.SPEC_TRUST[n], ok = false }
+    if kind then out.days = waitMinutes(kind, id) / (24 * 60) end      -- 툴팁에 보일 대기 (일)
     if not kind then
         out.why = "away"
         return out

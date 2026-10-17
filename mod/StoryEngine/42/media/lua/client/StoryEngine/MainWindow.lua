@@ -1599,6 +1599,8 @@ function StoryEngineQuestPanel:refresh()
     self.waiveButton:setVisible(canWaive)
     if canWaive then
         self.waiveButton:setTitle(getText("IGUI_StoryEngine_Waive_Button", StoryEngine.intToString(selected.waiveGain)))
+        self.waiveButton.tooltip = getText(selected.waiveAll and "IGUI_StoryEngine_Waive_Tooltip_All"
+            or "IGUI_StoryEngine_Waive_Tooltip")
         self.waiveButton:setX(located and (self.mapButton:getRight() + PAD) or self.mapButton:getX())
     end
     self.workButton:setVisible(canWork)
@@ -2340,7 +2342,7 @@ function StoryEngineLifePanel.fillSpec2(menu, n)
                 request("spec2Use", { faction = id })
             end
         end)
-        local desc = getText("IGUI_StoryEngine_Spec2_Desc_" .. s2.choice)
+        local desc = UI.spec2Desc(s2.choice)
         if s2.reason then
             use.notAvailable = true
             desc = spec2ErrorText(s2.reason, s2.wait) .. " <LINE> " .. desc
@@ -2384,7 +2386,7 @@ function StoryEngineLifePanel.fillSpec2(menu, n)
             request("spec2Choose", { faction = fid, option = chosen })
         end)
         if not ready or opt == s2.choice or (s2.choice and (s2.change or 0) > 0) then o.notAvailable = true end
-        spec2Tip(o, getText("IGUI_StoryEngine_Spec2_Desc_" .. opt) .. " <LINE> " .. getText("IGUI_StoryEngine_Spec2_Common"))
+        spec2Tip(o, UI.spec2Desc(opt) .. " <LINE> " .. getText("IGUI_StoryEngine_Spec2_Common"))
     end
 end
 
@@ -2555,7 +2557,7 @@ function StoryEngineLifePanel:refresh()
         local title = s2.choice and getText("IGUI_StoryEngine_Spec2_Button",
             getText("IGUI_StoryEngine_Spec2_Name_" .. s2.choice)) or getText("IGUI_StoryEngine_Spec2_ChooseButton")
         self.spec2Button:setTitle(title)
-        local tip2 = s2.choice and getText("IGUI_StoryEngine_Spec2_Desc_" .. s2.choice)
+        local tip2 = s2.choice and UI.spec2Desc(s2.choice)
             or getText("IGUI_StoryEngine_Spec2_Tooltip_Pick")
         if s2.active then tip2 = getText("IGUI_StoryEngine_Spec2_Active", StoryEngine.intToString(s2.active)) .. " <LINE> " .. tip2 end
         if s2.choice and s2.reason then tip2 = spec2ErrorText(s2.reason, s2.wait) .. " <LINE> " .. tip2 end

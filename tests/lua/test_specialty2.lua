@@ -317,4 +317,22 @@ function T.status_tells_the_cost()
     H.eq(c.min, S().RES_MIN)
 end
 
+-- 2차 특기 대기 일수는 샌드박스 Spec2Days_<특기> x 특기 대기 배율 (2026-10-18)
+function T.second_specialty_waits_follow_the_sandbox()
+    local p, ps = setup()
+    local S2 = StoryEngine.Specialty2
+    local t = StoryEngine.Sensor.now().t
+    S2.state().usedBy[ps.key] = { ray = t }
+    H.eq(S2.waitMinutes("ray", "stew", ps.key, t), 7 * 1440, "default 7 days")
+    SandboxVars.StoryEngine = SandboxVars.StoryEngine or {}
+    SandboxVars.StoryEngine.Spec2Days_stew = 2
+    H.eq(S2.waitMinutes("ray", "stew", ps.key, t), 2 * 1440)
+    SandboxVars.StoryEngine.SpecialtyCooldownMult = 1.5
+    H.eq(S2.waitMinutes("ray", "stew", ps.key, t), 3 * 1440, "times the wait multiplier")
+    SandboxVars.StoryEngine.Spec2Days_stew = 0
+    H.eq(S2.waitMinutes("ray", "stew", ps.key, t), 0, "0 = no wait")
+    SandboxVars.StoryEngine.Spec2Days_stew, SandboxVars.StoryEngine.SpecialtyCooldownMult = nil, nil
+    H.eq(StoryEngine.Tuning.spec2Days("livestock"), 14)
+end
+
 return T

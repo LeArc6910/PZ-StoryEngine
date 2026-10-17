@@ -85,6 +85,34 @@ function Tuning.num(name)
     return tonumber(Tuning.get(name)) or tonumber(Tuning.DEFAULTS[name]) or 0
 end
 
+-- 2차 특기·밖에서 온 사람 특기의 대기 일수 (2026-10-18 사용자 요청): 샌드박스 Spec2Days_<특기>·OutsiderDays_<특기>,
+-- 기본 = 예전 고정값. 둘 다 '특기 대기 배율'(SpecialtyCooldownMult)을 곱한다. 서버(대기 계산)와 클라이언트(툴팁)가 같이 쓴다
+Tuning.SPEC2_DAYS = { livestock = 14, rain = 14, stew = 7, praise = 7, sos = 14, power = 14, illness = 14, pain = 14, pharmacy = 7, reconcile = 14, refugees = 7, baptism = 14, tow = 14, reinforce = 7, tuning = 14, artillery = 7, evac = 7, barricade = 14, heist = 14, bodyguard = 7, camo = 7, suppressor = 7, game = 7, flare = 7 }
+Tuning.OUTSIDER_DAYS = { proxy = 14, airdrop = 7, order = 7, jewels = 7, retard = 7, regimen = 14, miracle = 14, burden = 7 }
+-- 충성 시험에서 밖에서 온 사람 편을 들었을 때의 기본 일수 (설정 값에 같은 비율로 줄인다)
+Tuning.OUTSIDER_SIDED_DAYS = { proxy = 7, airdrop = 4, miracle = 7 }
+for k, v in pairs(Tuning.SPEC2_DAYS) do Tuning.DEFAULTS["Spec2Days_" .. k] = v end
+for k, v in pairs(Tuning.OUTSIDER_DAYS) do Tuning.DEFAULTS["OutsiderDays_" .. k] = v end
+
+function Tuning.cooldownMult()
+    local m = Tuning.num("SpecialtyCooldownMult")
+    if not m or m <= 0 then m = 1 end
+    return m
+end
+
+-- 2차 특기 opt 의 대기 (일, 배율 포함)
+function Tuning.spec2Days(opt)
+    return math.max(0, Tuning.num("Spec2Days_" .. tostring(opt))) * Tuning.cooldownMult()
+end
+
+-- 밖에서 온 사람 특기 kind 의 대기 (일, 배율 포함). sided = 충성 시험에서 그 사람 편을 들었다
+function Tuning.outsiderDays(kind, sided)
+    local d = math.max(0, Tuning.num("OutsiderDays_" .. tostring(kind)))
+    local base, short = Tuning.OUTSIDER_DAYS[kind], Tuning.OUTSIDER_SIDED_DAYS[kind]
+    if sided and short and base and base > 0 then d = d * short / base end
+    return d * Tuning.cooldownMult()
+end
+
 -- 배율을 정수 변화량에 적용한다 (0 이 아니면 최소 1, 배율 0 이면 0)
 function Tuning.scale(delta, mult)
     if delta == 0 or mult == 1 then return delta end

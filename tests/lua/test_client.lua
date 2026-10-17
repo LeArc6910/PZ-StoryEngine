@@ -1316,4 +1316,17 @@ function T.item_tooltip_shows_the_trade_lock()
     StoryEngine.Cache.quests = nil
 end
 
+-- 2차 특기 설명 끝에 지금 설정의 대기 일수 (2026-10-18)
+function T.second_specialty_description_shows_the_set_wait()
+    H.bootClient()
+    local UI = StoryEngine.UI
+    SandboxVars.StoryEngine = SandboxVars.StoryEngine or {}
+    SandboxVars.StoryEngine.Spec2Days_sos = 5
+    SandboxVars.StoryEngine.SpecialtyCooldownMult = 0.6
+    local desc = UI.spec2Desc("sos")
+    H.ok(string.find(desc, "IGUI_StoryEngine_Spec_WaitDays|3", 1, true) ~= nil, desc)
+    H.eq(UI.daysText(4.2), "4.2")
+    SandboxVars.StoryEngine.Spec2Days_sos, SandboxVars.StoryEngine.SpecialtyCooldownMult = nil, nil
+end
+
 return T

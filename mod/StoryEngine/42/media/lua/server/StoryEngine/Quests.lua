@@ -2486,6 +2486,16 @@ function Quests.waiveTier(q)
     return math.max(1, math.min(Quests.MAX_TIER, (parent and parent.tier) or q.tier or 1))
 end
 
+-- 개인 신뢰 모드에서 NPC 가 무리에게 먼저 맡긴 일(받은 사람이 정해지지 않은 부탁, 큰 이야기·곁가지·위기 등)의 보상인가.
+-- 그렇다면 사양했을 때 무리 신뢰와 살아 있는 모든 캐릭터의 개인 신뢰가 함께 오른다 (2026-10-18 사용자 요청)
+function Quests.waiveForAll(q)
+    local Trust = StoryEngine.Trust
+    if not (Trust and Trust.personalMode()) then return false end
+    local parent = q and q.origin and q.origin.rewardFor and all()[q.origin.rewardFor]
+    if not parent or parent.addressed then return false end
+    return Trust.isGroupWork(parent) or Trust.initiator(parent) == "npc"
+end
+
 function Quests.waiveReward(player, qid)
     local q = all()[qid]
     if q and q.letterId and q.kind == "supply_drop" and Quests.isActive(q) then return false, "letter" end
@@ -2512,7 +2522,22 @@ function Quests.waiveReward(player, qid)
     end
     local gain = 0
     if fid and Factions.byId[fid] then
-        gain = StoryEngine.Trust.apply(fid, tier, "reward_waived", q.id, ps.key)
+        local Trust = StoryEngine.Trust
+        if Quests.waiveForAll(q) then
+            -- 무리의 일: 무리 신뢰 + 살아 있는 모든 캐릭터의 개인 신뢰. 사양한 사람에게는 자기 몫을 알린다
+            Trust.apply(fid, tier, "reward_waived", q.id, ps.key, nil, "group")
+            local n = 0
+            for key, other in pairs(Store.data().players) do
+                if not other.dead then
+                    local got = Trust.addPersonal(fid, key, tier, "reward_waived", q.id)
+                    if key == ps.key then gain = got end
+                    n = n + 1
+                end
+            end
+            log("reward waived for everyone", q.id, fid, "players", n)
+        else
+            gain = Trust.apply(fid, tier, "reward_waived", q.id, ps.key)
+        end
         local Life = StoryEngine.Life
         if Life then
             Life.change(fid, Life.KEY[fid], tier * Quests.WAIVE_LIFE, "waived")
@@ -2649,7 +2674,10 @@ function Quests.listFor(psKey, now)
                 local okR, risk = pcall(StoryEngine.Fate.questRisk, q)
                 if okR then item.risk = risk else log("quest risk error:", tostring(risk)) end
             end
-            if ACTIVE[state] then item.waiveGain = Quests.waiveTier(q) end
+            if ACTIVE[state] then
+                item.waiveGain = Quests.waiveTier(q)
+                if item.waiveGain then item.waiveAll = Quests.waiveForAll(q) or nil end
+            end
             item.waived = q.waived
             if ACTIVE[state] or state == "proposed" then active[#active + 1] = item else done[#done + 1] = item end
         end

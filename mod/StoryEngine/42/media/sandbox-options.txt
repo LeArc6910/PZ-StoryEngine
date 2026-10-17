@@ -561,6 +561,198 @@ option StoryEngine.SpecialtyDays_hunter
 	page = StoryEngineNPC, translation = StoryEngine_SpecialtyDays_hunter,
 }
 
+option StoryEngine.Spec2Days_livestock
+{
+	type = integer, min = 0, max = 60, default = 14,
+	page = StoryEngineNPC, translation = StoryEngine_Spec2Days_livestock,
+}
+
+option StoryEngine.Spec2Days_rain
+{
+	type = integer, min = 0, max = 60, default = 14,
+	page = StoryEngineNPC, translation = StoryEngine_Spec2Days_rain,
+}
+
+option StoryEngine.Spec2Days_stew
+{
+	type = integer, min = 0, max = 60, default = 7,
+	page = StoryEngineNPC, translation = StoryEngine_Spec2Days_stew,
+}
+
+option StoryEngine.Spec2Days_praise
+{
+	type = integer, min = 0, max = 60, default = 7,
+	page = StoryEngineNPC, translation = StoryEngine_Spec2Days_praise,
+}
+
+option StoryEngine.Spec2Days_sos
+{
+	type = integer, min = 0, max = 60, default = 14,
+	page = StoryEngineNPC, translation = StoryEngine_Spec2Days_sos,
+}
+
+option StoryEngine.Spec2Days_power
+{
+	type = integer, min = 0, max = 60, default = 14,
+	page = StoryEngineNPC, translation = StoryEngine_Spec2Days_power,
+}
+
+option StoryEngine.Spec2Days_illness
+{
+	type = integer, min = 0, max = 60, default = 14,
+	page = StoryEngineNPC, translation = StoryEngine_Spec2Days_illness,
+}
+
+option StoryEngine.Spec2Days_pain
+{
+	type = integer, min = 0, max = 60, default = 14,
+	page = StoryEngineNPC, translation = StoryEngine_Spec2Days_pain,
+}
+
+option StoryEngine.Spec2Days_pharmacy
+{
+	type = integer, min = 0, max = 60, default = 7,
+	page = StoryEngineNPC, translation = StoryEngine_Spec2Days_pharmacy,
+}
+
+option StoryEngine.Spec2Days_reconcile
+{
+	type = integer, min = 0, max = 60, default = 14,
+	page = StoryEngineNPC, translation = StoryEngine_Spec2Days_reconcile,
+}
+
+option StoryEngine.Spec2Days_refugees
+{
+	type = integer, min = 0, max = 60, default = 7,
+	page = StoryEngineNPC, translation = StoryEngine_Spec2Days_refugees,
+}
+
+option StoryEngine.Spec2Days_baptism
+{
+	type = integer, min = 0, max = 60, default = 14,
+	page = StoryEngineNPC, translation = StoryEngine_Spec2Days_baptism,
+}
+
+option StoryEngine.Spec2Days_tow
+{
+	type = integer, min = 0, max = 60, default = 14,
+	page = StoryEngineNPC, translation = StoryEngine_Spec2Days_tow,
+}
+
+option StoryEngine.Spec2Days_reinforce
+{
+	type = integer, min = 0, max = 60, default = 7,
+	page = StoryEngineNPC, translation = StoryEngine_Spec2Days_reinforce,
+}
+
+option StoryEngine.Spec2Days_tuning
+{
+	type = integer, min = 0, max = 60, default = 14,
+	page = StoryEngineNPC, translation = StoryEngine_Spec2Days_tuning,
+}
+
+option StoryEngine.Spec2Days_artillery
+{
+	type = integer, min = 0, max = 60, default = 7,
+	page = StoryEngineNPC, translation = StoryEngine_Spec2Days_artillery,
+}
+
+option StoryEngine.Spec2Days_evac
+{
+	type = integer, min = 0, max = 60, default = 7,
+	page = StoryEngineNPC, translation = StoryEngine_Spec2Days_evac,
+}
+
+option StoryEngine.Spec2Days_barricade
+{
+	type = integer, min = 0, max = 60, default = 14,
+	page = StoryEngineNPC, translation = StoryEngine_Spec2Days_barricade,
+}
+
+option StoryEngine.Spec2Days_heist
+{
+	type = integer, min = 0, max = 60, default = 14,
+	page = StoryEngineNPC, translation = StoryEngine_Spec2Days_heist,
+}
+
+option StoryEngine.Spec2Days_bodyguard
+{
+	type = integer, min = 0, max = 60, default = 7,
+	page = StoryEngineNPC, translation = StoryEngine_Spec2Days_bodyguard,
+}
+
+option StoryEngine.Spec2Days_camo
+{
+	type = integer, min = 0, max = 60, default = 7,
+	page = StoryEngineNPC, translation = StoryEngine_Spec2Days_camo,
+}
+
+option StoryEngine.Spec2Days_suppressor
+{
+	type = integer, min = 0, max = 60, default = 7,
+	page = StoryEngineNPC, translation = StoryEngine_Spec2Days_suppressor,
+}
+
+option StoryEngine.Spec2Days_game
+{
+	type = integer, min = 0, max = 60, default = 7,
+	page = StoryEngineNPC, translation = StoryEngine_Spec2Days_game,
+}
+
+option StoryEngine.Spec2Days_flare
+{
+	type = integer, min = 0, max = 60, default = 7,
+	page = StoryEngineNPC, translation = StoryEngine_Spec2Days_flare,
+}
+
+option StoryEngine.OutsiderDays_proxy
+{
+	type = integer, min = 0, max = 60, default = 14,
+	page = StoryEngineNPC, translation = StoryEngine_OutsiderDays_proxy,
+}
+
+option StoryEngine.OutsiderDays_airdrop
+{
+	type = integer, min = 0, max = 60, default = 7,
+	page = StoryEngineNPC, translation = StoryEngine_OutsiderDays_airdrop,
+}
+
+option StoryEngine.OutsiderDays_order
+{
+	type = integer, min = 0, max = 60, default = 7,
+	page = StoryEngineNPC, translation = StoryEngine_OutsiderDays_order,
+}
+
+option StoryEngine.OutsiderDays_jewels
+{
+	type = integer, min = 0, max = 60, default = 7,
+	page = StoryEngineNPC, translation = StoryEngine_OutsiderDays_jewels,
+}
+
+option StoryEngine.OutsiderDays_retard
+{
+	type = integer, min = 0, max = 60, default = 7,
+	page = StoryEngineNPC, translation = StoryEngine_OutsiderDays_retard,
+}
+
+option StoryEngine.OutsiderDays_regimen
+{
+	type = integer, min = 0, max = 60, default = 14,
+	page = StoryEngineNPC, translation = StoryEngine_OutsiderDays_regimen,
+}
+
+option StoryEngine.OutsiderDays_miracle
+{
+	type = integer, min = 0, max = 60, default = 14,
+	page = StoryEngineNPC, translation = StoryEngine_OutsiderDays_miracle,
+}
+
+option StoryEngine.OutsiderDays_burden
+{
+	type = integer, min = 0, max = 60, default = 7,
+	page = StoryEngineNPC, translation = StoryEngine_OutsiderDays_burden,
+}
+
 option StoryEngine.AutoSupportTrust
 {
 	type = integer, min = 50, max = 100, default = 70,

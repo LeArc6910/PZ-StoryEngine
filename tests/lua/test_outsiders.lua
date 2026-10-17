@@ -544,4 +544,21 @@ function T.volunteering_for_an_outsider_works()
     H.ok(trust("hale") > 25, "trust is all they can give")
 end
 
+-- 밖에서 온 사람 특기 대기 일수는 샌드박스 OutsiderDays_<특기>, 편을 들면 같은 비율로 줄어든다 (2026-10-18)
+function T.outsider_waits_follow_the_sandbox()
+    local p, ps = setup()
+    local Out = O()
+    local Tuning = StoryEngine.Tuning
+    here("odell")
+    setTrust("odell", 75)
+    H.eq(Out.status("odell", 2, ps.key).days, 7, "default 7 days")
+    SandboxVars.StoryEngine = SandboxVars.StoryEngine or {}
+    SandboxVars.StoryEngine.OutsiderDays_jewels = 3
+    H.eq(Out.status("odell", 2, ps.key).days, 3)
+    SandboxVars.StoryEngine.OutsiderDays_proxy = 10
+    H.eq(Tuning.outsiderDays("proxy", true), 5, "siding with Hale halves it")
+    H.eq(Tuning.outsiderDays("airdrop", true), 4, "4 of 7 days by default")
+    SandboxVars.StoryEngine.OutsiderDays_jewels, SandboxVars.StoryEngine.OutsiderDays_proxy = nil, nil
+end
+
 return T
