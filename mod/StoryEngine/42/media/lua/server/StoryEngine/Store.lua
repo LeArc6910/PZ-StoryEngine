@@ -52,10 +52,49 @@ function Store.playerKey(player)
     return (player:getUsername() or "?") .. "|" .. Store.characterName(player)
 end
 
+-- 같은 계정이 죽은 캐릭터와 같은 이름으로 새 캐릭터를 만들면 (2026-10-18 인게임: 새 캐릭터가 죽은 기록을 이어받아
+-- 센서·일기·개인 신뢰에서 모두 빠졌음): 살아 있는 캐릭터가 죽은 기록을 가리키면 다른 캐릭터로 본다.
+-- 예전 기록은 "키#N" 으로 옮겨 회고록·일기·추모가 일지 탭에 그대로 남고, 새 캐릭터는 새 기록으로 시작한다
+local function aliveNow(player)
+    local ok, dead = pcall(function() return player:isDead() end)
+    return ok and dead == false
+end
+
+function Store.archiveDead(d, key)
+    local old = d.players[key]
+    if not old then return nil end
+    local n = 2
+    while d.players[key .. "#" .. n] do n = n + 1 end
+    local archived = key .. "#" .. n
+    old.key, old.archivedFrom = archived, key
+    d.players[archived] = old
+    d.players[key] = nil
+    -- 이 키로 남은 사람별 기록도 새 캐릭터에게 넘기지 않는다
+    local S = StoryEngine
+    if S.Trust and S.Trust.forget then pcall(S.Trust.forget, key) end
+    pcall(function()
+        for _, f in ipairs(S.Factions.list) do
+            local ch = S.Radio.channel(f.id)
+            if ch.heard then ch.heard[key] = nil end
+        end
+    end)
+    pcall(function()
+        local sp = d.spec
+        for _, byKey in pairs(sp and sp.usedBy or {}) do byKey[key] = nil end
+        if d.spec2 and d.spec2.usedBy then d.spec2.usedBy[key] = nil end
+    end)
+    S.log("new character with a dead one's name:", key, "old record ->", archived)
+    return archived
+end
+
 function Store.player(player)
     local d = Store.data()
     local key = Store.playerKey(player)
     local ps = d.players[key]
+    if ps and ps.dead and aliveNow(player) then
+        Store.archiveDead(d, key)
+        ps = nil
+    end
     if not ps then
         ps = { pending = {}, days = {}, journal = {}, sleeps = {} }
         d.players[key] = ps

@@ -473,4 +473,34 @@ function T.waiving_in_shared_mode_is_unchanged()
     H.eq(ch("ray").trust, g0 + 2)
 end
 
+-- 같은 계정·같은 이름으로 다시 만든 캐릭터는 다른 캐릭터 (2026-10-18 인게임: 죽은 기록을 이어받아 개인 신뢰·센서에서 빠졌음)
+function T.remade_character_with_the_same_name_is_a_new_one()
+    local a, b, pa, pb = setup()
+    local Store = StoryEngine.Store
+    local key = pb.key
+    StoryEngine.Radio.channel("casey").heard = { [key] = true }
+    b.dead = true
+    StoryEngine.Journal.memoir(b, pb)
+    H.ok(pb.dead, "died")
+    H.eq(Store.player(b), pb, "while dead it is still the old record")
+    -- 같은 이름으로 새로 시작
+    b.dead = false
+    local fresh = Store.player(b)
+    H.ok(fresh ~= pb and not fresh.dead, "a fresh record")
+    H.eq(fresh.key, key, "same key for the new character")
+    H.eq(pb.key, key .. "#2", "old record moved aside")
+    H.eq(Store.data().players[key .. "#2"], pb)
+    H.ok(pb.dead and pb.name == fresh.name, "the memoir stays with the old one")
+    H.eq(StoryEngine.Radio.channel("casey").heard[key], nil, "contacts have not heard this one yet")
+    H.ok(Tr().addPersonal("casey", key, 2, "npc_completed") > 0, "personal trust works again")
+    H.eq(Tr().bonus("casey", { [key] = fresh.name }, 2, 0.5, "helped"), 1, "helper share works again")
+    H.eq(Store.player(b), fresh, "only once")
+    -- 두 번째로 죽고 다시 만들면 #3
+    b.dead = true
+    StoryEngine.Journal.memoir(b, fresh)
+    b.dead = false
+    Store.player(b)
+    H.ok(Store.data().players[key .. "#3"] == fresh)
+end
+
 return T
