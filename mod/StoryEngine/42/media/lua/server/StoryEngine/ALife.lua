@@ -521,7 +521,8 @@ function ALife.threatsTo(player)
     return out, event
 end
 
--- 플레이어에게 적대적인 A-Life 무리 위치 (케이시 정찰). 15타일 안끼리 한 무리로 묶는다: { x, y, n }
+-- 플레이어에게 적대적인 A-Life 무리 위치 (케이시 정찰). 15타일 안끼리 한 무리로 묶는다: { x, y, n, guns, auto }
+-- guns = 총을 가진 대원 수, auto = 그중 자동 사격이 되는 총을 가진 대원 수 (몸이 불러진 대원만 알 수 있다, ALife.armsOf)
 function ALife.hostileGroups(player, radius)
     local out = {}
     local pa = PA()
@@ -541,7 +542,10 @@ function ALife.hostileGroups(player, radius)
         end
         if not hostile then return end
         local x, y = positionOf(record)
-        if x and dist(x, y, px, py) <= radius then pts[#pts + 1] = { x = x, y = y } end
+        if x and dist(x, y, px, py) <= radius then
+            local okA, arms = pcall(ALife.armsOf, record.uid)
+            pts[#pts + 1] = { x = x, y = y, arms = okA and arms or nil }
+        end
     end)
     for _, pt in ipairs(pts) do
         local group = nil
@@ -552,8 +556,11 @@ function ALife.hostileGroups(player, radius)
             group.sx, group.sy, group.n = group.sx + pt.x, group.sy + pt.y, group.n + 1
             group.x, group.y = group.sx / group.n, group.sy / group.n
         else
-            out[#out + 1] = { x = pt.x, y = pt.y, sx = pt.x, sy = pt.y, n = 1 }
+            group = { x = pt.x, y = pt.y, sx = pt.x, sy = pt.y, n = 1, guns = 0, auto = 0 }
+            out[#out + 1] = group
         end
+        if pt.arms then group.guns = group.guns + 1 end
+        if pt.arms == "auto" then group.auto = group.auto + 1 end
     end
     return out
 end
@@ -587,6 +594,32 @@ local function gunsOf(shell)
         end
     end)
     return out
+end
+
+-- 총이 자동 사격을 할 수 있나 (사격 방식 가운데 Auto 가 있으면)
+local function autoCapable(w)
+    local yes = false
+    pcall(function()
+        local modes = w:getFireModePossibilities()
+        if not modes then return end
+        for i = 0, modes:size() - 1 do
+            if string.lower(tostring(modes:get(i) or "")) == "auto" then yes = true end
+        end
+    end)
+    return yes
+end
+ALife.autoCapable = autoCapable
+
+-- 이 대원의 무장 (케이시 정찰의 경보): "auto" 자동화기 | "gun" 다른 총 | nil 총 없음·몸이 안 불러짐
+function ALife.armsOf(uid)
+    local shell = uid and shellOf(uid)
+    if not shell then return nil end
+    local best = nil
+    for _, w in ipairs(gunsOf(shell)) do
+        if autoCapable(w) then return "auto" end
+        best = "gun"
+    end
+    return best
 end
 
 local function quiet(w)

@@ -80,6 +80,8 @@ Specialty.SCOUT_RADIUS = 150
 Specialty.SCOUT_RADIUS_ANTENNA = 250                   -- 케이시 중계 안테나 완성 후 (정찰 대기도 3 -> 2일)
 Specialty.SCOUT_REFRESH_MIN = 10
 Specialty.WARN_DIST = 40
+-- 자동화기를 든 적대 무리는 더 일찍, 인원과 자동화기 수를 함께 알린다 (2026-10-18 사용자 요청: A-Life 의 자동화기에 맥없이 죽는 일)
+Specialty.ARMED_WARN_DIST = 60
 Specialty.WARN_GAP_MIN = 30
 Specialty.CLUSTER_CELL = 10
 Specialty.CLUSTER_MIN = 15
@@ -570,8 +572,9 @@ function Specialty.scan(player, tier)
     local radius = scoutRadius()
     if tier >= 2 and ALife.enabled() and ALife.available() then
         for _, g in ipairs(ALife.hostileGroups(player, radius)) do
-            marks[#marks + 1] = { id = "A" .. math.floor(g.x / 20) .. "_" .. math.floor(g.y / 20), kind = "hostile",
-                                  x = math.floor(g.x), y = math.floor(g.y), n = g.n }
+            marks[#marks + 1] = { id = "A" .. math.floor(g.x / 20) .. "_" .. math.floor(g.y / 20),
+                                  kind = (g.auto or 0) > 0 and "armed" or "hostile",
+                                  x = math.floor(g.x), y = math.floor(g.y), n = g.n, guns = g.guns, auto = g.auto }
         end
     end
     if tier >= 3 then
@@ -611,6 +614,11 @@ local function warn(player, ps, m)
     local d = math.floor(math.sqrt(dx * dx + dy * dy) / 5) * 5
     local lt = { key = "IGUI_StoryEngine_Scout_Warn_" .. m.kind,
                  args = { { t = "dir", v = dirCode(dx, dy) }, { t = "num", v = d } } }
+    if m.kind == "armed" then
+        -- 인원·자동화기 수 (모르는 대원은 셈에서 빠진다)
+        lt.args[3] = { t = "num", v = m.n or 1 }
+        lt.args[4] = { t = "num", v = m.auto or 1 }
+    end
     if StoryEngine.Monologue and StoryEngine.Monologue.sayPrepared then
         StoryEngine.Monologue.sayPrepared(player, ps, "scout", lt)
     end
@@ -633,7 +641,8 @@ function Specialty.scoutTick(now)
             local ps = Store.player(player)
             for _, m in ipairs(marks) do
                 local last = sc.warned[m.id]
-                if dist(m.x, m.y, player:getX(), player:getY()) <= Specialty.WARN_DIST
+                local reach = m.kind == "armed" and Specialty.ARMED_WARN_DIST or Specialty.WARN_DIST
+                if dist(m.x, m.y, player:getX(), player:getY()) <= reach
                     and (not last or now.t - last >= Specialty.WARN_GAP_MIN) then
                     sc.warned[m.id] = now.t
                     warn(player, ps, m)

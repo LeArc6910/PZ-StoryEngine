@@ -19,7 +19,8 @@ StoryEngine.QuestMap = QuestMap
 
 QuestMap.SYMBOL = "Exclamation"
 QuestMap.COLOR = { 1.0, 0.55, 0.1 }
-QuestMap.SCOUT_COLOR = { hunt = { 0.9, 0.15, 0.15 }, hostile = { 0.8, 0.25, 0.85 }, horde = { 0.55, 0.05, 0.05 } }
+QuestMap.SCOUT_COLOR = { hunt = { 0.9, 0.15, 0.15 }, hostile = { 0.8, 0.25, 0.85 }, horde = { 0.55, 0.05, 0.05 },
+                         armed = { 1.0, 0.95, 0.2 } }     -- 자동화기를 든 적대 무리 (노랑)
 QuestMap.COLOR_SLACK = 0.02     -- 저장된 색은 1/255 단위라 조금 어긋난다
 
 local ACTIVE = { offered = true, approached = true, entered = true, retrieved = true, accepted = true }

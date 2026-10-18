@@ -640,4 +640,47 @@ function T.status_tells_what_using_it_costs()
     H.eq(before - res("hunter", "safety"), want)
 end
 
+-- 케이시 정찰: 자동화기를 든 적대 무리는 노란 표시, 60타일부터 인원·자동화기 수를 경고 (2026-10-18)
+function T.casey_scout_warns_of_automatic_guns()
+    local p = setup()
+    setTrust("casey", 85)
+    local function gun(auto)
+        return { isRanged = function() return true end,
+                 getFireModePossibilities = function() return H.list(auto and { "Single", "Auto" } or { "Single" }) end }
+    end
+    local function shell(w)
+        return { getPrimaryHandItem = function() return w end,
+                 getInventory = function() return { getItems = function() return H.list({}) end } end }
+    end
+    local records = {
+        { uid = "a1", lifecycle = "active", memory = { targetUsername = "tester" }, worldPosition = { x = 10050, y = 10000 } },
+        { uid = "a2", lifecycle = "active", memory = { targetUsername = "tester" }, worldPosition = { x = 10052, y = 10002 } },
+        { uid = "a3", lifecycle = "active", memory = { targetUsername = "tester" }, worldPosition = { x = 10051, y = 9998 } },
+        { uid = "b1", lifecycle = "active", memory = { targetUsername = "tester" }, worldPosition = { x = 10000, y = 10120 } },
+    }
+    ProjectALife = {
+        Runtime = { started = true }, Catalog = {},
+        DebugService = { spawnEncounter = function() return true end, watchGroup = function() end },
+        ActorRegistry = { each = function(fn) for _, r in ipairs(records) do fn(r) end end },
+        Watchdog = { bindings = { a1 = { shell = shell(gun(true)) }, a2 = { shell = shell(gun(false)) },
+                                  a3 = { shell = shell(nil) }, b1 = { shell = shell(gun(false)) } } },
+    }
+    local groups = StoryEngine.ALife.hostileGroups(p, 150)
+    H.eq(#groups, 2)
+    H.ok(S().request(p, "casey", {}))
+    local marks = H.sentOf("scoutMarks")[1].marks
+    local armed, plain = nil, nil
+    for _, m in ipairs(marks) do
+        if m.kind == "armed" then armed = m elseif m.kind == "hostile" then plain = m end
+    end
+    H.ok(armed and armed.n == 3 and armed.auto == 1 and armed.guns == 2, "three people, one automatic gun")
+    H.ok(plain and plain.n == 1, "the other group has no automatic gun")
+    local mono = H.sentOf("monologue")
+    H.eq(#mono, 1, "50 tiles away: warned already (60 tiles for automatic guns, 40 otherwise)")
+    H.eq(mono[1].lt.key, "IGUI_StoryEngine_Scout_Warn_armed")
+    H.eq(mono[1].lt.args[3].v, 3)
+    H.eq(mono[1].lt.args[4].v, 1)
+    ProjectALife = nil
+end
+
 return T

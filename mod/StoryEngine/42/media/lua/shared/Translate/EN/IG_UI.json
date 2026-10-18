@@ -415,6 +415,7 @@
     "IGUI_StoryEngine_Spec_Sent": "%1 is helping",
     "IGUI_StoryEngine_Scout_Warn_hunt": "That pack from the radio warning... %1, about %2 tiles.",
     "IGUI_StoryEngine_Scout_Warn_hostile": "The radio warned about this... armed people to the %1, about %2 tiles.",
+    "IGUI_StoryEngine_Scout_Warn_armed": "The ones the radio warned about. %1, about %2 tiles - %3 of them, %4 with automatic guns. Get to cover before they see me.",
     "IGUI_StoryEngine_Scout_Warn_horde": "The crowd marked on the map... %1, about %2 tiles.",
     "IGUI_StoryEngine_Life_Rec_specialty": "used their specialty for you",
     "IGUI_StoryEngine_Life_Rec_ray_supply": "had the farm bring supplies",

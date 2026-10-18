@@ -415,6 +415,7 @@
     "IGUI_StoryEngine_Spec_Sent": "%1에게 특기 지원을 받았다",
     "IGUI_StoryEngine_Scout_Warn_hunt": "무전으로 들은 그 무리야... %1쪽, %2타일쯤.",
     "IGUI_StoryEngine_Scout_Warn_hostile": "무전에서 경고한 놈들이 있어... %1쪽, %2타일쯤.",
+    "IGUI_StoryEngine_Scout_Warn_armed": "무전에서 경고한 놈들이야. %1쪽 %2타일쯤, %3명인데 자동화기가 %4정이야. 탁 트인 데서 마주치면 끝이야, 엄폐부터 하자.",
     "IGUI_StoryEngine_Scout_Warn_horde": "지도에 표시된 좀비 떼다... %1쪽, %2타일쯤.",
     "IGUI_StoryEngine_Life_Rec_specialty": "특기로 도와줌",
     "IGUI_StoryEngine_Life_Rec_ray_supply": "농장 편에 보급을 보내 줌",
