@@ -445,6 +445,18 @@ option StoryEngine.DonateGapDays
 	page = StoryEngineNPC, translation = StoryEngine_DonateGapDays,
 }
 
+option StoryEngine.VolunteerPerWeek
+{
+	type = integer, min = 0, max = 14, default = 2,
+	page = StoryEngineNPC, translation = StoryEngine_VolunteerPerWeek,
+}
+
+option StoryEngine.WorkPerWeek
+{
+	type = integer, min = 0, max = 14, default = 1,
+	page = StoryEngineNPC, translation = StoryEngine_WorkPerWeek,
+}
+
 option StoryEngine.SpecialtyCooldownMult
 {
 	type = double, min = 0.0, max = 5.0, default = 1.0,

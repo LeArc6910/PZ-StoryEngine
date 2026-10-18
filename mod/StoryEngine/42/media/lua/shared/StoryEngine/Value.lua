@@ -25,6 +25,20 @@ Value.SPECIAL = {}
 -- 오델 선장의 화폐 (Outsiders.lua): 한 장이 가치 1. 거래 대가로만, 어느 품목 자리에든 낸다
 Value.SCRIP = "StoryEngine.Scrip"
 Value.SPECIAL[Value.SCRIP] = 1
+-- 감염 진단 키트 (2026-10-18 사용자 요청): 의약품 3등급, 가치 10. 닥의 3등급 이상 의약품 거래에서만 판다 (Trade.POOL_OF)
+Value.TEST_KIT = "StoryEngine.InfectionTestKit"
+Value.SPECIAL[Value.TEST_KIT] = 10
+-- Zombie Virus Vaccine 모드의 물건 (같은 날): 알부민 3등급 10, 기본 백신 4등급 30, 품질 백신 5등급 60 (ItemPool.OWN_MEDICAL)
+Value.SPECIAL["LabItems.CmpAlbuminPills"] = 10
+Value.SPECIAL["LabItems.CmpSyringeWithPlainVaccine"] = 30
+Value.SPECIAL["LabItems.CmpSyringeWithQualityVaccine"] = 60
+-- 닥에게서 사기만 하는 물건: 거래 대가·선물·부탁 점수·물자 지원·프로젝트로 낼 수 없다
+-- (백신은 실험실에서 만들 수 있어 되팔면 신뢰도·물건을 찍어 내는 길이 된다)
+Value.SELL_ONLY = {
+    ["LabItems.CmpAlbuminPills"] = true,
+    ["LabItems.CmpSyringeWithPlainVaccine"] = true,
+    ["LabItems.CmpSyringeWithQualityVaccine"] = true,
+}
 
 -- 폭발물 (2026-10-03 점검): 군용 수류탄만 가치 20, 직접 만드는 화염병·폭죽·트랩 류는 3
 Value.MILITARY_EXPLOSIVES = { ["Base.BombBig"] = true, ["Base.BombSmall"] = true }
@@ -371,6 +385,7 @@ end
 -- 대가로 낼 수 있는 아이템인가: 분류가 맞고, 퀘스트 아이템이 아니고, 입고 있는 옷이 아니고, 채집·벌목 재료가 아니다
 function Value.payable(player, item, category)
     if Value.isFavorite(item) then return false end
+    if Value.SELL_ONLY[item:getFullType()] then return false end
     if Value.questLock(item) then return false end
     if Value.isRaw(item:getFullType()) then return false end
     if Value.ratio(item) <= 0 then return false end
@@ -385,6 +400,7 @@ end
 -- 밖에서 온 사람에게 선물로 보낼 수 있는 물건 (Outsiders.gift): 거래 품목이면 무엇이든. 화폐는 안 된다
 function Value.giftable(player, item)
     if Value.isFavorite(item) then return false end
+    if Value.SELL_ONLY[item:getFullType()] then return false end
     if Value.questLock(item) then return false end
     local ft = item:getFullType()
     if ft == Value.SCRIP or Value.isRaw(ft) then return false end
@@ -554,6 +570,7 @@ end
 -- 품목이 맞고 등급이 하한 이상
 function Value.pointPayable(player, item, kind, minTier)
     if Value.isFavorite(item) then return false end
+    if Value.SELL_ONLY[item:getFullType()] then return false end
     if activeQuestItem(item) then return false end
     local ft = item:getFullType()
     if Value.isRaw(ft) then return false end
@@ -588,6 +605,7 @@ end
 -- 물자 지원으로 보낼 수 있는 아이템인가: 퀘스트 아이템·입은 옷·가방·상한 음식이 아니고 받는 자원이 있다
 function Value.donatable(player, item)
     if Value.isFavorite(item) then return nil end
+    if Value.SELL_ONLY[item:getFullType()] then return nil end
     if activeQuestItem(item) then return nil end
     if player and (player:isEquippedClothing(item) or player:isEquipped(item)) then return nil end
     if instanceof(item, "Food") and item:isRotten() then return nil end
@@ -615,6 +633,10 @@ local function summaryOf(item)
     local out = {}
     local any = false
     local ratio = Value.ratio(item)
+    if Value.SELL_ONLY[ft] then
+        local okT, tier = pcall(Value.pointTier, ft)
+        return { category = cat, value = Value.of(ft) * ratio, tier = okT and tier or nil, sellOnly = true }
+    end
     if cat ~= "misc" then
         out.category, out.value = cat, Value.of(ft) * ratio
         out.wanted = Value.wantedBy(cat)
@@ -693,6 +715,7 @@ end
 -- 보낼 수 없는 물건: 퀘스트 아이템·입거나 든 것·가방·상한 음식
 local function locked(player, item)
     if Value.isFavorite(item) then return true end
+    if Value.SELL_ONLY[item:getFullType()] then return true end
     if activeQuestItem(item) then return true end
     if player and (player:isEquippedClothing(item) or player:isEquipped(item)) then return true end
     if instanceof(item, "Food") and item:isRotten() then return true end

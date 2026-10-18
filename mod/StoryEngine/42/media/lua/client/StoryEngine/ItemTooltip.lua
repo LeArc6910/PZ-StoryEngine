@@ -63,6 +63,14 @@ function ItemTooltip.lines(item)
         out[#out + 1] = { getText(s.raw == "made" and "IGUI_StoryEngine_Tip_RawMade" or "IGUI_StoryEngine_Tip_Raw"), DIM }
         return out
     end
+    if s.sellOnly then
+        -- 닥에게서 사기만 하는 물건 (백신·알부민): 대가·지원으로는 못 낸다
+        local cat = getText("IGUI_StoryEngine_Cat_" .. tostring(s.category))
+        if s.tier then cat = getText("IGUI_StoryEngine_Tip_CatTier", cat, StoryEngine.intToString(s.tier)) end
+        out[#out + 1] = { getText("IGUI_StoryEngine_Tip_Trade", cat, fmt(s.value)), COLOR }
+        out[#out + 1] = { getText("IGUI_StoryEngine_Tip_SellOnly", Factions.name("doc")), DIM }
+        return out
+    end
     if s.category then
         local cat = getText("IGUI_StoryEngine_Cat_" .. s.category)
         if s.tier then cat = getText("IGUI_StoryEngine_Tip_CatTier", cat, StoryEngine.intToString(s.tier)) end

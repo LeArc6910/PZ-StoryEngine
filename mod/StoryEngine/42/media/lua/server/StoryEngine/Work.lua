@@ -35,7 +35,7 @@ local log = StoryEngine.log
 local Work = {}
 StoryEngine.Work = Work
 
-Work.PER_WEEK = 2
+Work.PER_WEEK = 1                -- 샌드박스 WorkPerWeek (2026-10-18, 예전 2)
 Work.WEEK_MIN = 7 * 24 * 60
 Work.LABOR = { horde = true, scout = true, guard = true, courier = true }
 Work.LABOR_LIST = { "horde", "scout", "guard", "courier" }

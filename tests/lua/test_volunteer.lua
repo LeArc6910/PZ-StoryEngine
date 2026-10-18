@@ -143,4 +143,30 @@ function T.npc_reward_can_be_left_to_them()
     H.ok(not ok2 and why == "not_waivable")
 end
 
+-- 주마다 횟수는 샌드박스 VolunteerPerWeek (2026-10-18)
+function T.weekly_volunteer_limit_follows_the_sandbox()
+    local p = setup(30)
+    local Work = StoryEngine.Work
+    SandboxVars.StoryEngine = SandboxVars.StoryEngine or {}
+    SandboxVars.StoryEngine.VolunteerPerWeek = 1
+    StoryEngine.Tuning.apply()
+    H.eq(Work.VOLUNTEER_PER_WEEK, 1)
+    H.eq(Work.volunteerStatus("ray").left, 1)
+    H.ok(Work.volunteer(p, "ray", "horde"))
+    for _, q in pairs(StoryEngine.Store.data().quests) do
+        if q.kind == "volunteer" and q.state == "accepted" then
+            StoryEngine.Quests.setState(quest(q.workId), "completed", StoryEngine.Sensor.now(), nil)
+        end
+    end
+    local ok, why = Work.volunteer(p, "ray", "horde")
+    H.ok(not ok and why == "week", "one a week")
+    SandboxVars.StoryEngine.VolunteerPerWeek = 0
+    StoryEngine.Tuning.apply()
+    H.advance(7 * 24 * 60 + 1)
+    H.eq(Work.volunteerStatus("ray").why, "week", "0 turns it off")
+    SandboxVars.StoryEngine.VolunteerPerWeek = nil
+    StoryEngine.Tuning.apply()
+    H.eq(Work.VOLUNTEER_PER_WEEK, 2)
+end
+
 return T

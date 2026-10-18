@@ -1004,6 +1004,15 @@ local function toolClass(script, fullType, dc)
 end
 
 -- 의약품 등급과 가치. 의약품으로 치지 않는 것이면 misc
+-- 닥만 파는 의약품의 등급 (2026-10-18 사용자 요청, ItemTiers 는 생성 파일이라 여기에). 가치는 Value.SPECIAL.
+-- 감염 진단 키트(이 모드)와 Zombie Virus Vaccine 모드의 알부민·기본 백신·품질 백신 (그 모드가 없으면 풀에 안 들어감)
+ItemPool.OWN_MEDICAL = {
+    ["StoryEngine.InfectionTestKit"] = 3,
+    ["LabItems.CmpAlbuminPills"] = 3,
+    ["LabItems.CmpSyringeWithPlainVaccine"] = 4,
+    ["LabItems.CmpSyringeWithQualityVaccine"] = 5,
+}
+
 local function medicalClass(fullType)
     local Tiers = StoryEngine.ItemTiers
     if Tiers.MEDICAL_NO_USE[fullType] then return { category = "misc", value = nil } end
@@ -1090,6 +1099,9 @@ end
 
 function ItemPool.classify(fullType)
     ItemPool.build()
+    -- 닥만 파는 의약품: 분류 이름(백신 모드는 Laboratory)과 상관없이 그 등급의 의약품
+    local own = ItemPool.OWN_MEDICAL[fullType]
+    if own then return { category = "medical", value = ItemPool.MEDICAL_VALUE[math.min(own, 3)], tier = own } end
     -- 도구는 근접 무기 풀에 들어 있어도 도구로 친다
     local tscript = findScript(fullType)
     local tool = tscript and toolClass(tscript, fullType, tscript:getDisplayCategory()) or nil
@@ -1206,9 +1218,13 @@ function ItemPool.tradePool(name)
         for t, list in pairs(ItemPool.gunsByTier) do for _, ft in ipairs(list) do put(t, ft) end end
     elseif name == "ammo" then
         for _, g in pairs(ItemPool.guns) do put(g.ammoTier, g.box or g.round) end
-    elseif name == "medical" then
+    elseif name == "medical" or name == "medical_doc" then
         for ft, t in pairs(Tiers.MEDICAL) do put(t, ft) end
         for ft, t in pairs(ItemPool.runtime.medical) do put(t, ft) end
+        -- 닥의 의약품 거래에만: 이 모드의 의약품 (감염 진단 키트 3등급)
+        if name == "medical_doc" then
+            for ft, t in pairs(ItemPool.OWN_MEDICAL) do put(t, ft) end
+        end
     elseif name == "tools" then
         for ft, t in pairs(Tiers.TOOLS) do put(t, ft) end
         for ft, t in pairs(ItemPool.runtime.tools) do put(t, ft) end

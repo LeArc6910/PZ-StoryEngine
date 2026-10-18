@@ -53,6 +53,7 @@
     "ContextMenu_StoryEngine_World_day90": "Day 90",
     "ContextMenu_StoryEngine_World_day180": "Day 180",
     "ContextMenu_StoryEngine_ReadLetter": "Read letter",
+    "ContextMenu_StoryEngine_UseTestKit": "Use infection test kit",
     "ContextMenu_StoryEngine_Letter": "StoryEngine: gift drop with a letter from %1 now",
     "ContextMenu_StoryEngine_LetterFarewell": "StoryEngine: farewell letter from %1 now",
     "ContextMenu_StoryEngine_Grid_power": "Restore power (60 days)",

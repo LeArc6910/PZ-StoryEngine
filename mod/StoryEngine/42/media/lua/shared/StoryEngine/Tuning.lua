@@ -25,7 +25,7 @@ Tuning.DEFAULTS = {
     SpecialtyDays_dewey = 7, SpecialtyDays_guard = 7, SpecialtyDays_rats = 1, SpecialtyDays_hunter = 3,
     ZombieMult = 1, SafehouseRadius = 30, HuntSizeMult = 1, Extortion = true, StayHorde = true, StayHordeDays = 4, HeliGapDays = 5, RaidSizeMult = 1,
     LifeDrift = 5, LifeLossMult = 1, StarveDays = 3, NpcFateCause = 1, StoryPace = 2, SuccessorRule = 2,
-    ProjectGoal = 1000, ProjectDonateCap = 100, DonateGapDays = 3, Specialty2 = true, Project2Goal = 2000,
+    ProjectGoal = 1000, ProjectDonateCap = 100, DonateGapDays = 3, VolunteerPerWeek = 2, WorkPerWeek = 1, Specialty2 = true, Project2Goal = 2000,
     SpecialtyCooldownMult = 1, SpecialtyTrustOffset = 0, AutoSupportTrust = 70, AutoSupportDays = 7,
     AISaver = false, ContactHours = 5, SceneHours = 6, BanterHours = 3, LetterChance = 30,
     BroadcastHour = 19, BroadcastRerun = true,
@@ -171,6 +171,12 @@ function Tuning.apply()
     if S.Life then
         S.Life.DRIFT = math.max(0, Tuning.num("LifeDrift"))
         S.Life.DONATE_GAP_MIN = math.max(0, Tuning.num("DonateGapDays")) * 24 * 60
+    end
+    -- 일거리 청하기: NPC 마다 게임 7일에 몇 번 (0 = 쓰지 않음)
+    -- 거래 대가를 일·외상·빚으로: NPC 마다 게임 7일에 몇 번 (합쳐서, 0 = 쓰지 않음)
+    if S.Work then
+        S.Work.VOLUNTEER_PER_WEEK = math.max(0, math.min(14, math.floor(Tuning.num("VolunteerPerWeek"))))
+        S.Work.PER_WEEK = math.max(0, math.min(14, math.floor(Tuning.num("WorkPerWeek"))))
     end
     if S.Fate then S.Fate.STARVE_DAYS = math.max(1, Tuning.num("StarveDays")) end
     if S.Projects then

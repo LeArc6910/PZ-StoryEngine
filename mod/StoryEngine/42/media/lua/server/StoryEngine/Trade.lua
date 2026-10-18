@@ -426,7 +426,21 @@ Trade.BUDGET = {
 Trade.SPECIALIST = { doc = { medical = 1.3 }, hunter = { firearm = 1.3, melee = 1.3, food = 1.3 },
                      casey = { tools = 1.3 }, dewey = { tools = 1.3 } }
 -- 이 NPC 의 이 품목을 채우는 물건 풀 (ItemPool.tradePool 이름). 없으면 품목 이름 그대로
-Trade.POOL_OF = { casey = { tools = "electronics" }, dewey = { tools = "vehicle" } }
+Trade.POOL_OF = { casey = { tools = "electronics" }, dewey = { tools = "vehicle" }, doc = { medical = "medical_doc" } }
+-- 거래에서만 쓰는 풀: 퀘스트 보상(budget 을 준 생성)은 보통 풀로 (닥의 감염 진단 키트·백신은 거래로만)
+Trade.TRADE_ONLY_POOLS = { medical_doc = "medical" }
+-- 재고 한 번에 등급마다 묶음 하나에만 넣는 물건 (닥의 백신, 2026-10-18). 재고 밖의 생성(청한 물건 묶음의 채움·일로 갚은 덤)에는
+-- 넣지 않고, 청한 물건이 이것이면 그것이 든 재고 묶음을 꺼낸다 (Trade.wantedGoods)
+Trade.LIMITED = {
+    ["LabItems.CmpSyringeWithPlainVaccine"] = true,
+    ["LabItems.CmpSyringeWithQualityVaccine"] = true,
+}
+function Trade.hasLimited(goods)
+    for _, ft in ipairs(goods or {}) do
+        if Trade.LIMITED[ft] then return true end
+    end
+    return false
+end
 Trade.FILL_MAX = 15          -- 고정 물건 말고 채우는 물건 최대 개수
 Trade.FILL_KINDS = 5         -- 한 묶음의 물건 가짓수 (고정 물건 포함). 다 차면 넣은 물건을 더 넣는다
 
@@ -449,6 +463,17 @@ local function fillList(name, tier)
     end
     for _, side in pairs(out) do table.sort(side, function(a, b) return a[2] < b[2] end) end
     fillCache[key] = out
+    return out
+end
+
+-- 재고 묶음 하나 말고는 쓰지 않는 물건을 뺀 목록
+local function withoutLimited(lists)
+    local out = { van = {}, mod = {} }
+    for side, list in pairs(lists) do
+        for _, e in ipairs(list) do
+            if not Trade.LIMITED[e[1]] then out[side][#out[side] + 1] = e end
+        end
+    end
     return out
 end
 
@@ -477,15 +502,29 @@ end
 -- 묶음 하나를 실시간으로 만든다. 반환: 물건 fullType 목록 | nil (풀이 비었음)
 -- budget 을 주면 그 예산으로 (퀘스트 보상 Loot 가 쓴다), 아니면 거래 예산 x 전문가 배율
 -- anchor 를 주면 그 물건을 첫 물건으로 (플레이어가 청한 물건, Trade.findItem)
-function Trade.generate(category, tier, fid, budget, anchor)
+-- allowLimited: Trade.LIMITED 물건도 고른다 (재고를 채울 때 등급마다 첫 묶음만)
+function Trade.generate(category, tier, fid, budget, anchor, allowLimited)
     local IP = StoryEngine.ItemPool
     local name = (Trade.POOL_OF[fid] or {})[category] or category
+    if budget and Trade.TRADE_ONLY_POOLS[name] then name = Trade.TRADE_ONLY_POOLS[name] end
     local byTier = IP.tradePool(name)
     if not byTier then return nil end
     budget = budget or ((Trade.BUDGET[category] or Trade.BUDGET.tools)[tier] or 10)
         * (((Trade.SPECIALIST[fid] or {})[category]) or 1)
     if not anchor then
         local top = nil
+        local usable = byTier
+        if not allowLimited then
+            usable = {}
+            for t, list in pairs(byTier) do
+                local keep = {}
+                for _, ft in ipairs(list) do
+                    if not Trade.LIMITED[ft] then keep[#keep + 1] = ft end
+                end
+                usable[t] = keep
+            end
+        end
+        byTier = usable
         for t = tier, 1, -1 do
             if byTier[t] and #byTier[t] > 0 then
                 top = t
@@ -521,6 +560,7 @@ function Trade.generate(category, tier, fid, budget, anchor)
         return out
     end
     local lists = fillList(name, tier)
+    if not allowLimited then lists = withoutLimited(lists) end
     local kinds, seen = { { anchor, Value.of(anchor) } }, { [anchor] = true }
     for _ = 1, Trade.FILL_MAX do
         local left = budget - total
@@ -622,8 +662,9 @@ local function wantsItem(t)
 end
 
 -- 묶음 하나를 새로 만든다 (실시간 생성, 풀이 비었으면 예전 고정 표). 재고를 채울 때와 일로 갚은 덤에 쓴다
-function Trade.rollFresh(category, tier, fid)
-    local ok, made = pcall(Trade.generate, category, tier, fid)
+-- allowLimited: 재고의 등급마다 첫 묶음만 (Trade.LIMITED)
+function Trade.rollFresh(category, tier, fid, allowLimited)
+    local ok, made = pcall(Trade.generate, category, tier, fid, nil, nil, allowLimited)
     if ok and made and #made > 0 then return made end
     if not ok then log("trade generate failed:", fid, category, tier, tostring(made)) end
     local pool, special = Trade.poolFor(category, tier, fid)
@@ -741,7 +782,12 @@ function Trade.stock(fid)
                 local list, tries = {}, 0
                 while #list < stockBundles(fid) and tries < stockBundles(fid) * 4 do
                     tries = tries + 1
-                    local goods = Trade.rollFresh(cat, t, fid)
+                    -- 닥의 백신 같은 물건은 등급마다 한 묶음에만
+                    local limitedTaken = false
+                    for _, b in ipairs(list) do
+                        if Trade.hasLimited(b.goods) then limitedTaken = true end
+                    end
+                    local goods = Trade.rollFresh(cat, t, fid, not limitedTaken)
                     if goods and #goods > 0 then
                         goods = jitter(cat, goods)
                         local dup = false
@@ -868,6 +914,27 @@ local function soldOut(fid, category, tier)
     return { category = category, tier = tier, soldOut = true, restock = Trade.restockIn(fid) }
 end
 
+-- 청한 물건이 든 묶음. 반환: 물건, 재고 표시 | "sold_out", 그 묶음의 등급(재고에서 꺼냈을 때)
+-- 보통은 그 물건을 첫 물건으로 새로 만들고, Trade.LIMITED 물건이면 그것이 든 재고 묶음(안 팔렸고 남이 잡지 않은 것)을 꺼낸다
+function Trade.wantedGoods(category, tier, fid, wanted)
+    if not Trade.LIMITED[wanted.ft] then
+        return Trade.generate(category, tier, fid, nil, wanted.ft), nil, nil
+    end
+    local st = Trade.stock(fid)
+    local list = st and st.cats[wanted.category] and st.cats[wanted.category][wanted.tier] or {}
+    for i, b in ipairs(list) do
+        if not b.sold and not Trade.reserved(fid, wanted.category, wanted.tier, i, st.seq) then
+            for _, ft in ipairs(b.goods or {}) do
+                if ft == wanted.ft then
+                    local goods, ref = Trade.roll(wanted.category, wanted.tier, fid, i)
+                    if goods then return goods, ref, wanted.tier end
+                end
+            end
+        end
+    end
+    return nil, "sold_out", wanted.tier
+end
+
 -- AI 답장의 trade 필드로 거래 제안(offer) 또는 무상 제공(gift)을 만든다. 반환: 퀘스트, "offer" | "gift" / 없으면 nil
 function Trade.fromReply(fid, ps, trade, ctx)
     if type(trade) ~= "table" or not ps then return nil end
@@ -919,7 +986,9 @@ function Trade.fromReply(fid, ps, trade, ctx)
             tier = math.min(tier, ctx.freeMaxTier)
             local gifts, gref
             if wanted then
-                gifts = Trade.generate(trade.category, tier, fid, nil, wanted.ft)
+                local gt
+                gifts, gref, gt = Trade.wantedGoods(trade.category, tier, fid, wanted)
+                if gt then tier = gt end
             else
                 gifts, gref = Trade.roll(trade.category, tier, fid, trade.bundle)
             end
@@ -942,7 +1011,9 @@ function Trade.fromReply(fid, ps, trade, ctx)
     end
     local goods, ref
     if wanted then
-        goods = Trade.generate(trade.category, tier, fid, nil, wanted.ft)
+        local wt
+        goods, ref, wt = Trade.wantedGoods(trade.category, tier, fid, wanted)
+        if wt then tier = wt end
     else
         goods, ref = Trade.roll(trade.category, tier, fid, trade.bundle)
     end
@@ -1170,7 +1241,9 @@ function Trade.negotiate(fid, ps, trade)
         end
         local goods, ref
         if wanted then
-            goods = Trade.generate(category, tier, fid, nil, wanted.ft)
+            local wt
+            goods, ref, wt = Trade.wantedGoods(category, tier, fid, wanted)
+            if wt then tier = wt end
         else
             goods, ref = Trade.roll(category, tier, fid)
         end
@@ -1317,7 +1390,10 @@ function Trade.marketOffers(ps, offers, selling, player)
                 local lastPrice = nil
                 while tier >= 1 do
                     if wanted then
-                        goods, ref = Trade.generate(o.category, tier, fid, nil, wanted.ft), nil
+                        local wt
+                        goods, ref, wt = Trade.wantedGoods(o.category, tier, fid, wanted)
+                        if wt then tier = wt end
+                        if ref == "sold_out" then ref = nil end
                     else
                         goods, ref = Trade.roll(o.category, tier, fid)
                     end

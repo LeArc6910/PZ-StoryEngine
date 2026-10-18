@@ -203,4 +203,136 @@ function T.stock_uses_generated_bundles()
     restore()
 end
 
+-- 감염 진단 키트 (2026-10-18): 닥의 3등급 이상 의약품 거래에만, 가치 10. 다른 NPC·보상에는 없음
+function T.test_kit_only_in_docs_trades()
+    install()
+    local KIT = "StoryEngine.InfectionTestKit"
+    local Trade, IP = StoryEngine.Trade, StoryEngine.ItemPool
+    local find = getScriptManager().FindItem
+    getScriptManager = function()
+        return { FindItem = function(self, ft)
+            if ft == KIT then
+                return { getExistsAsVanilla = function() return false end, getDisplayCategory = function() return "FirstAid" end }
+            end
+            return find(self, ft)
+        end }
+    end
+    H.defineItem(KIT, "medical", 10, 3)
+    IP.resetTradePools()
+    Trade.resetFill()
+    local function has(list, ft) for _, x in ipairs(list or {}) do if x == ft then return true end end return false end
+    H.ok(has(IP.tradePool("medical_doc")[3], KIT), "in Doc's tier 3 pool")
+    H.ok(not has(IP.tradePool("medical")[3], KIT), "not in the shared medical pool")
+    local seen = false
+    for _ = 1, 80 do
+        if has(Trade.generate("medical", 3, "doc"), KIT) then seen = true end
+        H.ok(not has(Trade.generate("medical", 2, "doc"), KIT), "not below tier 3")
+        H.ok(not has(Trade.generate("medical", 3, "ray"), KIT), "only Doc sells it")
+        H.ok(not has(Trade.generate("medical", 3, "doc", 20), KIT), "not in rewards")
+    end
+    H.ok(seen, "Doc's tier 3 bundles sometimes have it")
+    restore()
+end
+
+-- 백신 모드 물건 (2026-10-18): 알부민 3등급 10, 기본 백신 4등급 30, 품질 백신 5등급 60. 닥만, 재고에는 등급마다 한 묶음만,
+-- 닥에게서 사기만 하고 대가·지원으로는 못 낸다
+local LAB = { ["LabItems.CmpAlbuminPills"] = { 3, 10 }, ["LabItems.CmpSyringeWithPlainVaccine"] = { 4, 30 },
+              ["LabItems.CmpSyringeWithQualityVaccine"] = { 5, 60 } }
+local function installLab()
+    install()
+    local IP = StoryEngine.ItemPool
+    local find = getScriptManager().FindItem
+    getScriptManager = function()
+        return { FindItem = function(self, ft)
+            if LAB[ft] then
+                return { getExistsAsVanilla = function() return false end, getDisplayCategory = function() return "Laboratory" end }
+            end
+            return find(self, ft)
+        end }
+    end
+    for ft, d in pairs(LAB) do H.defineItem(ft, "medical", d[2], d[1]) end
+    IP.resetTradePools()
+    StoryEngine.Trade.resetFill()
+end
+local function count(goods, ft)
+    local n = 0
+    for _, x in ipairs(goods or {}) do if x == ft then n = n + 1 end end
+    return n
+end
+local PLAIN, QUALITY = "LabItems.CmpSyringeWithPlainVaccine", "LabItems.CmpSyringeWithQualityVaccine"
+
+function T.vaccines_are_one_bundle_per_restock_at_doc()
+    installLab()
+    H.addPlayer("tester", "Gerald", "Kar")
+    local Trade = StoryEngine.Trade
+    for _ = 1, 10 do
+        StoryEngine.Radio.channel("doc").stock = nil
+        local st = Trade.stock("doc")
+        for tier, ft in pairs({ [4] = PLAIN, [5] = QUALITY }) do
+            local with = 0
+            for _, b in ipairs(st.cats.medical[tier]) do
+                if count(b.goods, ft) > 0 then with = with + 1 end
+                H.ok(count(b.goods, PLAIN) + count(b.goods, QUALITY) <= 1, "one vaccine at most in a bundle")
+            end
+            H.eq(with, 1, "one bundle of tier " .. tier .. " has the vaccine")
+        end
+        for _, b in ipairs(st.cats.medical[3]) do
+            H.eq(count(b.goods, PLAIN) + count(b.goods, QUALITY), 0, "no vaccine below tier 4")
+        end
+    end
+    StoryEngine.Radio.channel("ray").stock = nil
+    for _, list in pairs(Trade.stock("ray").cats.medical or {}) do
+        for _, b in ipairs(list) do H.eq(count(b.goods, PLAIN) + count(b.goods, QUALITY), 0, "only Doc sells vaccines") end
+    end
+    -- 재고 밖의 생성(보상·덤·청한 물건의 채움)에는 백신이 없다
+    for _ = 1, 30 do
+        H.eq(count(Trade.generate("medical", 5, "doc", 80), QUALITY), 0, "not in rewards")
+        H.eq(count(Trade.rollFresh("medical", 5, "doc"), QUALITY) + count(Trade.rollFresh("medical", 4, "doc"), PLAIN), 0,
+            "not in work bonuses")
+        H.eq(count(Trade.generate("medical", 5, "doc", nil, "Base.Tweezers"), QUALITY), 0, "not as filler")
+    end
+    restore()
+end
+
+function T.asking_for_a_vaccine_takes_the_stock_bundle()
+    installLab()
+    H.addPlayer("tester", "Gerald", "Kar")
+    local Trade = StoryEngine.Trade
+    StoryEngine.Radio.channel("doc").stock = nil
+    local wanted = { ft = PLAIN, category = "medical", tier = 4, maxTier = 5 }
+    local goods, ref, tier = Trade.wantedGoods("medical", 5, "doc", wanted)
+    H.ok(goods and count(goods, PLAIN) == 1, "the bundle with the vaccine")
+    H.eq(tier, 4)
+    H.ok(type(ref) == "table" and ref.tier == 4)
+    Trade.markSold("doc", ref)
+    local again, why = Trade.wantedGoods("medical", 5, "doc", wanted)
+    H.eq(again, nil)
+    H.eq(why, "sold_out", "until the next restock")
+    restore()
+end
+
+function T.vaccines_cannot_be_handed_over()
+    installLab()
+    local p = H.addPlayer("tester", "Gerald", "Kar")
+    local V = StoryEngine.Value
+    for ft in pairs(LAB) do
+        local it = H.give(p, ft)
+        H.eq(V.payable(p, it, "medical"), false, ft .. " not as payment")
+        H.eq(V.donatable(p, it), nil, "not as support")
+        H.eq(V.pointPayable(p, it, "medical"), false, "not for requests")
+        H.eq(V.giftable(p, it), false, "not as a gift")
+        H.eq(V.projectItem(p, it, { res = "medical" }), nil, "not for projects")
+        local s = V.summary(it)
+        H.ok(s and s.sellOnly, "tooltip says so")
+    end
+    H.eq(V.of(PLAIN), 30)
+    H.eq(V.of(QUALITY), 60)
+    H.eq(V.of("LabItems.CmpAlbuminPills"), 10)
+    local c = StoryEngine.ItemPool.classify(QUALITY)
+    H.ok(c.category == "medical" and c.tier == 5, "medical tier 5 whatever its category name")
+    V.cache[PLAIN] = nil
+    H.eq(V.of(PLAIN), 30, "value from the table")
+    restore()
+end
+
 return T

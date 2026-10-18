@@ -298,6 +298,31 @@ function Commands.debugBroadcast(player, args)
 end
 
 -- 편지 읽기: args = { id = modData.storyLetter, qid = modData.storyQuest }
+-- 감염 진단 키트 (2026-10-18): 쓰면 사라지고 지금 감염됐는지·진행도(감염 뒤 지난 시간 / 죽기까지 시간)를 알려 준다.
+-- 판정은 서버의 몸 상태로 (멀티 클라이언트는 감염을 모를 수 있다). 건강 염려증의 가짜 감염은 음성
+function Commands.testKitUse(player, args)
+    local inv = player and player:getInventory()
+    if not inv then return end
+    local ok, item = pcall(function() return inv:getItemWithIDRecursiv(tonumber(args and args.id) or -1) end)
+    if not ok or not item or item:getFullType() ~= StoryEngine.Value.TEST_KIT then
+        reply(player, "testKitResult", { error = "missing" })
+        return
+    end
+    StoryEngine.Items.remove(item, player)
+    local body = player:getBodyDamage()
+    local infected = body and body:isInfected() or false
+    local pct = nil
+    if infected then
+        local span = body:getInfectionMortalityDuration()
+        if span and span > 0 then
+            local rate = (player:getHoursSurvived() - body:getInfectionTime()) / span
+            pct = math.max(0, math.min(99, math.floor(rate * 100)))
+        end
+    end
+    log("test kit", player:getUsername(), infected and ("positive " .. tostring(pct)) or "negative")
+    reply(player, "testKitResult", { infected = infected or nil, pct = pct })
+end
+
 function Commands.letterRead(player, args)
     local info, why = StoryEngine.Letters.read(player, args.id, args.qid)
     reply(player, "letterText", info or { error = tostring(why) })

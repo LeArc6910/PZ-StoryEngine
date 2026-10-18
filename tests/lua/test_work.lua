@@ -86,7 +86,7 @@ function T.options_follow_the_npc_and_trust()
     end
     H.eq(n, 3, "work (one button), credit, favor")
     H.ok(by.labor and by.labor.ok and by.credit and by.credit.ok and by.favor and by.favor.ok)
-    H.eq(left, 2)
+    H.eq(left, 1, "one a week by default")
     StoryEngine.Radio.channel("ray").trust = 45
     opts = StoryEngine.Work.options(q)
     for _, o in ipairs(opts) do by[o.how] = o end
@@ -188,13 +188,23 @@ function T.horde_work_completes_without_its_own_reward()
     H.ok(#deliveries[1].items > #q.goods and q.workBonus, "hard job: goods plus extra")
 end
 
-function T.weekly_limit_two_per_npc()
+function T.weekly_limit_per_npc()
     local p, _, q = setup("ray", 65)
     local ch = StoryEngine.Radio.channel("ray")
     local t = StoryEngine.Sensor.now().t
-    ch.workLog = { t - 10, t - 20 }
+    ch.workLog = { t - 10 }
     local ok, why = StoryEngine.Work.choose(p, q.id, "labor")
-    H.ok(not ok and why == "week")
+    H.ok(not ok and why == "week", "one a week by default")
+    -- 샌드박스 WorkPerWeek (2026-10-18)
+    SandboxVars.StoryEngine = SandboxVars.StoryEngine or {}
+    SandboxVars.StoryEngine.WorkPerWeek = 2
+    StoryEngine.Tuning.apply()
+    H.ok(StoryEngine.Work.check("ray", "labor"), "two allowed now")
+    ch.workLog = { t - 10, t - 20 }
+    H.ok(not StoryEngine.Work.check("ray", "labor"))
+    SandboxVars.StoryEngine.WorkPerWeek = nil
+    StoryEngine.Tuning.apply()
+    H.eq(StoryEngine.Work.PER_WEEK, 1)
     H.advanceDays(7)
     H.ok(StoryEngine.Work.check("ray", "labor"), "a week later it opens again")
 end

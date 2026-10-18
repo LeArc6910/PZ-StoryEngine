@@ -1329,4 +1329,16 @@ function T.second_specialty_description_shows_the_set_wait()
     SandboxVars.StoryEngine.Spec2Days_sos, SandboxVars.StoryEngine.SpecialtyCooldownMult = nil, nil
 end
 
+-- 감염 진단 키트 결과 문장 (2026-10-18)
+function T.test_kit_result_text()
+    H.bootClient()
+    local K = StoryEngine.TestKit
+    local text, good = K.resultText({ infected = true, pct = 42 })
+    H.ok(string.find(text, "IGUI_StoryEngine_TestKit_Positive", 1, true) and not good, text)
+    H.ok(select(2, K.resultText({})), "negative is good news")
+    H.ok(string.find(K.resultText({ infected = true }), "PositiveUnknown", 1, true))
+    H.ok(K.kitOf({ H.newItem("StoryEngine.InfectionTestKit") }))
+    H.eq(K.kitOf({ H.newItem("Base.Bandage") }), nil)
+end
+
 return T

@@ -53,6 +53,7 @@
     "ContextMenu_StoryEngine_World_day90": "90일째",
     "ContextMenu_StoryEngine_World_day180": "180일째",
     "ContextMenu_StoryEngine_ReadLetter": "편지 읽기",
+    "ContextMenu_StoryEngine_UseTestKit": "감염 진단 키트 사용",
     "ContextMenu_StoryEngine_Letter": "StoryEngine: %1의 편지가 든 선물 보급 (바로)",
     "ContextMenu_StoryEngine_LetterFarewell": "StoryEngine: %1의 마지막 편지 (바로)",
     "ContextMenu_StoryEngine_Grid_power": "전기 복구 (60일)",

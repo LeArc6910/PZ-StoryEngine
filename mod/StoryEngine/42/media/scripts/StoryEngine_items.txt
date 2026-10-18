@@ -27,6 +27,16 @@ module StoryEngine
         WorldStaticModel = Parcel5,
     }
 
+    item InfectionTestKit
+    {
+        DisplayName = Infection Test Kit,
+        DisplayCategory = FirstAid,
+        ItemType = base:normal,
+        Weight = 0.1,
+        Icon = AlcoholWipes,
+        WorldStaticModel = AlcoholWipes,
+    }
+
     item Letter
     {
         DisplayName = Handwritten Letter,
