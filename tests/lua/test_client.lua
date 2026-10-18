@@ -1341,4 +1341,47 @@ function T.test_kit_result_text()
     H.eq(K.kitOf({ H.newItem("Base.Bandage") }), nil)
 end
 
+-- 관리자는 디버그 모드가 아니어도 디버그 메뉴, 1차 특기 툴팁의 대기 (2026-10-18)
+function T.admin_sees_debug_menu_and_specialty_waits()
+    H.bootClient()
+    local C = StoryEngine.Client
+    local oldDebug, oldClient, oldAdmin = getDebug, isClient, isAdmin
+    getDebug = function() return false end
+    isClient = function() return true end
+    isAdmin = function() return true end
+    H.ok(C.showDebugMenu(), "admin in multiplayer")
+    isAdmin = function() return false end
+    H.ok(not C.showDebugMenu(), "a plain player does not")
+    getDebug, isClient, isAdmin = oldDebug, oldClient, oldAdmin
+    local desc = StoryEngine.UI.specDesc({ id = "hunter", spec = { days = 4.5 } })
+    H.ok(string.find(desc, "IGUI_StoryEngine_Spec_WaitDays|4.5", 1, true) ~= nil, desc)
+    H.ok(string.find(StoryEngine.UI.specDesc({ id = "rats", spec = { days = 0 } }), "Spec_NoWait", 1, true) ~= nil)
+end
+
+function T.tooltips_follow_the_sandbox()
+    H.bootClient()
+    local UI = StoryEngine.UI
+    local SV = SandboxVars.StoryEngine
+    SV.SpecialtyTrustOffset, SV.DonateGapDays, SV.ProjectDonateCap, SV.StarveDays = 10, 5, 150, 4
+    SV.SpecialtyDays_casey, SV.VolunteerPerWeek, SV.OutsiderDays_proxy = 6, 3, 20
+    SV.CouncilSiege, SV.ZombieMult, SV.CouncilRetryDays = 500, 2, 0
+    local has = function(s, part) H.ok(string.find(s, part, 1, true) ~= nil, s .. " / " .. part) end
+    has(UI.specDesc({ id = "doc", spec = { days = 7 } }), "Spec_Desc_doc|50|70|90")
+    has(UI.specDesc({ id = "doc", spec = { days = 7, tiers = { 45, 65, 85 } } }), "Spec_Desc_doc|45|65|85")
+    has(UI.specError("low_trust", 0, nil), "Spec_Error_low_trust|0|50|70|90")
+    has(UI.donateTip({}), "Life_DonateTooltip|5")
+    has(UI.projectTip({ project = { goal = 2000 } }), "Project_Tooltip|2000|5|150")
+    has(UI.projectTip({ personalMode = true }), "Project_Tooltip_Personal|1000|5|150")
+    has(UI.starveText(1), "Fate_Starving|1|4")
+    has(UI.projectEffect("casey"), "Project_Effect_casey|6|4")
+    has(StoryEngine.OutsidersClient.sideTip("hale"), "Out_Side_Out_hale|20|10|7|4")
+    has(UI.earlyCouncilWarn(), "Politics_EarlyWarn|1000|IGUI_StoryEngine_Politics_EarlyWarn_NoRetry")
+    SV.CouncilRetryDays = 45
+    has(UI.earlyCouncilWarn(), "Politics_EarlyWarn_Retry|45")
+    for _, k in ipairs({ "SpecialtyTrustOffset", "DonateGapDays", "ProjectDonateCap", "StarveDays", "SpecialtyDays_casey",
+                         "VolunteerPerWeek", "OutsiderDays_proxy", "CouncilSiege", "ZombieMult", "CouncilRetryDays" }) do
+        SV[k] = nil
+    end
+end
+
 return T

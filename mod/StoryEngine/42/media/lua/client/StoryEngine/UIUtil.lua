@@ -163,6 +163,89 @@ function UI.daysText(d)
     return tostring(d)
 end
 
+-- 1차 특기 구간의 신뢰도 (서버가 보낸 n.spec.tiers, 없으면 40/60/80 + 샌드박스 SpecialtyTrustOffset)
+UI.SPEC_TIERS = { 40, 60, 80 }
+function UI.specTiers(n)
+    local t = n and n.spec and n.spec.tiers
+    if type(t) == "table" and t[3] then return t end
+    local Tuning = StoryEngine.Tuning
+    local off = Tuning and Tuning.num("SpecialtyTrustOffset") or 0
+    local out = {}
+    for i, v in ipairs(UI.SPEC_TIERS) do out[i] = math.max(0, math.min(100, v + off)) end
+    return out
+end
+
+-- 1차 특기를 못 쓰는 이유: %1 남은 시간, %2~%4 구간 신뢰도
+function UI.specError(reason, wait, n)
+    local t = UI.specTiers(n)
+    local i = StoryEngine.intToString
+    return getText("IGUI_StoryEngine_Spec_Error_" .. tostring(reason), i(wait or 0), i(t[1]), i(t[2]), i(t[3]))
+end
+
+-- 샌드박스 값을 넣어야 하는 툴팁 (2026-10-19 점검: 설정을 바꿔도 문구가 그대로였던 곳)
+local function tune(name, fallback)
+    local Tuning = StoryEngine.Tuning
+    local v = Tuning and Tuning.num(name)
+    if v == nil then return fallback end
+    return v
+end
+UI.tune = tune
+
+-- 물자 지원·프로젝트 지원 툴팁: 지원 기간(DonateGapDays), 프로젝트 목표(이 프로젝트의 goal)·한 번 최대(ProjectDonateCap)
+function UI.donateTip(n)
+    return getText(n.personalMode and "IGUI_StoryEngine_Life_DonateTooltip_Personal" or "IGUI_StoryEngine_Life_DonateTooltip",
+        UI.daysText(math.max(0, tune("DonateGapDays", 3))))
+end
+function UI.projectTip(n)
+    local pr = n.project or {}
+    local goal = pr.goal or math.max(100, math.floor(tune("ProjectGoal", 1000)))
+    return getText(n.personalMode and "IGUI_StoryEngine_Project_Tooltip_Personal" or "IGUI_StoryEngine_Project_Tooltip",
+        StoryEngine.intToString(goal), UI.daysText(math.max(0, tune("DonateGapDays", 3))),
+        StoryEngine.intToString(math.max(10, math.floor(tune("ProjectDonateCap", 100)))))
+end
+
+-- 장기 프로젝트 완성 효과 (케이시: 정찰 대기 SpecialtyDays_casey x 배율 -> x2/3)
+UI.ANTENNA_COOLDOWN = 2 / 3
+function UI.projectEffect(id)
+    local key = "IGUI_StoryEngine_Project_Effect_" .. tostring(id)
+    if id ~= "casey" then return getText(key) end
+    local Tuning = StoryEngine.Tuning
+    local days = math.max(0, tune("SpecialtyDays_casey", 3)) * (Tuning and Tuning.cooldownMult() or 1)
+    return getText(key, UI.daysText(days), UI.daysText(days * UI.ANTENNA_COOLDOWN))
+end
+
+-- 모든 형편이 바닥: %1 지금 며칠째, %2 떠나는 날 (StarveDays)
+function UI.starveText(day)
+    return getText("IGUI_StoryEngine_Fate_Starving", StoryEngine.intToString(day or 0),
+        StoryEngine.intToString(math.max(1, math.floor(tune("StarveDays", 3)))))
+end
+
+-- 이른 카운티 회의 경고: 몰려오는 망자 수(CouncilSiege x ZombieMult), 다시 여는 날(CouncilRetryDays)
+function UI.earlyCouncilWarn()
+    local Tuning = StoryEngine.Tuning
+    local n = tune("CouncilSiege", 1000)
+    local m = Tuning and tonumber(Tuning.get("ZombieMult")) or 1
+    local total = math.max(50, math.floor(n * m + 0.5))
+    local retry = math.floor(tune("CouncilRetryDays", 30))
+    local again = retry > 0 and getText("IGUI_StoryEngine_Politics_EarlyWarn_Retry", StoryEngine.intToString(retry))
+        or getText("IGUI_StoryEngine_Politics_EarlyWarn_NoRetry")
+    return getText("IGUI_StoryEngine_Politics_EarlyWarn", StoryEngine.intToString(total), again)
+end
+
+-- 1차 특기 설명 + 지금 대기 일수 (서버가 보낸 n.spec.days: 샌드박스 SpecialtyDays_<npc> x 배율, 프로젝트·법안 반영)
+-- 설명 속 구간 신뢰도는 %1/%2/%3
+function UI.specDesc(n)
+    local t = UI.specTiers(n)
+    local i = StoryEngine.intToString
+    local desc = getText("IGUI_StoryEngine_Spec_Desc_" .. tostring(n and n.id), i(t[1]), i(t[2]), i(t[3]))
+    local days = n and n.spec and n.spec.days
+    if days then
+        desc = desc .. " " .. (days > 0 and getText("IGUI_StoryEngine_Spec_WaitDays", UI.daysText(days))
+            or getText("IGUI_StoryEngine_Spec_NoWait"))
+    end
+    return desc
+end
+
 -- 2차 특기 설명 + 지금 설정의 대기 일수 (샌드박스 Spec2Days_<특기> x 특기 대기 배율)
 function UI.spec2Desc(opt)
     local desc = getText("IGUI_StoryEngine_Spec2_Desc_" .. tostring(opt))

@@ -355,7 +355,7 @@ local function startDropoff(trade, pickup, t, carrier)
     if carrier and Hunt then
         local tier = math.max(1, math.min(Quests.MAX_TIER, trade.tier or 1))
         local size = math.max(4, math.floor(Hunt.sizeNow() * (Work.COURIER_HUNT[1] + Work.COURIER_HUNT[2] * tier) + 0.5))
-        local ok, err = pcall(Hunt.sendAt, carrier, "work_courier", size)
+        local ok, err = pcall(Hunt.sendAt, carrier, "work_courier", size, q.id)     -- 배달을 마치면 멈춘다
         if ok then q.hunted = size else log("work courier hunt error:", err) end
         log("work courier hunt", q.id, size)
     end
@@ -911,7 +911,7 @@ function Work.tick(entries, t)
             if target and StoryEngine.Hunt and (q.waves or 0) < most then
                 local angle = ZombRandFloat(0, math.pi * 2)
                 local d = ZombRand(45, 66)
-                StoryEngine.Hunt.start(target, size, q.cx + math.cos(angle) * d, q.cy + math.sin(angle) * d, "work_guard")
+                StoryEngine.Hunt.start(target, size, q.cx + math.cos(angle) * d, q.cy + math.sin(angle) * d, "work_guard", q.id)
                 Work.say(q, "guard_wave", { num((q.waves or 0) + 1), num(most), num(size),
                     { t = "dir", v = dirCode(math.cos(angle), math.sin(angle)) } }, "A pack is coming.")
                 q.waves = (q.waves or 0) + 1

@@ -661,7 +661,7 @@ function Ops.tick(entries, now)
                     local size = math.max(4, math.floor(StoryEngine.Hunt.sizeNow() * (a.waveShare or 0.4) + 0.5))
                     local angle = ZombRandFloat(0, math.pi * 2)
                     local d = ZombRand(45, 66)
-                    StoryEngine.Hunt.start(target, size, q.cx + math.cos(angle) * d, q.cy + math.sin(angle) * d, "operation")
+                    StoryEngine.Hunt.start(target, size, q.cx + math.cos(angle) * d, q.cy + math.sin(angle) * d, "operation", q.id)
                     q.waves = (q.waves or 0) + 1
                     q.nextWaveT = now.t + (a.wave or 45)
                     log("ops wave", op.id, q.waves, size)

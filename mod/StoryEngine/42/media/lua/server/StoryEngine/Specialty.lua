@@ -3,13 +3,13 @@
 -- 거점 탭의 [특기] 버튼으로 요청한다. 공통 조건: 신뢰도 40 이상(구간 40~59 = 1, 60~79 = 2, 80~ = 3), 핵심 생활 자원 20 이상,
 -- NPC 별 대기 시간(서버 전체). 쓰면 핵심 자원 -10(구간 3은 -15), 행적·일지, NPC 무전 연기. 특기별 조건이 안 되면
 -- 아무것도 쓰지 않고 이유만 알린다. 플레이어 대가는 없다.
---   guard  A-Life 분대(4/6/8명·2/4/6시간), A-Life 가 없으면 저격 10/20/30
+--   guard  A-Life 분대(4/6/8명·2/4/6시간), A-Life 가 없으면 저격 40/60/80
 --   doc    치료 (클라이언트에서 10초 가만히 있으면 specHealDone -> 서버가 상처를 고치고 syncBodyPart)
 --   dewey  1~2시간 뒤 가까운 차량 수리
 --   casey  3/6/12시간 정찰: 추적 무리 / + 적대 A-Life 무리 / + 좀비 밀집, 지도 표시와 혼잣말 경고
 --   ray    다른 NPC 의 부족한 자원에 +50/75/100 (레이 식량 -15)
 --   pike   스트레스·불행·지루함 감소, 공포·근육통 없음 3/6/12시간
---   hunter 저격 10/20/30 (30분에 나눠)
+--   hunter 저격 20/30/40 (30분에 나눠)
 --   rats   60~80타일 밖 미끼 소음
 -- 저격은 요청한 클라이언트가 좀비를 쓰러뜨리고 총성은 그 플레이어만 듣는다 (실제 소음 판정 없음, 좀비를 끌지 않는다).
 
@@ -57,8 +57,9 @@ Specialty.ANTENNA_COOLDOWN = 2 / 3                     -- 케이시 안테나 �
 Specialty.COST = { 10, 10, 15 }                        -- 구간별 핵심 자원 소모
 Specialty.SQUAD_LEVEL = { 1, 3, 5 }                    -- 방위대 분대 시간: ALife.HOURS 의 칸 -> 2/4/6시간
 Specialty.SQUAD_SIZE = { 2, 4, 6 }                     -- 방위대 분대 인원 (2026-09-30: 4/6/8 -> 2/4/6, 검문소 완성이면 +2)
--- 2026-09-29: 행크 10/15/20 -> 10/20/30. 2026-09-30: A-Life 없는 방위대는 행크의 2배를 4배 느리게 (4시간)
-Specialty.SNIPE = { hunter = { 10, 20, 30 }, guard = { 20, 40, 60 } }
+-- 2026-09-29: 행크 10/15/20 -> 10/20/30, 2026-10-19: 20/30/40 (방위대 40/60/80). 2026-09-30: A-Life 없는 방위대는 행크의 2배를 4배 느리게 (4시간)
+Specialty.GUNNERS = { 1, 2, 3 }                         -- 방위대 특기 분대의 기관총 역할 대원 (구간 1/2/3)
+Specialty.SNIPE = { hunter = { 20, 30, 40 }, guard = { 40, 60, 80 } }
 Specialty.SNIPE_SOUND = { hunter = "MSR788Shoot", guard = "M14Shoot" }
 -- 이 게임 시간(분)에 나눠 쏜다 (2026-09-29 행크 60 -> 30). 방위대는 2배 수를 발사 간격 4배로 = 240분
 Specialty.SNIPE_MIN = { hunter = 30, guard = 240 }
@@ -228,7 +229,9 @@ function Specialty.status(fid, psKey)
     elseif Life.get(fid, Life.KEY[fid] or "morale") < Life.SELF_MIN then
         reason = "no_resource"
     end
-    return { tier = tier, wait = wait, reason = reason, scope = Specialty.scope(fid), cost = Specialty.costOf(fid, tier) }
+    return { tier = tier, wait = wait, reason = reason, scope = Specialty.scope(fid), cost = Specialty.costOf(fid, tier),
+             days = Specialty.cooldownDays(fid),      -- 툴팁에 보일 대기 (샌드박스·프로젝트·법안 반영)
+             tiers = { Specialty.TIER_MIN[1], Specialty.TIER_MIN[2], Specialty.TIER_MIN[3] } }   -- 구간 신뢰도 (SpecialtyTrustOffset 반영)
 end
 
 -- 쓰면 드는 자원 (툴팁용): { res, n, min(이만큼은 있어야 씀) }. 구간이 아직 없으면 첫 구간 기준.
@@ -823,7 +826,11 @@ local function squad(player, ps, fid, tier)
     if ALife.enabled() and ALife.available() then
         -- 무기고 개방 (Politics.lua): 분대 -2명
         local size = math.max(1, Specialty.SQUAD_SIZE[tier] + (StoryEngine.Politics and StoryEngine.Politics.mod("squad", fid) or 0))
-        local ok, why = ALife.sendSupport(player, fid, "specialty", nil, Specialty.SQUAD_LEVEL[tier], nil, size)
+        -- 방위대 특기 분대는 구간과 상관없이 모두 자동화기 (ALife.armPlan), 분대장 + 기관총 역할 구간당 1명
+        -- (2026-10-19 사용자 요청: 40 이상 1명, 60 이상 2명, 80 이상 3명)
+        local guard = fid == "guard"
+        local ok, why = ALife.sendSupport(player, fid, "specialty", nil, Specialty.SQUAD_LEVEL[tier], nil, size,
+            { armed = guard, conducts = guard and ALife.squadConducts(size, Specialty.GUNNERS[tier]) or nil })
         if not ok then return false, why end
         return true, { topic = "You sent a squad of your soldiers to back up " .. tostring(ps.name) .. ". Tell them to hold on." }
     end

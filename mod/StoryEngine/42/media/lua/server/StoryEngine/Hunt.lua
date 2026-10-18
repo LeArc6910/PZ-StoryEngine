@@ -49,12 +49,12 @@ function Hunt.sizeNow()
     return Hunt.SIZE_BY_STAGE[Store.stage()] or Hunt.SIZE_BY_STAGE[1]
 end
 
--- player 에게 무작위 방향 START_DIST 거리에서 출발하는 추적 무리를 붙인다
-function Hunt.sendAt(player, reason, size)
+-- player 에게 무작위 방향 START_DIST 거리에서 출발하는 추적 무리를 붙인다 (quest: 묶을 퀘스트 id, Hunt.start)
+function Hunt.sendAt(player, reason, size, quest)
     local angle = ZombRandFloat(0, math.pi * 2)
     local d = ZombRand(Hunt.START_DIST[1], Hunt.START_DIST[2] + 1)
     local sx, sy = player:getX() + math.cos(angle) * d, player:getY() + math.sin(angle) * d
-    Hunt.start(player, size or Hunt.sizeNow(), sx, sy, reason)
+    Hunt.start(player, size or Hunt.sizeNow(), sx, sy, reason, quest)
     return angle
 end
 
@@ -77,8 +77,9 @@ local function targetOf(h)
     return nil
 end
 
--- 새 추적 무리. (x, y) 에서 출발해 player 를 쫓는다
-function Hunt.start(player, count, x, y, reason)
+-- 새 추적 무리. (x, y) 에서 출발해 player 를 쫓는다.
+-- quest: 이 무리를 부른 퀘스트 id (배달·경비·작전 방어·회의·시설 사건). 그 퀘스트가 끝나면 추적을 멈춘다 (Hunt.questOver)
+function Hunt.start(player, count, x, y, reason, quest)
     local cap = StoryEngine.Tuning and StoryEngine.Tuning.ZOMBIE_CAP or 300
     count = math.max(1, math.min(cap, math.floor(count + 0.5)))
     local d = Store.data()
@@ -86,7 +87,7 @@ function Hunt.start(player, count, x, y, reason)
     d.huntSeq = d.huntSeq + 1
     local id = "H" .. StoryEngine.intToString(d.huntSeq)
     all[id] = { id = id, target = Store.playerKey(player), remaining = count, x = x, y = y, z = 0,
-                lastT = Sensor.now().t, reason = reason }
+                lastT = Sensor.now().t, reason = reason, quest = quest }
     log("hunt start", id, count, "for", Store.playerKey(player), reason or "")
     return id
 end
@@ -135,6 +136,42 @@ local function chase(z, target)
             z:pathToCharacter(target)
         end
     end)
+end
+
+-- 이 무리를 부른 퀘스트가 끝났나 (2026-10-19 사용자 보고: 배달을 마쳤는데 무리가 집까지 따라옴)
+-- 이 업데이트 전에 생긴 무리는 퀘스트 id 가 없다: 같은 종류의 퀘스트가 하나도 진행 중이 아니면 끝난 것으로 본다
+Hunt.LEGACY = {
+    work_courier = function(q) return q.kind == "visit" and q.carry ~= nil end,
+    work_guard = function(q) return q.kind == "defend" and q.origin and q.origin.work ~= nil end,
+    operation = function(q) return q.kind == "defend" and q.origin and q.origin.op ~= nil end,
+    council = function(q) return q.kind == "defend" and q.origin and q.origin.council ~= nil end,
+}
+function Hunt.questOver(h)
+    local Quests = StoryEngine.Quests
+    if not Quests then return false end
+    local quests = Store.data().quests or {}
+    if not h.quest then
+        local same = Hunt.LEGACY[h.reason or ""]
+        if not same then return false end
+        for _, q in pairs(quests) do
+            if Quests.isActive(q) and same(q) then return false end
+        end
+        return true
+    end
+    local q = quests[h.quest]
+    return q == nil or not Quests.isActive(q)
+end
+
+-- 추적을 멈춘다: 실제 좀비는 표시를 떼어 보통 좀비로 두고(그 자리에서 흩어진다), 기록을 지운다.
+-- 멀티 클라이언트의 추적 명령은 서버가 다시 보내지 않으면 15초 뒤 사라진다 (HuntClient.KEEP_MS)
+function Hunt.release(id)
+    local h = hunts()[id]
+    for _, z in ipairs(tagged(id)) do
+        pcall(function() z:getModData().storyHunt = nil end)
+    end
+    hunts()[id] = nil
+    Hunt.live[id] = nil
+    if h then log("hunt released", id, "quest", tostring(h.quest), "remaining", h.remaining) end
 end
 
 -- 세이브에 남아 있던 같은 무리의 좀비를 다시 데려온다
@@ -250,10 +287,13 @@ function Hunt.tick()
     local now = Sensor.now()
     local all = hunts()
     local done = {}
+    local released = {}
     for id, h in pairs(all) do
         local ps = Store.data().players[h.target]
         local target = targetOf(h)
-        if (ps and ps.dead) or h.remaining <= 0 then
+        if Hunt.questOver(h) then
+            released[#released + 1] = id
+        elseif (ps and ps.dead) or h.remaining <= 0 then
             done[#done + 1] = id
         elseif target and not target:isDead() then
             local elapsed = math.max(0, now.t - (h.lastT or now.t))
@@ -307,6 +347,7 @@ function Hunt.tick()
             h.lastT = now.t   -- 대상이 접속해 있지 않으면 멈춘다
         end
     end
+    for _, id in ipairs(released) do Hunt.release(id) end
     for _, id in ipairs(done) do
         log("hunt over", id, "remaining", all[id].remaining)
         all[id] = nil

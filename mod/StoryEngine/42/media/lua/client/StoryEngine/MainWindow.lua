@@ -1576,7 +1576,17 @@ function StoryEngineQuestPanel:refresh()
             b:setWidth(bw)
             local key = market and "IGUI_StoryEngine_Market_Choose" or "IGUI_StoryEngine_Crisis_Choose"
             b:setTitle(fit(getText(key, short), bw - 12))
-            b.tooltip = getText(key, full)
+            local tip = getText(key, full)
+            -- 고르면 각 NPC 가 어떻게 받아들이는지 (Stories.choicePreview)
+            if opt.preview and #opt.preview > 0 then
+                tip = tip .. " <LINE> " .. getText("IGUI_StoryEngine_Crisis_Preview")
+                for _, e in ipairs(opt.preview) do
+                    local d = tonumber(e.trust) or 0
+                    tip = tip .. " <LINE> " .. getText("IGUI_StoryEngine_Crisis_Role_" .. tostring(e.role),
+                        Factions.name(e.faction), (d > 0 and "+" or "") .. StoryEngine.intToString(d))
+                end
+            end
+            b.tooltip = tip
         end
     end
     local canSubmit = selected ~= nil and active
@@ -2543,13 +2553,13 @@ function StoryEngineLifePanel:refresh()
     local proj = n.project
     self.projectButton:setVisible(proj ~= nil and not proj.done and not n.fate)
     self.projectButton:setEnable((n.projectWait or 0) == 0)
-    self.projectButton.tooltip = getText(n.personalMode and "IGUI_StoryEngine_Project_Tooltip_Personal" or "IGUI_StoryEngine_Project_Tooltip")
+    self.projectButton.tooltip = UI.projectTip(n)
     if n.fate then
         self.donateButton:setVisible(false)
         self.specButton:setVisible(false)
     end
     self.donateButton:setEnable((n.donateWait or 0) == 0)
-    self.donateButton.tooltip = getText(n.personalMode and "IGUI_StoryEngine_Life_DonateTooltip_Personal" or "IGUI_StoryEngine_Life_DonateTooltip")
+    self.donateButton.tooltip = UI.donateTip(n)
     -- 2차 특기: 2차 프로젝트가 끝나면 프로젝트 버튼 자리에
     local s2 = n.spec2
     if s2 and s2.unlocked and not n.fate and not self.projectButton:isVisible() and s2.reason ~= "off" then
@@ -2572,10 +2582,9 @@ function StoryEngineLifePanel:refresh()
     local tierText = (spec.tier or 0) > 0 and (" " .. string.rep("*", spec.tier)) or ""
     self.specButton:setTitle(getText("IGUI_StoryEngine_Spec_Button", specName) .. tierText)
     self.specButton:setEnable(spec.reason == nil)
-    local tip = getText("IGUI_StoryEngine_Spec_Desc_" .. n.id)
+    local tip = UI.specDesc(n)
     if spec.reason then
-        tip = getText("IGUI_StoryEngine_Spec_Error_" .. tostring(spec.reason), StoryEngine.intToString(spec.wait or 0))
-            .. " <LINE> " .. tip
+        tip = UI.specError(spec.reason, spec.wait, n) .. " <LINE> " .. tip
     end
     local specCost = UI.specCostText(spec.cost, n.res)
     if specCost then tip = tip .. " <LINE> " .. specCost end
@@ -2588,8 +2597,7 @@ function StoryEngineLifePanel:refresh()
         parts[#parts + 1] = " <RGB:0.75,0.6,0.9> " .. UI.escape(getText("IGUI_StoryEngine_Fate_Line_" .. tostring(n.fate),
             Factions.name(n.id)) .. "  (D" .. StoryEngine.intToString(n.fateDay or 0) .. ")") .. " <LINE> <LINE> "
     elseif (n.starve or 0) > 0 then
-        parts[#parts + 1] = " <RGB:0.95,0.4,0.35> " .. UI.escape(getText("IGUI_StoryEngine_Fate_Starving",
-            StoryEngine.intToString(n.starve))) .. " <LINE> <LINE> "
+        parts[#parts + 1] = " <RGB:0.95,0.4,0.35> " .. UI.escape(UI.starveText(n.starve)) .. " <LINE> <LINE> "
     end
     for _, line in ipairs(StoryEngineLifePanel.upkeepLines(n)) do
         parts[#parts + 1] = " <RGB:" .. line[2] .. "> " .. UI.escape(line[1]) .. " <LINE> "
@@ -2606,7 +2614,7 @@ function StoryEngineLifePanel:refresh()
             -- 1차는 끝났다: 그 효과를 먼저 한 줄로
             parts[#parts + 1] = " <RGB:0.5,0.9,0.6> " .. UI.escape(getText("IGUI_StoryEngine_Project_Done",
                 getText("IGUI_StoryEngine_Project_Name_" .. n.id))) .. " <LINE> "
-            parts[#parts + 1] = " <RGB:0.65,0.65,0.65> " .. UI.escape(getText("IGUI_StoryEngine_Project_Effect_" .. n.id))
+            parts[#parts + 1] = " <RGB:0.65,0.65,0.65> " .. UI.escape(UI.projectEffect(n.id))
                 .. " <LINE> "
         end
         if pr.done then
@@ -2619,8 +2627,8 @@ function StoryEngineLifePanel:refresh()
                 or "IGUI_StoryEngine_Project_Line", head, bar,
                 StoryEngine.intToString(pts), StoryEngine.intToString(goal), needs)) .. " <LINE> "
         end
-        parts[#parts + 1] = " <RGB:0.65,0.65,0.65> " .. UI.escape(getText(two and "IGUI_StoryEngine_Project2_Effect"
-            or ("IGUI_StoryEngine_Project_Effect_" .. n.id))) .. " <LINE> <LINE> "
+        parts[#parts + 1] = " <RGB:0.65,0.65,0.65> " .. UI.escape(two and getText("IGUI_StoryEngine_Project2_Effect")
+            or UI.projectEffect(n.id)) .. " <LINE> <LINE> "
     end
     local names = function(list)
         local out = {}
@@ -2692,7 +2700,7 @@ function StoryEnginePoliticsPanel:onOpenEarly()
     if not (d and d.era == false and d.council and d.council.canOpen) then return end
     local w, h = 520, 260
     local modal = ISModalDialog:new(getCore():getScreenWidth() / 2 - w / 2, getCore():getScreenHeight() / 2 - h / 2, w, h,
-        getText("IGUI_StoryEngine_Politics_EarlyWarn"), true, self, StoryEnginePoliticsPanel.onOpenEarlyAnswer)
+        UI.earlyCouncilWarn(), true, self, StoryEnginePoliticsPanel.onOpenEarlyAnswer)
     modal:initialise()
     modal:addToUIManager()
     modal:setAlwaysOnTop(true)

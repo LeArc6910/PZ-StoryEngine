@@ -61,6 +61,16 @@ ALife.THREAT_RADIUS = 60                  -- A-Life 적대 행위자를 찾는 �
 ALife.LEAVE_DIST = 45                     -- 떠나는 대원이 모든 플레이어에게서 이만큼 멀어지면 정리
 ALife.LEAVE_MAX_MIN = 3 * 60              -- 떠나기 시작하고 이 시간이 지나면 정리
 ALife.ORDER_MS = 20 * 60 * 1000           -- 따라오기 명령 한 번의 길이 (실시간). 끝나기 전에 다시 건다
+-- 지원 대원은 플레이어 둘레를 지킨다 (2026-10-19 사용자 요청: 잘 안 싸우고 도망가거나 흩어짐).
+-- A-Life 는 따라오기 명령을 "이동 중"으로 보고 좀비를 비켜 가며, 몸에 닿은 좀비만 정당방위로 상대한 뒤 12타일 물러나고
+-- 25초 동안 근처 좀비를 피한다. 공포·패닉·총 공포·후퇴 모듈도 따로 도망치게 한다. 그래서:
+--   부를 때 그 모듈들을 대원마다 끄고(moduleOverrides, A-Life 가 spawnEncounter 에서 받는 값),
+--   교전 거리 제한(Combat.leashFor)의 중심을 따라가는 플레이어로, 반경을 GUARD_RADIUS 로 둔다 (A-Life 의 "지키는 싸움"),
+--   교전 판단(DecisionLoop.engagement)은 반경 안 좀비면 맞붙고 밖이면 몸에 닿지 않는 한 그냥 둔다,
+--   생존 판단(Survival.evaluate)의 후퇴는 탄약이 떨어졌을 때만, 후퇴 뒤 좀비 피하기(Survival.avoidsTarget)는 없다
+ALife.GUARD_RADIUS = 12
+ALife.GUARD_OFF = { fear = "off", gunFear = "off", panic = "off", withdraw = "off", flee = "off", zombieAvoid = "off" }
+ALife.guardTarget = {}                     -- 대원 uid -> 지키는 플레이어 키 (따라오는 동안만, 메모리에만)
 ALife.ATTACK_SIZE = { 3, 5, 7, 8, 8 }     -- 진행 단계별 공격 인원 (A-Life 그룹 최대 8)
 ALife.ATTACK_DIST = { 45, 60 }            -- A-Life 자체 습격(45)과 비슷하게. 멀면 창 가장자리에서 바로 오프라인
 ALife.ATTACK_RETRIES = 2                  -- 막힌 칸·시야 안이라 그룹 전체가 취소되면 다른 자리로 다시
@@ -284,11 +294,11 @@ function ALife.spawnSquad(player, fid, level, count, friendly, distRange, tag, h
     local x, y, d, moved = ALife.spawnSpot(px, py, distRange)
     local key = ALife.playerKey(player)
     local args = {
-        requestId = requestId, encounterId = "storyengine_" .. tag,
+        requestId = requestId, encounterId = hooks.encounterId or ("storyengine_" .. tag),
         factionId = factionId, profileIds = ids, count = #ids,
         x = x, y = y, z = 0, distance = 0, separation = 1.5, radius = 6,
         mode = "assault", profile = "seek_destroy",
-        atomicGroup = true, conducts = { "leader" }, animation = "normal",
+        atomicGroup = true, conducts = hooks.conducts or { "leader" }, animation = "normal",
         encounterPersistent = false, supportPolicy = "disabled",
         objectiveX = math.floor(px), objectiveY = math.floor(py),
         hostileOverride = not friendly, spawnStance = friendly and "friendly" or "hostile",
@@ -297,6 +307,7 @@ function ALife.spawnSquad(player, fid, level, count, friendly, distRange, tag, h
         -- 아군은 A-Life 자체 지원 부대처럼 "backup" 역할로: 이게 없으면 seek_destroy(hunt) 행동이 적이 없을 때
         -- 가장 가까운 플레이어를 추격 대상으로 잡는다 (Programs.pursuitTarget, 2026-09-28 로그)
         supportRole = friendly and "backup" or nil,
+        moduleOverrides = friendly and ALife.guardOverrides(hooks.conducts) or nil,
     }
     local info = { requestId = requestId, factionId = factionId, x = x, y = y, count = #ids }
     ALife.installGuards()
@@ -345,6 +356,9 @@ local function order(uid, o)
         and (tonumber(cur.untilMs) or 0) - nowMs() > 2 * 60 * 1000 then
         return true
     end
+    -- 좀비·적과 싸우는 중이면 다시 걸지 않는다 (setOrder 가 싸움을 멈춘다). 끝나면 다음 refresh 에서
+    local st = type(loop.states) == "table" and loop.states[uid] or nil
+    if o.kind == "follow" and st and st.kind == "combat" and st.threatKind ~= "player" then return true end
     local ok, done, why = pcall(loop.setOrder, uid, record.generation, o)
     if not ok or done ~= true then
         ALife.orderFail = ALife.orderFail or {}
@@ -429,7 +443,184 @@ function ALife.isSupport(actorOrShell)
         record = type(uid) == "string" and actor(uid) or nil
     end
     local m = type(record) == "table" and record.memory or nil
-    return type(m) == "table" and m.encounterKind == "storyengine_support"
+    return type(m) == "table" and ALife.supportKind(m.encounterKind)
+end
+
+-- 우리 지원 대원의 encounterKind: 보통 지원과, 자동화기를 쥐여 주는 방위대 특기 분대
+ALife.ARMED_KIND = "storyengine_support_armed"
+function ALife.supportKind(kind)
+    return kind == "storyengine_support" or kind == ALife.ARMED_KIND
+end
+
+-- 방위대 특기 분대는 신뢰도 구간과 상관없이 모두 자동화기 (2026-10-18 사용자 요청: 40 에서 불러도 자동 소총을 든 군인).
+-- A-Life 는 등장 날짜로 총을 정하므로(LoadoutProgression.apply) 그 결과를 감싸 주무기를 바꾼다
+ALife.ARMED_GUNS = { "Base.AssaultRifle", "Base.AssaultRifle2" }
+ALife.ARMED_MAGS = 3
+ALife.infiniteLogged = {}
+
+-- 우리 대원이 죽으면 탄약을 남기지 않는다: 남은 여분을 탄창으로 만들지 않고, 가방의 낱개 탄약을 버리고,
+-- 시체에 남는 총·탄창은 비운다 (A-Life DeathDrops.plan / process 를 감쌈)
+function ALife.noAmmoPlan(actorRec, plan)
+    if type(plan) ~= "table" or not ALife.isSupport(actorRec) then return plan end
+    plan.dropAmmo = false
+    plan.ammoItemChance = 0
+    plan.magazineChance = 0
+    return plan
+end
+
+function ALife.emptyGuns(shell)
+    local emptied = 0
+    pcall(function()
+        local items = shell:getInventory():getItems()
+        for i = 0, items:size() - 1 do
+            local item = items:get(i)
+            local okMax, max = pcall(function() return item:getMaxAmmo() end)
+            if okMax and (tonumber(max) or 0) > 0 then
+                pcall(function() item:setCurrentAmmoCount(0) end)
+                pcall(function() item:setRoundChambered(false) end)
+                emptied = emptied + 1
+            end
+        end
+    end)
+    return emptied
+end
+function ALife.armPlan(actor, plan, known)
+    local m = type(actor) == "table" and actor.memory or nil
+    if type(m) ~= "table" or type(plan) ~= "table" then return plan end
+    -- 우리가 부른 대원은 모두 무한 탄약 (2026-10-19 사용자 요청). A-Life 의 Ammo_Bottomless 설정과 상관없이
+    if ALife.supportKind(m.encounterKind) and plan.infiniteAmmo ~= true then
+        plan.infiniteAmmo = true
+        if not ALife.infiniteLogged[tostring(actor.uid)] then
+            ALife.infiniteLogged[tostring(actor.uid)] = true
+            log("alife support infinite ammo", tostring(actor.uid))
+        end
+    end
+    if m.encounterKind ~= ALife.ARMED_KIND then return plan end
+    plan.weapons = plan.weapons or {}
+    plan.ammo = plan.ammo or {}
+    local gun = nil
+    for _, ft in ipairs(ALife.ARMED_GUNS) do
+        local ok, yes = true, true
+        if type(known) == "function" then ok, yes = pcall(known, ft) end
+        if ok and yes then gun = ft break end
+    end
+    if not gun then return plan end
+    plan.weapons.primary = gun
+    plan.ammo.primary = math.max(tonumber(plan.ammo.primary) or 0, ALife.ARMED_MAGS)
+    plan.ammoMode = plan.ammoMode or {}
+    plan.ammoMode.primary = "magazines"
+    plan.firearmsAuthored = true
+    log("alife armed support", tostring(actor.uid), gun)
+    return plan
+end
+
+function ALife.guardOverrides(conducts)
+    local out = {}
+    for k, v in pairs(ALife.GUARD_OFF) do out[k] = v end
+    for _, c in ipairs(conducts or {}) do
+        if c == "gunner" then out.gunner = "on" end
+    end
+    return out
+end
+
+-- 대원마다 역할 (A-Life spawnEncounter 의 conducts, 순서대로 대원 하나씩): 분대장 + 기관총 역할 gunners 명.
+-- noLeader 면 모두 기관총 역할 (헤일 공수 작전 호위)
+function ALife.squadConducts(count, gunners, noLeader)
+    local out = {}
+    if not noLeader then out[1] = "leader" end
+    for _ = 1, math.max(0, math.min(gunners or 0, count - #out)) do out[#out + 1] = "gunner" end
+    return out
+end
+
+-- 이 대원이 지금 지키는 자리 (따라가는 플레이어의 위치), 아니면 nil
+function ALife.guardAnchor(actorRec)
+    local uid = type(actorRec) == "table" and actorRec.uid or nil
+    local key = type(uid) == "string" and ALife.guardTarget[uid] or nil
+    if not key then return nil end
+    local p = playerByKey(key)
+    if not p or p:isDead() then return nil end
+    return { x = p:getX(), y = p:getY(), z = math.floor(p:getZ()) }
+end
+
+local function within(obj, anchor, radius)
+    local ok, x, y = pcall(function() return obj:getX(), obj:getY() end)
+    if not ok or not x then return true end
+    return dist(x, y, anchor.x, anchor.y) <= radius
+end
+
+-- 교전 판단을 덮는다 (DecisionLoop.engagement 의 결과, 좀비만)
+function ALife.guardEngagement(actorRec, threat, threatKind, choice, facts)
+    if threatKind ~= "zombie" then return choice end
+    local anchor = ALife.guardAnchor(actorRec)
+    if not anchor then return choice end
+    local touching = type(facts) == "table" and (facts.immediateDanger == true or facts.targetAttacking == true)
+    if touching then
+        return choice == "defend" and "defend" or (choice == "commit" and "commit" or "defend")
+    end
+    if not within(threat, anchor, ALife.GUARD_RADIUS) then return "bypass" end
+    if type(facts) == "table" then
+        facts.mission, facts.inTerritory = "guard", true
+        facts.exhausted, facts.wounded, facts.outnumbered = false, false, false
+    end
+    return "commit"
+end
+
+-- 생존 판단을 덮는다: 지키는 동안은 탄약이 떨어졌을 때만 물러난다
+function ALife.guardSurvival(actorRec, verdict, ratio, why)
+    if verdict == "retreat" and why ~= "out_of_ammo" and ALife.guardAnchor(actorRec) then
+        return "fight", ratio, "storyengine_guard"
+    end
+    return verdict, ratio, why
+end
+
+-- 지키는 싸움에 쓰는 A-Life 함수를 감싼다. 표마다 따로 한 번 (모두 A-Life 가 부를 때마다 표에서 다시 찾는 함수)
+function ALife.installFight()
+    local pa = PA()
+    if type(pa) ~= "table" then return end
+    local wrapped = {}
+    local combat, loop, survival = pa.Combat, pa.DecisionLoop, pa.Survival
+    if type(combat) == "table" and type(combat.leashFor) == "function" and not combat.storyEngineGuard then
+        local leash = combat.leashFor
+        combat.leashFor = function(a, ...)
+            local anchor = ALife.guardAnchor(a)
+            if anchor then return anchor, ALife.GUARD_RADIUS end
+            return leash(a, ...)
+        end
+        combat.storyEngineGuard = true
+        wrapped[#wrapped + 1] = "leash"
+    end
+    if type(loop) == "table" and type(loop.engagement) == "function" and not loop.storyEngineGuard then
+        local engage = loop.engagement
+        loop.engagement = function(a, shell, threat, threatKind, st, now, ...)
+            local choice, facts = engage(a, shell, threat, threatKind, st, now, ...)
+            local ok, mine = pcall(ALife.guardEngagement, a, threat, threatKind, choice, facts)
+            if ok and mine then choice = mine end
+            return choice, facts
+        end
+        loop.storyEngineGuard = true
+        wrapped[#wrapped + 1] = "engagement"
+    end
+    if type(survival) == "table" and type(survival.evaluate) == "function" and not survival.storyEngineGuard then
+        local evaluate, avoids = survival.evaluate, survival.avoidsTarget
+        survival.evaluate = function(a, ...)
+            return ALife.guardSurvival(a, evaluate(a, ...))
+        end
+        if type(avoids) == "function" then
+            survival.avoidsTarget = function(a, ...)
+                if ALife.guardAnchor(a) then return false end
+                return avoids(a, ...)
+            end
+        end
+        survival.storyEngineGuard = true
+        wrapped[#wrapped + 1] = "survival"
+    end
+    if #wrapped > 0 then log("alife guard fighting installed", table.concat(wrapped, " ")) end
+    if not ALife.fightChecked and type(pa.DebugService) == "table" then
+        ALife.fightChecked = true
+        for name, t in pairs({ leash = combat, engagement = loop, survival = survival }) do
+            if type(t) ~= "table" or not t.storyEngineGuard then log("alife guard fighting not installed:", name) end
+        end
+    end
 end
 
 -- A-Life 판정 함수를 감싼다 (한 번만):
@@ -442,6 +633,7 @@ end
 --     근접전 중 옆에 붙은 지원 대원이 맞아 6명이 한꺼번에 돌아섰다 (2026-09-28 4차 로그). 지원 대원은 건너뛴다.
 --     (Talk.onHitByPlayer 는 "조심해!" 같은 대사만 하므로 그대로 둔다)
 function ALife.installGuards()
+    pcall(ALife.installFight)
     if ALife.guardsInstalled then return end
     local pa = PA()
     local rel, rep = pa.Relations, pa.Reputation
@@ -478,6 +670,40 @@ function ALife.installGuards()
             end
         end
     end
+    -- 방위대 특기 분대의 총 (위 ALife.armPlan)
+    local prog = pa.LoadoutProgression
+    if type(prog) == "table" and type(prog.apply) == "function" and not prog.storyEngineArmed then
+        local apply = prog.apply
+        prog.apply = function(actorRec, profile, plan, known, ...)
+            local out = apply(actorRec, profile, plan, known, ...)
+            local ok, armed = pcall(ALife.armPlan, actorRec, out or plan, known)
+            if ok then return armed end
+            return out
+        end
+        prog.storyEngineArmed = true
+    end
+    local drops = pa.DeathDrops
+    if type(drops) == "table" and type(drops.plan) == "function" and type(drops.process) == "function"
+        and not drops.storyEngineNoAmmo then
+        local plan, process = drops.plan, drops.process
+        drops.plan = function(actorRec, ...)
+            local out, why = plan(actorRec, ...)
+            local ok, mine = pcall(ALife.noAmmoPlan, actorRec, out)
+            if ok then out = mine end
+            return out, why
+        end
+        drops.process = function(shell, actorRec, ...)
+            local a, b, c = process(shell, actorRec, ...)
+            if ALife.isSupport(actorRec) then
+                local n = ALife.emptyGuns(shell)
+                log("alife support died, no ammo left behind", tostring(actorRec and actorRec.uid), "emptied", n)
+            end
+            return a, b, c
+        end
+        drops.storyEngineNoAmmo = true
+    else
+        log("alife death drops not wrapped (no DeathDrops.plan/process)")
+    end
     log("alife guards installed")
 end
 
@@ -506,7 +732,7 @@ function ALife.threatsTo(player)
     pcall(pa.ActorRegistry.each, function(record)
         if record.lifecycle ~= "active" then return end
         local m = record.memory or {}
-        if m.encounterKind == "storyengine_support" then return end
+        if ALife.supportKind(m.encounterKind) then return end
         local targeting = m.targetUsername == key or m.combatTargetPlayerKey == key
             or (type(m.robbery) == "table" and m.robbery.playerKey == key)
         if not targeting then return end
@@ -534,7 +760,7 @@ function ALife.hostileGroups(player, radius)
     pcall(pa.ActorRegistry.each, function(record)
         if record.lifecycle ~= "active" then return end
         local m = record.memory or {}
-        if m.encounterKind == "storyengine_support" then return end
+        if ALife.supportKind(m.encounterKind) then return end
         local hostile = m.targetUsername == key or m.combatTargetPlayerKey == key or m.encounterKind == "storyengine_attack"
         if not hostile and type(rel) == "table" and type(rel.hostileToPlayer) == "function" then
             local ok, yes = pcall(rel.hostileToPlayer, record, player)
@@ -723,6 +949,8 @@ function ALife.sendSupport(player, fid, how, reason, levelOverride, retry, count
     local now = Sensor.now()
     local st = state()
     local ok, info, failed = ALife.spawnSquad(player, fid, level, count, true, ALife.FRIEND_DIST, "support", {
+        encounterId = opts.armed and ALife.ARMED_KIND or nil,
+        conducts = opts.conducts,
         start = function(info)
             st.active[info.requestId] = {
                 id = info.requestId, fid = fid, target = ps.key, targetName = ps.name, how = how, level = level,
@@ -848,6 +1076,7 @@ function ALife.refresh(s)
     for _, uid in ipairs(s.uids or {}) do
         if alive(actor(uid)) then living[#living + 1] = uid end
     end
+    for _, uid in ipairs(s.uids or {}) do ALife.guardTarget[uid] = nil end
     if s.uids and #s.uids > 0 and #living == 0 and s.phase ~= "done" then
         s.phase = "done"
         log("alife support wiped out", s.fid)
@@ -866,6 +1095,7 @@ function ALife.refresh(s)
         end
     end
     if s.phase == "follow" and target then
+        for _, uid in ipairs(living) do ALife.guardTarget[uid] = s.target end
         local parts = {}
         s.regroupT = s.regroupT or {}
         for _, uid in ipairs(living) do

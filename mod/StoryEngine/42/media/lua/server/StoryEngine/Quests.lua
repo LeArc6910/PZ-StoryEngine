@@ -2657,7 +2657,8 @@ function Quests.listFor(psKey, now)
             if q.kind == "choice" then
                 item.crisis, item.chosen, item.options = q.crisis, q.chosen, {}
                 for i, o in ipairs(q.options or {}) do
-                    item.options[i] = { faction = o.faction, tier = o.tier, need = o.items }
+                    item.options[i] = { faction = o.faction, tier = o.tier, need = o.items,
+                                        preview = StoryEngine.Stories and StoryEngine.Stories.choicePreview(q.crisis, o.faction) or nil }
                 end
             end
             if q.kind == "market" then

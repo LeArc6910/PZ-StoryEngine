@@ -780,8 +780,10 @@ local function runEscort(job, now)
     local sent = false
     local ALife = StoryEngine.ALife
     if ALife and ALife.enabled() and ALife.available() and not baseGone("guard") then
+        -- 헤일이 보내는 군인은 모두 자동화기를 든 기관총 역할 (2026-10-19 사용자 요청)
         local ok = ALife.sendSupport(p, "guard", "specialty2", nil, 5, nil, Outsiders.ESCORT_COUNT,
-            { hours = Outsiders.ESCORT_HOURS, quiet = true, extra = true })
+            { hours = Outsiders.ESCORT_HOURS, quiet = true, extra = true, armed = true,
+              conducts = ALife.squadConducts(Outsiders.ESCORT_COUNT, Outsiders.ESCORT_COUNT, true) })
         sent = ok == true
     end
     if not sent then

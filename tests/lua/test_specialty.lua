@@ -42,7 +42,7 @@ function T.hunter_snipe_request_cooldown_and_cost()
     H.newZombie(10010, 10010)
     H.ok(Sp.request(p, "hunter", {}), "sniping granted")
     local sent = H.sentOf("specSnipe")[1]
-    H.eq(sent.count, 20, "tier 2 -> 20")
+    H.eq(sent.count, 30, "tier 2 -> 30")
     H.eq(sent.minutes, 30, "spread over half an hour")
     H.eq(sent.sound, "MSR788Shoot")
     H.eq(sent.radius, 30)
@@ -54,7 +54,7 @@ function T.hunter_snipe_request_cooldown_and_cost()
     Sp.snipeDone(p, "hunter", 99)
     local ps = StoryEngine.Store.player(p)
     H.eq(ps.notes[#ps.notes].kind, "specialty_snipe")
-    H.eq(ps.notes[#ps.notes].count, 20, "kills clamped to what was asked")
+    H.eq(ps.notes[#ps.notes].count, 30, "kills clamped to what was asked")
 end
 
 function T.guard_without_alife_snipes_twice_hank_four_times_slower()
@@ -63,9 +63,9 @@ function T.guard_without_alife_snipes_twice_hank_four_times_slower()
     H.newZombie(10005, 10000)
     H.ok(S().request(p, "guard", {}))
     local sent = H.sentOf("specSnipe")[1]
-    H.eq(sent.count, 60, "tier 3: twice Hank's 30")
+    H.eq(sent.count, 80, "tier 3: twice Hank's 40")
     H.eq(sent.minutes, 240, "twice the shots at 4x the interval = 4 hours")
-    H.near(sent.minutes / sent.count, 4 * (30 / 30), 0.001, "4x Hank's shot interval")
+    H.near(sent.minutes / sent.count, 4 * (30 / 40), 0.001, "4x Hank's shot interval")
     H.eq(sent.sound, "M14Shoot")
     H.ok(string.find(H.lastBridge("radio", "event").payload.topic, "the next 4 hours", 1, true))
     H.eq(S().status("guard").wait, 7 * 24, "7 days")
@@ -532,7 +532,7 @@ function T.guard_checkpoint_adds_20_snipes_without_alife()
     H.newZombie(10005, 10000)
     StoryEngine.Projects.add("guard", 1000)
     H.ok(S().request(p, "guard", {}))
-    H.eq(H.sentOf("specSnipe")[1].count, 40, "tier 1: 20 + 20")
+    H.eq(H.sentOf("specSnipe")[1].count, 60, "tier 1: 40 + 20")
 end
 
 -- 특기 대기 범위·일수 (2026-10-05 샌드박스): 레이만 서버 전체, 나머지 개인별, 둘 다, 일수 옵션
@@ -681,6 +681,125 @@ function T.casey_scout_warns_of_automatic_guns()
     H.eq(mono[1].lt.args[3].v, 3)
     H.eq(mono[1].lt.args[4].v, 1)
     ProjectALife = nil
+end
+
+-- 방위대 특기 분대는 구간과 상관없이 자동 소총 (2026-10-18)
+function T.guard_specialty_squad_carries_automatic_rifles()
+    local A = StoryEngine.ALife
+    local plan = { weapons = { primary = "Base.Revolver_Short" }, ammo = { primary = 1 } }
+    local out = A.armPlan({ uid = "u1", memory = { encounterKind = A.ARMED_KIND } }, plan, function(ft) return ft == "Base.AssaultRifle" end)
+    H.eq(out.weapons.primary, "Base.AssaultRifle")
+    H.eq(out.ammo.primary, 3)
+    H.eq(out.ammoMode.primary, "magazines")
+    local plain = { weapons = { primary = "Base.Revolver_Short" }, ammo = {} }
+    H.eq(A.armPlan({ uid = "u2", memory = { encounterKind = "storyengine_support" } }, plain).weapons.primary, "Base.Revolver_Short",
+        "other support squads keep their own guns")
+    H.ok(A.supportKind(A.ARMED_KIND) and A.supportKind("storyengine_support") and not A.supportKind("storyengine_attack"))
+    -- 1차 특기 상태에 대기 일수
+    local p = setup()
+    setTrust("guard", 45)
+    H.eq(S().status("guard", StoryEngine.Store.playerKey(p)).days, S().cooldownDays("guard"))
+end
+
+-- 지원 대원은 플레이어 둘레 12타일을 지키며 싸운다 (2026-10-19 사용자 요청: 도망가거나 흩어짐)
+function T.support_squads_guard_the_player_and_stand_their_ground()
+    local A = StoryEngine.ALife
+    local p = setup()
+    local key = StoryEngine.Store.playerKey(p)
+    local overrides = A.guardOverrides()
+    for _, id in ipairs({ "fear", "gunFear", "panic", "withdraw", "flee", "zombieAvoid" }) do H.eq(overrides[id], "off", id) end
+    local leashCalls, avoided = 0, true
+    ProjectALife = {
+        Combat = { leashFor = function() leashCalls = leashCalls + 1 return nil end },
+        DecisionLoop = { engagement = function() return "bypass", { mission = "travel", exhausted = true } end },
+        Survival = { evaluate = function() return "retreat", 0.3, "low_health" end,
+                     avoidsTarget = function() return avoided end },
+    }
+    A.installFight()
+    local pa = ProjectALife
+    local mine, other = { uid = "s1", memory = {} }, { uid = "x1", memory = {} }
+    A.guardTarget.s1 = key
+    local anchor, radius = pa.Combat.leashFor(mine)
+    H.eq(radius, 12)
+    H.eq(anchor.x, p:getX())
+    H.eq(pa.Combat.leashFor(other), nil, "other A-Life NPCs keep their own leash")
+    H.eq(leashCalls, 1)
+    local near = H.newZombie(p:getX() + 5, p:getY())
+    local far = H.newZombie(p:getX() + 30, p:getY())
+    local choice, facts = pa.DecisionLoop.engagement(mine, nil, near, "zombie", nil, 0)
+    H.eq(choice, "commit", "a zombie near the player is fought")
+    H.eq(facts.mission, "guard")
+    H.eq(facts.exhausted, false)
+    H.eq((pa.DecisionLoop.engagement(mine, nil, far, "zombie", nil, 0)), "bypass", "far zombies are left alone")
+    H.eq((pa.DecisionLoop.engagement(other, nil, near, "zombie", nil, 0)), "bypass", "others unchanged")
+    H.eq((pa.DecisionLoop.engagement(mine, nil, near, "npc", nil, 0)), "bypass", "only zombies")
+    H.eq((pa.Survival.evaluate(mine, nil, near, 0)), "fight", "no retreat while guarding")
+    H.eq((pa.Survival.evaluate(other, nil, near, 0)), "retreat")
+    pa.Survival.evaluate = nil
+    H.eq(pa.Survival.avoidsTarget(mine, near, 0), false)
+    H.eq(pa.Survival.avoidsTarget(other, near, 0), true)
+    A.guardTarget.s1 = nil
+    H.eq(pa.Combat.leashFor(mine), nil, "after the support leaves")
+    H.eq(select(1, A.guardSurvival(mine, "retreat", 0.5, "low_health")), "retreat")
+    A.guardTarget.s1 = key
+    H.eq(select(1, A.guardSurvival(mine, "retreat", 0.5, "out_of_ammo")), "retreat", "still backs off with no ammo")
+    A.guardTarget.s1 = nil
+    ProjectALife = nil
+end
+
+-- 우리 대원은 무한 탄약, 죽어도 탄약을 남기지 않고, 휘태커 분대엔 기관총 역할 1/2/3명, 헤일 호위는 모두 (2026-10-19)
+function T.support_ammo_gunners_and_no_ammo_drops()
+    local A = StoryEngine.ALife
+    local sup = { uid = "s1", memory = { encounterKind = "storyengine_support" } }
+    local foe = { uid = "e1", memory = { encounterKind = "storyengine_attack" } }
+    H.eq(A.armPlan(sup, { weapons = {}, ammo = {} }).infiniteAmmo, true, "every support has bottomless ammo")
+    H.eq(A.armPlan(foe, { weapons = {}, ammo = {} }).infiniteAmmo, nil, "raiders do not")
+    local armed = A.armPlan({ uid = "s2", memory = { encounterKind = A.ARMED_KIND } }, { weapons = {}, ammo = {} },
+        function(ft) return ft == "Base.AssaultRifle" end)
+    H.eq(armed.infiniteAmmo, true)
+    H.eq(armed.weapons.primary, "Base.AssaultRifle")
+    -- 역할
+    local c = A.squadConducts(4, 2)
+    H.eq(c[1], "leader") H.eq(c[2], "gunner") H.eq(c[3], "gunner") H.eq(c[4], nil)
+    H.eq(#A.squadConducts(2, 3), 2, "never more roles than members")
+    local all = A.squadConducts(4, 4, true)
+    H.eq(#all, 4) H.eq(all[1], "gunner") H.eq(all[4], "gunner")
+    H.eq(A.guardOverrides(all).gunner, "on")
+    H.eq(A.guardOverrides({ "leader" }).gunner, nil)
+    -- 죽을 때
+    local plan = A.noAmmoPlan(sup, { dropAmmo = true, ammoItemChance = 80, magazineChance = 50 })
+    H.eq(plan.dropAmmo, false) H.eq(plan.ammoItemChance, 0) H.eq(plan.magazineChance, 0)
+    H.eq(A.noAmmoPlan(foe, { dropAmmo = true }).dropAmmo, true, "raiders still drop theirs")
+    local gun = { ammo = 30, chambered = true }
+    function gun:getMaxAmmo() return 30 end
+    function gun:setCurrentAmmoCount(n) self.ammo = n end
+    function gun:setRoundChambered(v) self.chambered = v end
+    local cloth = {}
+    local list = { gun, cloth }
+    local shell = { getInventory = function() return { getItems = function()
+        return { size = function() return #list end, get = function(_, i) return list[i + 1] end } end } end }
+    H.eq(A.emptyGuns(shell), 1)
+    H.eq(gun.ammo, 0) H.eq(gun.chambered, false)
+    -- 휘태커 특기 분대의 역할
+    local sent = {}
+    local old = A.sendSupport
+    A.sendSupport = function(_, fid, how, _, _, _, size, opts) sent[#sent + 1] = { fid = fid, size = size, opts = opts } return true end
+    local oldAvail = A.available
+    A.available = function() return true end
+    local p = setup()
+    for i, trust in ipairs({ 45, 65, 85 }) do
+        setTrust("guard", trust)
+        StoryEngine.Life.npc("guard").res.safety = 90
+        S().clearWait("guard", StoryEngine.Store.playerKey(p))
+        H.ok(S().request(p, "guard", {}), "squad " .. i)
+        local o = sent[#sent].opts
+        local gunners = 0
+        for _, r in ipairs(o.conducts) do if r == "gunner" then gunners = gunners + 1 end end
+        H.eq(gunners, i, "gunners at tier " .. i)
+        H.eq(o.conducts[1], "leader")
+        H.eq(o.armed, true)
+    end
+    A.sendSupport, A.available = old, oldAvail
 end
 
 return T

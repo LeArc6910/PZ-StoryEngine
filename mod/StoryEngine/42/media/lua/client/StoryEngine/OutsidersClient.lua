@@ -28,6 +28,17 @@ Out.NOTICES = { hail = true, admitted = true, refused = true, kept = true, expel
 Out.ERRORS = { closed = true, away = true, trust = true, wait = true, armed = true, active = true, no_radio = true,
                no_job = true, anticheat = true, out_far = true, out_near = true, no_jewels = true, not_infected = true,
                nothing = true, gone = true, no_test = true, no_vote = true }
+
+-- 충성 시험에서 밖에서 온 사람 편을 들 때 얻는 것: 줄어드는 대기는 샌드박스 OutsiderDays_<특기> 값으로
+function Out.sideTip(id)
+    local key = "IGUI_StoryEngine_Out_Side_Out_" .. tostring(id)
+    local Tuning = StoryEngine.Tuning
+    if not (Tuning and Tuning.outsiderDays) then return getText(key) end
+    local d = function(kind, sided) return UI.daysText(Tuning.outsiderDays(kind, sided)) end
+    if id == "hale" then return getText(key, d("proxy"), d("proxy", true), d("airdrop"), d("airdrop", true)) end
+    if id == "abigail" then return getText(key, d("miracle"), d("miracle", true)) end
+    return getText(key)
+end
 Out.minutes = 0
 
 local function num(n) return StoryEngine.intToString(math.floor((n or 0) + 0.5)) end
@@ -138,11 +149,13 @@ function Out.rows(o)
         local v = row.volunteer
         if v then
             items[#items + 1] = { label = getText("IGUI_StoryEngine_Out_Volunteer"), ok = v.ok == true, what = "volunteer",
-                                  tip = getText("IGUI_StoryEngine_Out_Volunteer_Tip"), args = { faction = row.id } }
+                                  tip = getText("IGUI_StoryEngine_Out_Volunteer_Tip",
+                                      StoryEngine.intToString(math.max(0, math.floor(UI.tune("VolunteerPerWeek", 2))))),
+                                  args = { faction = row.id } }
         end
         if row.test then
             items[#items + 1] = { label = getText("IGUI_StoryEngine_Out_Side", UI.npcName(row.id)), ok = true, what = "side",
-                                  tip = getText("IGUI_StoryEngine_Out_Side_Out_" .. row.id), args = { id = row.id, side = "out" } }
+                                  tip = Out.sideTip(row.id), args = { id = row.id, side = "out" } }
             items[#items + 1] = { label = getText("IGUI_StoryEngine_Out_Side", UI.npcName(row.test.rival)), ok = true, what = "side",
                                   tip = getText("IGUI_StoryEngine_Out_Side_Home"), args = { id = row.id, side = "home" } }
         end

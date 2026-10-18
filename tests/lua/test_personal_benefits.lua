@@ -309,7 +309,7 @@ function T.ops_assist_uses_group_trust()
     local a = H.players[1]
     H.ok(StoryEngine.Specialty.assist("hunter", a), "hank helps the operation")
     local sent = H.sentOf("specSnipe")
-    H.eq(sent[#sent].count, 30, "tier 3 from group trust 85")
+    H.eq(sent[#sent].count, 40, "tier 3 from group trust 85")
 end
 
 -- ---------------------------------------------------------------- 편지·명절

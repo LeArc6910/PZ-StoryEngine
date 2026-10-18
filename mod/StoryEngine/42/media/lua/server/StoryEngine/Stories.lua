@@ -2360,9 +2360,9 @@ Stories.CRISES = {
       options = {
           { faction = "ray", ask = "bring shotgun shells so he can take Lily to the meeting himself",
             tier = 3, items = { { "Base.ShotgunShellsBox", 1 } } },
-          { faction = "pike", ask = "bring blankets and food so the church can host the meeting safely",
+          { helps = "ray", faction = "pike", ask = "bring blankets and food so the church can host the meeting safely",
             tier = 2, items = { { "Base.Sheet", 2 }, { "Base.TinnedBeans", 3 } }, allies = { "ray" } },
-          { faction = "hunter", ask = "bring rifle ammunition so he can watch the meeting from the treeline, because he thinks it is a trap",
+          { helps = "ray", faction = "hunter", ask = "bring rifle ammunition so he can watch the meeting from the treeline, because he thinks it is a trap",
             tier = 3, items = { { "Base.308Box", 1 } }, spares = { "ray" } },
       } },
     { id = "trace", trigger = true,
@@ -2370,9 +2370,9 @@ Stories.CRISES = {
       options = {
           { faction = "casey", ask = "bring shotgun shells so she can defend the shack herself",
             tier = 3, items = { { "Base.ShotgunShellsBox", 1 } } },
-          { faction = "guard", ask = "bring 5.56 ammunition so the squad can post two soldiers at Casey's shack",
+          { helps = "casey", faction = "guard", ask = "bring 5.56 ammunition so the squad can post two soldiers at Casey's shack",
             tier = 3, items = { { "Base.556Box", 1 } }, allies = { "casey" } },
-          { faction = "hunter", ask = "bring rifle ammunition so he can find the truck's camp and deal with it quietly",
+          { helps = "casey", faction = "hunter", ask = "bring rifle ammunition so he can find the truck's camp and deal with it quietly",
             tier = 3, items = { { "Base.308Box", 1 } }, allies = { "casey" } },
       } },
     { id = "marcus", trigger = true,
@@ -2380,9 +2380,9 @@ Stories.CRISES = {
       options = {
           { faction = "doc", ask = "tell her, and bring antibiotics and painkillers so she can try to treat Marcus",
             tier = 3, items = { { "Base.Antibiotics", 1 }, { "Base.Pills", 2 } } },
-          { faction = "pike", ask = "bring blankets and candles so Marcus can spend his last days in peace at the church",
+          { helps = "doc", faction = "pike", ask = "bring blankets and candles so Marcus can spend his last days in peace at the church",
             tier = 2, items = { { "Base.Sheet", 2 }, { "Base.Candle", 3 } }, spares = { "doc" } },
-          { faction = "guard", ask = "bring 5.56 ammunition so the squad can take Marcus away and deal with it",
+          { helps = "doc", faction = "guard", ask = "bring 5.56 ammunition so the squad can take Marcus away and deal with it",
             tier = 3, items = { { "Base.556Box", 1 } } },
       } },
     { id = "doors", trigger = true,
@@ -2402,7 +2402,7 @@ Stories.CRISES = {
             tier = 3, items = { { "Base.Crowbar", 1 }, { "Base.ShotgunShellsBox", 1 } } },
           { faction = "rats", ask = "bring him whiskey and cigarettes and he will 'sell' Dewey her engine back",
             tier = 2, items = { { "Base.Whiskey", 2 }, { "Base.CigaretteCarton", 1 } }, allies = { "dewey" } },
-          { faction = "guard", ask = "bring 5.56 ammunition so the squad can raid Coalfield and recover the engine",
+          { helps = "dewey", faction = "guard", ask = "bring 5.56 ammunition so the squad can raid Coalfield and recover the engine",
             tier = 3, items = { { "Base.556Box", 1 } }, allies = { "dewey" } },
       } },
     { id = "orders", trigger = true,
@@ -2410,7 +2410,7 @@ Stories.CRISES = {
       options = {
           { faction = "guard", ask = "bring 5.56 ammunition so the squad can seal the checkpoint as ordered",
             tier = 3, items = { { "Base.556Box", 1 } } },
-          { faction = "casey", ask = "bring batteries and an amplifier so she can trace the 'command' signal and prove it is fake",
+          { helps = "guard", faction = "casey", ask = "bring batteries and an amplifier so she can trace the 'command' signal and prove it is fake",
             tier = 3, items = { { "Base.Battery", 4 }, { "Base.Amplifier", 1 } }, allies = { "guard" } },
           { faction = "pike", ask = "bring food and blankets so the church can take in the refugees from the camp",
             tier = 2, items = { { "Base.TinnedBeans", 4 }, { "Base.Sheet", 2 } }, spares = { "guard" } },
@@ -2430,7 +2430,7 @@ Stories.CRISES = {
       options = {
           { faction = "rats", ask = "bring shotgun shells for the fight to take his crew back from Dutch",
             tier = 3, items = { { "Base.ShotgunShellsBox", 1 } } },
-          { faction = "hunter", ask = "bring rifle ammunition so he can cover Vic's move from the treeline and be rid of Dutch's snares",
+          { helps = "rats", faction = "hunter", ask = "bring rifle ammunition so he can cover Vic's move from the treeline and be rid of Dutch's snares",
             tier = 3, items = { { "Base.308Box", 1 } }, allies = { "rats" } },
           { faction = "guard", ask = "bring 5.56 ammunition so the squad can raid Coalfield and arrest the whole crew",
             tier = 4, items = { { "Base.556Box", 2 } } },
@@ -2441,20 +2441,20 @@ Stories.CRISES = {
       options = {
           { faction = "casey", ask = "bring food and blankets so she can keep her guest properly",
             tier = 2, items = { { "Base.TinnedSoup", 3 }, { "Base.Sheet", 2 } } },
-          { faction = "guard", ask = "bring 5.56 ammunition so the squad can pick Ellis up and check his story",
+          { helps = "casey", faction = "guard", ask = "bring 5.56 ammunition so the squad can pick Ellis up and check his story",
             tier = 3, items = { { "Base.556Box", 1 } }, allies = { "casey" } },
-          { faction = "hunter", ask = "bring rifle ammunition so he can follow Ellis and see where he really goes",
+          { helps = "casey", faction = "hunter", ask = "bring rifle ammunition so he can follow Ellis and see where he really goes",
             tier = 3, items = { { "Base.308Box", 1 } }, allies = { "casey" } },
       } },
     { id = "thief", trigger = true,
       situation = "The thief stealing from Hank's traps is a starving young deserter from Whitaker's squad. Hank could take him in, Whitaker wants him back, and Ray says the farm could use a hand.",
       options = {
           { faction = "hunter", ask = "bring food and blankets so he can take the boy in at the cabin",
-            tier = 2, items = { { "Base.TinnedBeans", 3 }, { "Base.Sheet", 2 } } },
+            tier = 2, items = { { "Base.TinnedBeans", 3 }, { "Base.Sheet", 2 } }, spares = { "ray" } },
           { faction = "guard", ask = "bring 5.56 ammunition so the squad can come and collect their deserter",
             tier = 3, items = { { "Base.556Box", 1 } } },
           { faction = "ray", ask = "bring canned food so he can feed the boy as a farm hand",
-            tier = 2, items = { { "Base.TinnedBeans", 4 } } },
+            tier = 2, items = { { "Base.TinnedBeans", 4 } }, spares = { "hunter" } },
       } },
     -- 4장의 위기 (2026-10-07)
     { id = "pantry", trigger = true,
@@ -2474,11 +2474,11 @@ Stories.CRISES = {
             tier = 3, items = { { "Base.556Box", 1 }, { "Base.TinnedBeans", 3 } } },
           { faction = "pike", ask = "bring food and blankets so the squad can winter in the county instead",
             tier = 2, items = { { "Base.TinnedSoup", 3 }, { "Base.Sheet", 2 } }, spares = { "guard" } },
-          { faction = "casey", ask = "bring batteries so she can listen for Fort Knox and check whether the order is still current",
+          { helps = "guard", faction = "casey", ask = "bring batteries so she can listen for Fort Knox and check whether the order is still current",
             tier = 2, items = { { "Base.Battery", 4 } }, allies = { "guard" } },
       } },
     -- 5장의 위기 (2026-10-07)
-    { id = "commons", trigger = true,
+    { id = "commons", trigger = true, mild = true,
       situation = "Ray Mercer is deciding what his farm should be. Pike wants the harvest shared with the church, Vic wants it traded at his market, Whitaker wants it rationed by the squad, and Ray half wants to keep it a family farm.",
       options = {
           { faction = "ray", ask = "bring planks and nails so he can fence it and keep it a family farm",
@@ -2520,13 +2520,35 @@ function Stories.crisisOption(id, fid)
     return nil
 end
 
--- 이 선택(chosen)에서 fid 는 어떤 처지인가: "chosen" | "ally" | "spared" | "snubbed"
+-- 이 선택(chosen)에서 fid 는 어떤 처지인가: "chosen" | "ally" | "helper" | "spared" | "snubbed"
+-- helper (2026-10-18): fid 의 선택지가 chosen 을 돕겠다고 나선 것(helps)이면, chosen 이 자기 방식을 골라도 외면이 아니다
 function Stories.crisisRole(id, chosen, fid)
     if fid == chosen then return "chosen" end
     local o = Stories.crisisOption(id, chosen) or {}
     for _, a in ipairs(o.allies or {}) do if a == fid then return "ally" end end
+    local mine = Stories.crisisOption(id, fid)
+    if mine and mine.helps == chosen then return "helper" end
     for _, a in ipairs(o.spares or {}) do if a == fid then return "spared" end end
     return "snubbed"
+end
+
+-- 외면당한 쪽의 신뢰도 감점: 보통 -2, 반쯤 경쟁인 위기(mild)는 -1
+Stories.SNUB_TRUST = 2
+function Stories.snubTrust(id)
+    local c = Stories.crisis(id)
+    return (c and c.mild) and math.floor(Stories.SNUB_TRUST / 2) or Stories.SNUB_TRUST
+end
+
+-- 이 선택지를 고르면 각 NPC 가 어떻게 받아들이나 (퀘스트 탭 툴팁): { { faction, role, trust } }
+function Stories.choicePreview(id, chosen)
+    local c = Stories.crisis(id)
+    local out = {}
+    for _, o in ipairs(c and c.options or {}) do
+        local role = Stories.crisisRole(id, chosen, o.faction)
+        local d = role == "chosen" and 2 or role == "ally" and 1 or role == "snubbed" and -Stories.snubTrust(id) or 0
+        out[#out + 1] = { faction = o.faction, role = role, trust = d }
+    end
+    return out
 end
 
 function Stories.crisis(id)

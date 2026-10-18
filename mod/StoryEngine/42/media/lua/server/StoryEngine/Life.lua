@@ -428,11 +428,14 @@ function Life.onCrisis(q, chosen, who)
         elseif role == "ally" then
             Life.change(o.faction, "morale", 10, "crisis_ally")
             Life.record(o.faction, "crisis_ally", who, 1)
-        elseif role == "spared" then
-            -- 이해한다: 변화 없음
+        elseif role == "spared" or role == "helper" then
+            -- 이해한다 / 돕던 사람의 방식이 골라졌다: 변화 없음
         else
-            Life.change(o.faction, res, -20, "crisis_snubbed")
-            Life.change(o.faction, "morale", -10, "crisis_snubbed")
+            -- 반쯤 경쟁인 위기(mild)는 절반
+            local c = Stories and Stories.crisis(q.crisis)
+            local f = (c and c.mild) and 0.5 or 1
+            Life.change(o.faction, res, -20 * f, "crisis_snubbed")
+            Life.change(o.faction, "morale", -10 * f, "crisis_snubbed")
             Life.record(o.faction, "crisis_snubbed", who, -2)
         end
     end

@@ -429,7 +429,7 @@ function Council.siegeTick(entries, now)
         local size = math.max(4, sg.wave - held)
         local angle = ZombRandFloat(0, math.pi * 2)
         local d = ZombRand(45, 66)
-        StoryEngine.Hunt.start(lead, size, q.cx + math.cos(angle) * d, q.cy + math.sin(angle) * d, "council")
+        StoryEngine.Hunt.start(lead, size, q.cx + math.cos(angle) * d, q.cy + math.sin(angle) * d, "council", q.id)
         q.waves = (q.waves or 0) + 1
         q.nextWaveT = now.t + Council.SIEGE_WAVE
         sg.sent, sg.held = sg.sent + size, sg.held + held

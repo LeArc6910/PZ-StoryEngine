@@ -846,12 +846,21 @@ function Social.onChoice(q, opt, player)
                 .. " What " .. nameOf(opt.faction) .. " asked for: " .. tostring(opt.ask)
                 .. ". React in character, relieved or grateful.",
                 StoryEngine.Lines.fallback(o.faction, "crisis_thanks", "That helped us too. Thank you."), ps)
+        elseif role == "helper" then
+            -- 이 NPC 는 고른 사람을 돕겠다고 나섰다: 그 사람이 자기 방식으로 하기로 했으니 감점 없이 받아들인다
+            st.flags[q.crisis .. "_spared"] = true
+            StoryEngine.Radio.react(o.faction, "event", "You offered to help " .. nameOf(opt.faction) .. " in this: "
+                .. (c and c.situation or "a crisis") .. " The players went with " .. nameOf(opt.faction)
+                .. "'s own way instead of yours: " .. tostring(opt.ask) .. ". You were trying to help them anyway, so "
+                .. "accept it in character and offer to back them up. Do not sound hurt.",
+                StoryEngine.Lines.fallback(o.faction, "crisis_helper", "If that is how they want to do it, I will back them.",
+                    { { t = "npc", v = opt.faction } }), ps)
         elseif role == "spared" then
             -- 다른 쪽을 골랐지만 이 NPC 도 이해한다: 감점 없음
             st.flags[q.crisis .. "_spared"] = true
         else
             st.flags[q.crisis .. "_snubbed"] = true
-            if Trust then Trust.apply(o.faction, -2, "crisis_snubbed", q.id, ps.key) end
+            if Trust then Trust.apply(o.faction, -Stories.snubTrust(q.crisis), "crisis_snubbed", q.id, ps.key) end
             StoryEngine.Radio.react(o.faction, "event", "The players chose to help " .. nameOf(opt.faction)
                 .. " instead of you. The situation was: " .. (c and c.situation or "a crisis")
                 .. " React in character: how hurt, angry or understanding you are depends on how much you trust them.",
@@ -862,7 +871,7 @@ function Social.onChoice(q, opt, player)
     if StoryEngine.Bonds then
         for _, o in ipairs(q.options) do
             local role = Stories.crisisRole(q.crisis, opt.faction, o.faction)
-            if role == "snubbed" then
+            if role == "snubbed" and not (c and c.mild) then
                 StoryEngine.Bonds.change(o.faction, opt.faction, -1, "the players chose to help " .. nameOf(opt.faction)
                     .. " over " .. nameOf(o.faction) .. " in a crisis", true)
             elseif role == "ally" then

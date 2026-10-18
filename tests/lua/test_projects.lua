@@ -194,7 +194,7 @@ function T.effect_hunter_more_snipes_and_safety()
     H.eq(StoryEngine.Life.base("hunter", "safety"), 80)
     H.newZombie(10005, 10000)
     H.ok(StoryEngine.Specialty.request(p, "hunter", {}))
-    H.eq(H.sentOf("specSnipe")[1].count, 20, "10 + 10")
+    H.eq(H.sentOf("specSnipe")[1].count, 30, "20 + 10")
 end
 
 function T.effect_rats_trading_post()

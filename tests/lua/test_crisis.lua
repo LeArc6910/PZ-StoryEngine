@@ -72,4 +72,38 @@ function T.truck_is_a_real_competition()
     H.ok(trust("rats") < rats)
 end
 
+-- 돕겠다고 나선 사람 (2026-10-18): 당사자가 자기 방식을 고르면 돕던 사람은 외면이 아니다
+function T.marcus_helpers_are_not_snubbed_when_june_decides()
+    local p = setup()
+    local pike, guard, doc = trust("pike"), trust("guard"), trust("doc")
+    choose(p, "marcus", "doc")
+    H.ok(trust("doc") > doc, "June chosen")
+    H.eq(trust("pike"), pike, "Pike was helping June: no loss")
+    H.eq(trust("guard"), guard, "Whitaker was helping June: no loss")
+    H.eq(StoryEngine.Stories.crisisRole("marcus", "doc", "guard"), "helper")
+    H.ok(flags("pike").marcus_spared and not flags("guard").marcus_snubbed)
+    -- 휘태커가 마커스를 데려가는 걸 고르면 준은 여전히 외면당한다
+    H.eq(StoryEngine.Stories.crisisRole("marcus", "guard", "doc"), "snubbed")
+    local pre = StoryEngine.Stories.choicePreview("marcus", "doc")
+    local by = {}
+    for _, e in ipairs(pre) do by[e.faction] = e end
+    H.ok(by.doc.trust == 2 and by.pike.role == "helper" and by.guard.trust == 0)
+end
+
+function T.commons_is_only_half_a_snub()
+    local p = setup()
+    local pike, rats, guard = trust("pike"), trust("rats"), trust("guard")
+    choose(p, "commons", "ray")
+    H.eq(trust("pike"), pike - 1)
+    H.eq(trust("rats"), rats - 1)
+    H.eq(trust("guard"), guard - 1)
+    H.eq(StoryEngine.Stories.choicePreview("commons", "ray")[2].trust, -1)
+end
+
+function T.thief_hank_and_ray_understand_each_other()
+    H.eq(StoryEngine.Stories.crisisRole("thief", "ray", "hunter"), "spared")
+    H.eq(StoryEngine.Stories.crisisRole("thief", "hunter", "ray"), "spared")
+    H.eq(StoryEngine.Stories.crisisRole("thief", "guard", "hunter"), "snubbed")
+end
+
 return T

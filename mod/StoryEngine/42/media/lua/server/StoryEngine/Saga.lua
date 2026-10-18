@@ -603,7 +603,7 @@ function Facility.tick(sg, now)
     local size = math.max(4, math.floor(StoryEngine.Hunt.sizeNow() * Saga.FACILITY_WAVE_SHARE + 0.5))
     local angle = ZombRandFloat(0, math.pi * 2)
     local d = ZombRand(45, 66)
-    StoryEngine.Hunt.start(target, size, q.cx + math.cos(angle) * d, q.cy + math.sin(angle) * d, "saga_facility")
+    StoryEngine.Hunt.start(target, size, q.cx + math.cos(angle) * d, q.cy + math.sin(angle) * d, "saga_facility", q.id)
     q.waves = (q.waves or 0) + 1
     q.nextWaveT = now.t + Saga.FACILITY_WAVE
     log("saga facility wave", sg.id, q.waves, size)

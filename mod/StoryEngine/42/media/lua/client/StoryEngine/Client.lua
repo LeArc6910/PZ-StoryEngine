@@ -671,9 +671,20 @@ end
 
 -- 디버그 메뉴는 게임을 디버그 모드(-debug)로 켰을 때만 보인다 (2026-10-03: 예전엔 싱글에서 늘 보였다).
 -- 멀티에서는 서버가 권한(Capability.UseDebugContextMenu)을 다시 확인한다.
+-- 디버그 모드이거나, 멀티에서 관리자 권한이 있으면 (2026-10-18 사용자 요청). 서버가 명령마다 권한을 다시 본다
 function Client.showDebugMenu()
     local ok, on = pcall(getDebug)
-    return ok and on == true
+    if ok and on == true then return true end
+    local okC, client = pcall(isClient)
+    if not (okC and client) then return false end
+    local okA, admin = pcall(isAdmin)
+    if okA and admin == true then return true end
+    local okL, level = pcall(function()
+        local p = getPlayer()
+        return p and p:getAccessLevel()
+    end)
+    level = okL and level and string.lower(tostring(level)) or ""
+    return level ~= "" and level ~= "none" and level ~= "player" and level ~= "user"
 end
 
 -- 번역 문장 앞의 "StoryEngine: " 은 하위 메뉴 안에서는 뺀다

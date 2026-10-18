@@ -25,7 +25,7 @@ Lines.COUNT = {
     -- 그 밖의 사건
     donation = 2, heli = 2, npc_died = 2, player_died = 2, survived = 1,
     fate_warn = 1, fate_goodbye = 1, project_done = 1, project_progress = 2,
-    crisis_appeal = 2, crisis_thanks = 2, crisis_snub = 2, crisis_ignored = 1,
+    crisis_appeal = 2, crisis_thanks = 2, crisis_snub = 2, crisis_ignored = 1, crisis_helper = 3,
     world_power = 1, world_water = 1, world_winter = 1,
     -- 먼저 거는 잡담 (Social.pickContact 의 이유)
     chat_morning = 2, chat_evening = 2, chat_storm = 1, chat_miss = 2, chat_checkin = 3,

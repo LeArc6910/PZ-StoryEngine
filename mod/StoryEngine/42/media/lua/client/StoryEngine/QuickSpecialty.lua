@@ -64,9 +64,9 @@ end
 
 -- 특기 설명 + 지금 못 쓰는 이유 (툴팁)
 local function description(n)
-    local desc = getText("IGUI_StoryEngine_Spec_Desc_" .. n.id)
+    local desc = UI.specDesc(n)
     if n.spec and n.spec.reason then
-        desc = getText("IGUI_StoryEngine_Spec_Error_" .. tostring(n.spec.reason), num(n.spec.wait)) .. " <LINE> " .. desc
+        desc = UI.specError(n.spec.reason, n.spec.wait, n) .. " <LINE> " .. desc
     end
     local cost = n.spec and UI.specCostText(n.spec.cost, n.res)
     if cost then desc = desc .. " <LINE> " .. cost end

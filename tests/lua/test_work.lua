@@ -449,4 +449,25 @@ function T.progress_notes_for_courier()
     H.eq(#notes("parcel_low"), 1)
 end
 
+-- 배달을 마치면 꾸러미를 노리던 추적 무리가 더 따라오지 않는다 (2026-10-19 사용자 보고: 집까지 따라옴)
+function T.courier_pack_stops_when_the_delivery_is_done()
+    local p, ps, q = setup("ray", 65)
+    local _, drop = courierToDropoff(p, ps, q)
+    local hunts = StoryEngine.Store.data().hunts
+    local id
+    for hid, h in pairs(hunts) do if h.quest == drop.id then id = hid end end
+    H.ok(id, "the pack belongs to the dropoff")
+    local z = H.newZombie(p:getX() + 5, p:getY())
+    z:getModData().storyHunt = id
+    StoryEngine.Hunt.tick()
+    H.ok(hunts[id], "still chasing while the parcel is on the way")
+    local now = StoryEngine.Sensor.now()
+    StoryEngine.Quests.trackSite(drop, { { player = p, ps = ps, s = { x = drop.cx, y = drop.cy } } }, now)
+    H.eq(drop.state, "completed")
+    StoryEngine.Hunt.tick()
+    H.eq(hunts[id], nil, "the pack is let go")
+    H.eq(z:getModData().storyHunt, nil, "its zombies are ordinary again")
+    H.ok(H.logHas("hunt released"))
+end
+
 return T

@@ -561,4 +561,29 @@ function T.outsider_waits_follow_the_sandbox()
     SandboxVars.StoryEngine.OutsiderDays_jewels, SandboxVars.StoryEngine.OutsiderDays_proxy = nil, nil
 end
 
+-- A-Life 가 있으면 헤일의 호위는 자동 소총을 든 기관총 역할 넷 (2026-10-19)
+function T.hales_escort_is_all_machine_gunners()
+    local p = setup()
+    local Out = O()
+    here("hale")
+    setTrust("hale", 75)
+    local A = StoryEngine.ALife
+    local old, oldOn, oldAvail = A.sendSupport, A.enabled, A.available
+    local got
+    A.sendSupport = function(_, fid, _, _, _, _, count, opts) got = { fid = fid, count = count, opts = opts } return true end
+    A.enabled, A.available = function() return true end, function() return true end
+    H.ok(Out.scan(p, 10100, 10000).ok)
+    H.ok(select(1, Out.use(p, "hale", 2, { x = 10100, y = 10000 })))
+    H.advance(Out.AIRDROP_DELAY + 1)
+    H.fire("EveryOneMinute")
+    H.advance(3)
+    H.fire("EveryOneMinute")
+    A.sendSupport, A.enabled, A.available = old, oldOn, oldAvail
+    H.ok(got, "the escort was sent through A-Life")
+    H.eq(got.count, Out.ESCORT_COUNT)
+    H.eq(got.opts.armed, true)
+    H.eq(#got.opts.conducts, Out.ESCORT_COUNT)
+    for _, r in ipairs(got.opts.conducts) do H.eq(r, "gunner") end
+end
+
 return T
