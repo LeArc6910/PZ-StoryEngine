@@ -380,15 +380,18 @@ function H.newBodyPart(name, f)
                  stiff = f.stiff or 0, bit = f.bitten or false, infected = f.infected or false }
     function bp:scratched() return self.scratch end
     function bp:setScratched(v) self.scratch = v end
-    function bp:setScratchTime() end
+    function bp:getScratchTime() return self.scratchT or 0 end
+    function bp:setScratchTime(v) self.scratchT = v end
     function bp:isCut() return self.cut end
     function bp:setCut(v) self.cut = v end
-    function bp:setCutTime() end
+    function bp:getCutTime() return self.cutT or 0 end
+    function bp:setCutTime(v) self.cutT = v end
     function bp:getBleedingTime() return self.bleed end
     function bp:setBleedingTime(v) self.bleed = v end
     function bp:deepWounded() return self.deep end
     function bp:setDeepWounded(v) self.deep = v end
-    function bp:setDeepWoundTime() end
+    function bp:getDeepWoundTime() return self.deepT or 0 end
+    function bp:setDeepWoundTime(v) self.deepT = v end
     function bp:haveGlass() return self.glass end
     function bp:setHaveGlass(v) self.glass = v end
     function bp:isInfectedWound() return self.woundInf end

@@ -229,7 +229,12 @@ function T.casey_scout_marks_warnings_and_expiry()
     H.advance(12 * 60)
     H.fire("EveryOneMinute")
     local all = H.sentOf("scoutMarks")
-    H.eq(#all[#all].marks, 0, "marks cleared at the end")
+    H.ok(#all[#all].marks > 0, "tier 3 still scouting after 12 hours")
+    H.eq(all[#all].hoursLeft, 6)
+    H.advance(6 * 60)
+    H.fire("EveryOneMinute")
+    all = H.sentOf("scoutMarks")
+    H.eq(#all[#all].marks, 0, "marks cleared after 18 hours")
 end
 
 function T.casey_tier1_only_hunts()
@@ -825,6 +830,71 @@ function T.alife_spawn_spot_avoids_zombie_crowds()
         z:getModData().ProjectALifeOwned = true
     end
     H.eq(#A.zombieSpots(10000, 10000), 0)
+end
+
+-- 닥 치료 뒤 12/18/24시간 동안 남은 상처가 50% 빨리 낫는다 (2026-10-19)
+function T.doc_treatment_speeds_up_the_rest()
+    local p = setup()
+    local Sp = S()
+    setTrust("doc", 65)                                -- 구간 2: 18시간
+    local leg = H.newBodyPart("leg", { deep = true, bleed = 5 })
+    local arm = H.newBodyPart("arm", { scratch = true })
+    local hand = H.newBodyPart("hand", { bitten = true, infected = true })
+    arm.scratchT, arm.cutT = 10, 0
+    p.parts = { leg, arm, hand }
+    H.ok(Sp.request(p, "doc", {}))
+    H.ok(Sp.healDone(p))
+    H.eq(leg.deep, false, "worst wound treated")
+    local sd = StoryEngine.Store.data().spec
+    local key = StoryEngine.Store.playerKey(p)
+    H.ok(sd.regen[key], "regen started")
+    H.ok(H.logHas("specialty regen start"))
+    H.advance(1)
+    H.fire("EveryOneMinute")                           -- 처음 값을 적어 둔다
+    H.eq(arm.scratchT, 10, "nothing changed yet")
+    arm.scratchT = 9                                   -- 게임이 1 줄임
+    H.advance(1)
+    H.fire("EveryOneMinute")
+    H.eq(arm.scratchT, 8.5, "half again as much")
+    arm.scratchT = 8                                   -- 게임이 0.5 줄임
+    H.advance(1)
+    H.fire("EveryOneMinute")
+    H.eq(arm.scratchT, 7.75)
+    arm.scratchT = 12                                  -- 새로 다침: 늘어난 것은 그대로
+    H.advance(1)
+    H.fire("EveryOneMinute")
+    H.eq(arm.scratchT, 12)
+    arm.scratchT = 0.0005                              -- 거의 나음: 끝은 게임이 맺게 조금 남긴다
+    H.advance(1)
+    H.fire("EveryOneMinute")
+    H.ok(arm.scratchT > 0 and arm.scratchT <= 0.001, "leaves a sliver for the game")
+    H.eq(sd.regen[key].tier, 2)
+    H.advance(18 * 60)
+    H.fire("EveryOneMinute")
+    H.eq(sd.regen[key], nil, "ends after 18 hours")
+    H.ok(H.logHas("specialty regen end"))
+    arm.scratchT = 5
+    H.advance(1)
+    H.fire("EveryOneMinute")
+    arm.scratchT = 4
+    H.advance(1)
+    H.fire("EveryOneMinute")
+    H.eq(arm.scratchT, 4, "no bonus after it ends")
+end
+
+function T.doc_regen_hours_by_tier()
+    local p = setup()
+    for tier, trust in ipairs({ 45, 65, 85 }) do
+        S().clearWait("doc")
+        StoryEngine.Store.data().spec.regen = {}
+        StoryEngine.Life.npc("doc").res.medical = 80
+        setTrust("doc", trust)
+        p.parts = { H.newBodyPart("arm", { scratch = true }) }
+        H.ok(S().request(p, "doc", {}))
+        H.ok(S().healDone(p))
+        local r = StoryEngine.Store.data().spec.regen[StoryEngine.Store.playerKey(p)]
+        H.eq(r.untilT - StoryEngine.Sensor.now().t, ({ 12, 18, 24 })[tier] * 60)
+    end
 end
 
 return T

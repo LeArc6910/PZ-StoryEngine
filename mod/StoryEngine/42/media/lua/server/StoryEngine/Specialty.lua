@@ -4,11 +4,12 @@
 -- NPC 별 대기 시간(서버 전체). 쓰면 핵심 자원 -10(구간 3은 -15), 행적·일지, NPC 무전 연기. 특기별 조건이 안 되면
 -- 아무것도 쓰지 않고 이유만 알린다. 플레이어 대가는 없다.
 --   guard  A-Life 분대(4/6/8명·2/4/6시간), A-Life 가 없으면 저격 40/60/80
---   doc    치료 (클라이언트에서 10초 가만히 있으면 specHealDone -> 서버가 상처를 고치고 syncBodyPart)
+--   doc    치료 (클라이언트에서 10초 가만히 있으면 specHealDone -> 서버가 상처를 고치고 syncBodyPart),
+--          그 뒤 12/18/24시간 동안 남은 상처가 50% 빨리 낫는다
 --   dewey  1~2시간 뒤 가까운 차량 수리
---   casey  3/6/12시간 정찰: 추적 무리 / + 적대 A-Life 무리 / + 좀비 밀집, 지도 표시와 혼잣말 경고
+--   casey  6/12/18시간 정찰: 추적 무리 / + 적대 A-Life 무리 / + 좀비 밀집, 지도 표시와 혼잣말 경고
 --   ray    다른 NPC 의 부족한 자원에 +50/75/100 (레이 식량 -15)
---   pike   스트레스·불행·지루함 감소, 공포·근육통 없음 3/6/12시간
+--   pike   스트레스·불행·지루함 감소, 공포·근육통 없음 6/12/18시간
 --   hunter 저격 20/30/40 (30분에 나눠)
 --   rats   60~80타일 밖 미끼 소음
 -- 저격은 요청한 클라이언트가 좀비를 쓰러뜨리고 총성은 그 플레이어만 듣는다 (실제 소음 판정 없음, 좀비를 끌지 않는다).
@@ -70,13 +71,17 @@ Specialty.SNIPE_RADIUS = 30
 Specialty.HEAL_WAIT_MS = 2 * 60 * 1000                 -- 치료 동작을 끝내야 하는 실시간
 Specialty.HEAL_COST = 10                               -- 닥 치료 의약품 (가장 심각한 상처 하나)
 Specialty.HEAL_PARTS_CLINIC = 2                        -- 진료소 완성 시 치료하는 부위 수 (2026-10-02, 예전: 의약품 절반)
+-- 치료 뒤 회복 촉진 (2026-10-19 사용자 요청): 이 시간 동안 남은 상처가 낫는 속도 +REGEN_BONUS (진료소 보너스 없음)
+Specialty.REGEN_HOURS = { 12, 18, 24 }
+Specialty.REGEN_BONUS = 0.5
+Specialty.REGEN_FLOOR = 0.001                          -- 끝은 게임이 맺도록 이만큼은 남긴다 (0이면 상처 표시가 안 지워짐)
 Specialty.REPAIR = { { add = 30, max = 70 }, { add = 50, max = 85 }, { add = 100, max = 100 } }
 Specialty.ENGINE_SHARE = 0.5                           -- 엔진은 수리량의 절반 (게임에서도 고치기 힘든 부품, 2026-09-30)
 Specialty.REPAIR_DELAY = { 480, 600 }                  -- 듀이 도착 (2026-09-30: 1~2시간 -> 8~10시간)
 Specialty.REPAIR_DELAY_ARK = { 30, 60 }                -- 듀이의 Ark 트럭 프로젝트 완성 후
 Specialty.REPAIR_RADIUS = 10
 Specialty.REPAIR_KEEP_MIN = 3 * 24 * 60                -- 차가 로드되지 않으면 이만큼 기다린다
-Specialty.SCOUT_HOURS = { 3, 6, 12 }
+Specialty.SCOUT_HOURS = { 6, 12, 18 }                  -- 2026-10-19 3/6/12 -> 6/12/18
 Specialty.SCOUT_RADIUS = 150
 Specialty.SCOUT_RADIUS_ANTENNA = 250                   -- 케이시 중계 안테나 완성 후 (정찰 대기도 3 -> 2일)
 Specialty.SCOUT_REFRESH_MIN = 10
@@ -108,6 +113,7 @@ local function state()
     s.jobs = s.jobs or {}
     s.scout = s.scout or {}
     s.comfort = s.comfort or {}
+    s.regen = s.regen or {}         -- 플레이어 키 -> { untilT, tier } 닥 치료 뒤 회복 촉진
     s.decoys = s.decoys or {}
     return s
 end
@@ -419,13 +425,108 @@ function Specialty.healDone(player)
     if n == 0 then return false, "no_wounds" end
     local what = n > 1 and ("their worst injuries on " .. StoryEngine.intToString(n) .. " different parts of the body")
         or "their worst injury"
+    local hours = Specialty.startRegen(player, ps, p.tier)
     Specialty.commit(p.fid, ps, p.tier, {
         count = n, cost = Specialty.HEAL_COST,
         topic = "You just talked " .. tostring(ps.name) .. " through treating " .. what .. " over the radio ("
             .. tostring(kind) .. "). Only " .. (n > 1 and "those are" or "that one is")
-            .. " taken care of. Tell them how to look after it now, like a nurse would.",
+            .. " taken care of. With your instructions the rest of their wounds will heal faster for the next "
+            .. tostring(hours) .. " hours, as long as they keep them clean and dressed."
+            .. " Tell them how to look after it now, like a nurse would.",
     })
     return true, n
+end
+
+-- ---------------------------------------------------------------- 닥: 치료 뒤 회복 촉진
+
+-- 게임에는 낫는 속도 배율이 없다 (jar 42.21: BodyPart.DamageUpdate 가 남은 시간을 붕대·약초에 따라 정해진 양만큼 줄이고,
+-- 멀티 클라이언트에서는 바로 빠져나가 서버가 계산한다). 그래서 매분 1분 전과 견줘 게임이 줄인 만큼의 REGEN_BONUS 를
+-- 더 줄인다: 붕대를 감으면 원래도 빠르니 그 1.5배, 안 감은 상처는 원래처럼 느리다. 물림·좀비 감염은 건드리지 않는다
+Specialty.REGEN_FIELDS = {
+    { "getScratchTime", "setScratchTime" },
+    { "getCutTime", "setCutTime" },
+    { "getDeepWoundTime", "setDeepWoundTime" },
+    { "getFractureTime", "setFractureTime" },
+    { "getBurnTime", "setBurnTime" },
+    { "getBleedingTime", "setBleedingTime" },
+}
+Specialty.regenLast = {}             -- 플레이어 키 -> { [부위 번호] = { [필드 번호] = 1분 전 값 } } (메모리만)
+
+-- 시작하거나 늘린다. 반환: 시간
+function Specialty.startRegen(player, ps, tier)
+    local hours = Specialty.REGEN_HOURS[tier] or Specialty.REGEN_HOURS[1]
+    local now = Sensor.now()
+    local s = state()
+    local key = Store.playerKey(player)
+    local r = s.regen[key]
+    local untilT = now.t + hours * 60
+    if r then
+        r.untilT = math.max(r.untilT, untilT)
+        r.tier = math.max(r.tier or 1, tier)
+    else
+        s.regen[key] = { untilT = untilT, tier = tier }
+        Specialty.regenLast[key] = nil
+    end
+    pcall(Radio.overhead, ps.key, "doc", "", { key = "IGUI_StoryEngine_RadioSay_doc_regen_start",
+                                               args = { { t = "num", v = hours } } })
+    log("specialty regen start", ps.name, "hours", hours)
+    return hours
+end
+
+-- 한 사람의 몸에서 이번 1분 동안 게임이 줄인 양의 REGEN_BONUS 를 더 줄인다. 반환: 더 줄인 부위 수
+function Specialty.regenBody(key, p)
+    local last = Specialty.regenLast[key] or {}
+    Specialty.regenLast[key] = last
+    local parts = p:getBodyDamage():getBodyParts()
+    local changedParts = 0
+    for i = 0, parts:size() - 1 do
+        local bp = parts:get(i)
+        local prev = last[i] or {}
+        last[i] = prev
+        local changed = false
+        for n, f in ipairs(Specialty.REGEN_FIELDS) do
+            local okG, cur = pcall(function() return bp[f[1]](bp) end)
+            if okG and type(cur) == "number" then
+                local before = prev[n]
+                if before and cur > 0 and cur < before then
+                    local nv = cur - (before - cur) * Specialty.REGEN_BONUS
+                    if nv < Specialty.REGEN_FLOOR then nv = math.min(cur, Specialty.REGEN_FLOOR) end
+                    if nv < cur and pcall(function() bp[f[2]](bp, nv) end) then
+                        cur = nv
+                        changed = true
+                    end
+                end
+                prev[n] = cur
+            end
+        end
+        if changed then
+            changedParts = changedParts + 1
+            pcall(syncBodyPart, bp, 0xFFFFFFFFFFF)
+        end
+    end
+    return changedParts
+end
+
+local function regenTick(now)
+    local s = state()
+    for key, r in pairs(s.regen) do
+        if now.t >= r.untilT then
+            s.regen[key] = nil
+            Specialty.regenLast[key] = nil
+            if not Factions.isGone("doc") then
+                pcall(Radio.overhead, key, "doc", "", { key = "IGUI_StoryEngine_RadioSay_doc_regen_end" })
+            end
+            log("specialty regen end", key)
+        else
+            local p = playerByKey(key)
+            if p and not p:isDead() then
+                local ok, err = pcall(Specialty.regenBody, key, p)
+                if not ok then log("specialty regen error:", err) end
+            else
+                Specialty.regenLast[key] = nil   -- 다시 들어오면 그때 값부터 견준다
+            end
+        end
+    end
 end
 
 -- ---------------------------------------------------------------- 듀이: 차량 수리
@@ -912,7 +1013,7 @@ end
 
 Events.EveryOneMinute.Add(function()
     local now = Sensor.now()
-    for _, fn in ipairs({ runJobs, Specialty.scoutTick, comfortTick, decoyTick }) do
+    for _, fn in ipairs({ runJobs, Specialty.scoutTick, comfortTick, decoyTick, regenTick }) do
         local ok, err = pcall(fn, now)
         if not ok then log("specialty tick error:", err) end
     end
