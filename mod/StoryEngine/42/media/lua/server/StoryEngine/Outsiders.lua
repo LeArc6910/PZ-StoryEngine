@@ -20,7 +20,8 @@
 --   안 나오고, 셋 다 그러면 추방 재투표 (E14, Politics.systemBill "expel").
 --
 -- 상태: d.outsiders = { queue, nextT, pending, here[id] = { sinceT, day, idle, low, hard, sided, testT, test, askT,
---                       used[key][n] = t, gift, expelT, refused }, left[id], fx, armed[key], jobs, day, raidT }
+--                       used[key][n] = t, gift, expelT, refused }, left[id], fx, armed[key], jobs, day, raidT,
+--                       carry = { add[key] = 기본 무게에 더한 양, on[key] = 프레임워크 보정이 켜져 있음 } }
 
 if isClient() then return end
 
@@ -100,6 +101,9 @@ Outsiders.MIRACLE_HEALTH = 15
 Outsiders.MIRACLE_RADIUS = 5
 Outsiders.BURDEN_DAYS = 2
 Outsiders.BURDEN_DAYS_SIDED = 3
+Outsiders.BURDEN_MULT = 2                       -- 짐을 든 자: 운반 한도 배율 (서버에서 적용, 아래 "짐을 든 자: 운반 무게")
+Outsiders.CARRY_ID = "StoryEngine.Burden"       -- Unified Carry Weight Framework 에 등록하는 이름
+Outsiders.LEGACY_BURDEN_KEY = "seBurdenBase"    -- 0.4.8 까지 클라이언트가 캐릭터 modData 에 쓰던 키 (지운다)
 Outsiders.JEWEL_CAP = 60
 Outsiders.JEWEL_CAP_SIDED = 80
 Outsiders.ORDER_PRICE = 2
@@ -380,6 +384,7 @@ function Outsiders.leave(id, why, now)
             local p = playerByKey(f.key)
             if p then pcall(Net.toClient, p, "outsiderFx", { kind = f.kind, minutes = 0 }) end
             table.remove(s.fx, i)
+            if p and f.kind == "burden" then pcall(Outsiders.updateCarry, p) end
         end
     end
     if id == "abigail" then s.armed = {} end
@@ -599,6 +604,7 @@ local function addFx(fx, player)
     end
     list[#list + 1] = fx
     sendFx(fx, player, Sensor.now())
+    if fx.kind == "burden" and player then pcall(Outsiders.updateCarry, player) end
     return fx
 end
 
@@ -1036,6 +1042,123 @@ function HANDLERS.burden(player, ps, id, args, now)
                        .. " days they will carry twice what they could. Say it as a blessing." }
 end
 
+-- ---------------------------------------------------------------- 짐을 든 자: 운반 무게
+--
+-- 운반 한도는 서버의 BodyDamage.UpdateStrength 가 기본 무게(maxWeightBase)와 배율(maxWeightDelta)로 계산하고, 멀티에서는
+-- 그 값이 PlayerDamagePacket 으로 클라이언트에 간다 (jar 42.21 확인). 그래서 클라이언트에서 기본 무게를 바꾸면 멀티에서는
+-- 듣지 않는다 (0.4.8 까지 그랬다). 서버(싱글이면 같은 프로세스)에서만 바꾼다.
+-- * Unified Carry Weight Framework 가 있으면 "최대 무게 보정" { mult = BURDEN_MULT } 로 등록한다. 이 프레임워크는 1시간마다
+--   기본 무게를 8 + 등록된 보정으로 다시 쓰고 More Traits 도 그 뒤에 기본 무게를 다시 쓰므로, 기본 무게를 직접 바꾸면 덮인다.
+--   효과가 켜지고 꺼질 때 recomputeAll 을 부른다.
+-- * 없으면 기본 무게에 직접 더하고 뺀다. 더한 양은 서버만 쓰는 전역 ModData(d.outsiders.carry.add)에 적는다
+--   (캐릭터 modData 는 멀티에서 서버·클라이언트가 서로 덮어써 값이 망가질 수 있다).
+
+function Outsiders.carryFramework()
+    local f = UnifiedCarryWeightFramework
+    if type(f) == "table" and type(f.registerMaxModifier) == "function" and type(f.recomputeAll) == "function" then return f end
+    return nil
+end
+
+local function burdenOn(player, t)
+    if not player or player:isDead() then return false end
+    local key = Store.playerKey(player)
+    return key ~= nil and fxOf("burden", key, t or Sensor.now().t) ~= nil
+end
+
+-- 프레임워크에 한 번 등록 (게임 시작·서버 시작·처음 쓸 때)
+Outsiders.carryRegistered = false
+function Outsiders.registerCarry()
+    local f = Outsiders.carryFramework()
+    if not f or Outsiders.carryRegistered then return Outsiders.carryRegistered end
+    local ok, err = pcall(f.registerMaxModifier, {
+        id = Outsiders.CARRY_ID,
+        resolve = function(ctx)
+            local ok2, on = pcall(burdenOn, ctx and ctx.player)
+            if ok2 and on then return { mult = Outsiders.BURDEN_MULT } end
+            return {}
+        end,
+    })
+    if ok then
+        Outsiders.carryRegistered = true
+        log("outsider burden carry registered with UnifiedCarryWeightFramework")
+    else
+        log("outsider burden carry framework register error", tostring(err))
+    end
+    return Outsiders.carryRegistered
+end
+
+local function carryRecord()
+    local s = state()
+    s.carry = s.carry or {}
+    s.carry.add = s.carry.add or {}
+    s.carry.on = s.carry.on or {}
+    return s.carry
+end
+
+-- 0.4.8 까지의 클라이언트 코드가 남긴 것: 캐릭터 modData 의 원래 기본 무게. 기본 무게가 정확히 그 두 배로 남아 있으면
+-- (싱글에서는 클라이언트 코드가 같은 몸을 바꿨다) 되돌리고 키를 지운다. 한 세션에 캐릭터마다 한 번.
+Outsiders.carryCleaned = {}
+local function cleanLegacy(player, key)
+    if Outsiders.carryCleaned[key] then return false end
+    Outsiders.carryCleaned[key] = true
+    local md = player:getModData()
+    local old = md[Outsiders.LEGACY_BURDEN_KEY]
+    if old == nil then return false end
+    md[Outsiders.LEGACY_BURDEN_KEY] = nil
+    old = tonumber(old)
+    if old and old > 0 and player:getMaxWeightBase() == math.floor(old * Outsiders.BURDEN_MULT) then
+        player:setMaxWeightBase(old)
+        log("outsider burden carry: undid the old doubled base", key, StoryEngine.intToString(old))
+    else
+        log("outsider burden carry: cleared the old record", key)
+    end
+    return true
+end
+
+-- 이 캐릭터의 운반 한도를 지금 효과에 맞춘다 (효과가 걸릴 때·풀릴 때·매분)
+function Outsiders.updateCarry(player, now)
+    if not player then return end
+    local key = Store.playerKey(player)
+    if not key then return end
+    local t = (now or Sensor.now()).t
+    local cleaned = cleanLegacy(player, key)
+    local rec = carryRecord()
+    local on = burdenOn(player, t)
+    local f = Outsiders.carryFramework()
+    if f then
+        -- 프레임워크가 다시 계산하면 기본 무게는 8 + 보정으로 돌아가므로 예전에 직접 더한 양은 버린다
+        if rec.add[key] then rec.add[key], cleaned = nil, true end
+        if on == (rec.on[key] == true) and not cleaned then return end
+        Outsiders.registerCarry()
+        local ok, err = pcall(f.recomputeAll, player)
+        if not ok then
+            log("outsider burden carry framework recompute error", tostring(err))
+            return
+        end
+        rec.on[key] = on or nil
+        log("outsider burden carry", on and "on" or "off", "framework", key)
+        return
+    end
+    rec.on[key] = nil
+    local had = tonumber(rec.add[key]) or 0
+    local cur = player:getMaxWeightBase()
+    local plain = cur - had
+    -- 기본 무게가 저장되지 않고 처음 값으로 돌아와 있었으면 (더한 양을 빼면 0 이하) 지금 값을 원래 값으로 본다
+    if plain < 1 then plain = cur end
+    local want = on and math.max(0, math.floor(plain * (Outsiders.BURDEN_MULT - 1))) or 0
+    if plain + want == cur then
+        rec.add[key] = want > 0 and want or nil
+        return
+    end
+    player:setMaxWeightBase(plain + want)
+    rec.add[key] = want > 0 and want or nil
+    log("outsider burden carry", StoryEngine.intToString(cur), "->", StoryEngine.intToString(plain + want), "base", key)
+end
+
+Outsiders.registerCarry()
+if Events.OnGameBoot then Events.OnGameBoot.Add(Outsiders.registerCarry) end
+if Events.OnServerStarted then Events.OnServerStarted.Add(Outsiders.registerCarry) end
+
 -- 매분: 기적의 출혈 멈춤·통증 없음, 지연제 (서버가 아는 몸에도 적용)
 local function fxMinute(now)
     local s = state()
@@ -1247,6 +1370,8 @@ local function minute()
     if not s then return end
     local now = Sensor.now()
     if #(s.fx or {}) > 0 then pcall(fxMinute, now) end
+    -- 짐을 든 자의 운반 무게 (끝난 효과 되돌리기, 다시 접속한 사람, 예전 클라이언트 기록 정리)
+    for _, p in ipairs(Sensor.players()) do pcall(Outsiders.updateCarry, p, now) end
     local jobs = s.jobs or {}
     for i = #jobs, 1, -1 do
         local job = jobs[i]
@@ -1361,7 +1486,9 @@ function Outsiders.debug(args, player)
         s.here[id].gift = nil
     elseif what == "reset" then
         for _, x in ipairs(Outsiders.hereList()) do Outsiders.leave(x, "debug", now) end
+        local carry = s.carry      -- 접속하지 않은 캐릭터에게 더해 둔 무게는 다음 접속 때 되돌린다
         Store.data().outsiders = nil
+        if carry then state().carry = carry end
         Outsiders.broadcast()
     end
     return Outsiders.statusText()

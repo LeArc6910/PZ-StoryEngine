@@ -311,6 +311,103 @@ function T.abigail_prays_and_lightens_the_load()
     H.ok(#H.sentOf("outsiderFx") > before)
 end
 
+-- 짐을 든 자: 서버가 운반 무게를 바꾼다. 프레임워크가 없으면 기본 무게에 직접, 더한 양은 전역 ModData 에
+function T.burden_doubles_the_carry_base_on_the_server()
+    local p, ps = setup()
+    local Out = O()
+    here("abigail")
+    setTrust("abigail", 75)
+    trustAll(50)
+    H.ok(select(1, Out.use(p, "abigail", 2)))
+    H.eq(p.weightBase, 16)
+    H.eq(Out.state().carry.add[ps.key], 8)
+    H.eq(p.mod.seBurdenBase, nil, "nothing kept on the character")
+    H.fire("EveryOneMinute")
+    H.eq(p.weightBase, 16, "not doubled again")
+    -- 다른 모드가 기본 무게에 1 을 더해도 그만큼은 남는다
+    p.weightBase = 17
+    H.advanceDays(Out.BURDEN_DAYS)
+    H.advance(1)
+    H.fire("EveryOneMinute")
+    H.eq(p.weightBase, 9)
+    H.eq(Out.state().carry.add[ps.key], nil)
+    -- 다시 걸고, 아비게일이 떠나면 바로 풀린다
+    Out.state().here.abigail.used = {}
+    H.ok(select(1, Out.use(p, "abigail", 2)))
+    H.eq(p.weightBase, 18)
+    Out.leave("abigail", "debug")
+    H.eq(p.weightBase, 9)
+end
+
+function T.burden_base_survives_a_reset_save()
+    local p, ps = setup()
+    local Out = O()
+    here("abigail")
+    setTrust("abigail", 75)
+    trustAll(50)
+    H.ok(select(1, Out.use(p, "abigail", 2)))
+    H.eq(p.weightBase, 16)
+    -- 기본 무게가 저장되지 않고 8 로 돌아와 있었다: 더한 양을 빼면 0 이 되므로 8 을 원래 값으로 본다
+    p.weightBase = 8
+    H.fire("EveryOneMinute")
+    H.eq(p.weightBase, 16)
+    H.advanceDays(Out.BURDEN_DAYS + 1)
+    H.fire("EveryOneMinute")
+    H.eq(p.weightBase, 8)
+end
+
+function T.burden_uses_the_carry_framework_when_present()
+    local p, ps = setup()
+    local Out = O()
+    local defs, recomputes = {}, 0
+    UnifiedCarryWeightFramework = {
+        registerMaxModifier = function(def) defs[#defs + 1] = def end,
+        recomputeAll = function(player) recomputes = recomputes + 1 end,
+    }
+    Out.carryRegistered = false
+    here("abigail")
+    setTrust("abigail", 75)
+    trustAll(50)
+    H.ok(select(1, Out.use(p, "abigail", 2)))
+    H.eq(#defs, 1)
+    H.eq(defs[1].id, Out.CARRY_ID)
+    H.eq(p.weightBase, 8, "the framework owns the base")
+    H.eq(recomputes, 1)
+    H.eq(defs[1].resolve({ player = p }).mult, Out.BURDEN_MULT)
+    H.eq(defs[1].resolve({}).mult, nil)
+    H.fire("EveryOneMinute")
+    H.eq(recomputes, 1, "only when it changes")
+    H.advanceDays(Out.BURDEN_DAYS)
+    H.advance(1)
+    H.fire("EveryOneMinute")
+    H.eq(recomputes, 2)
+    H.eq(defs[1].resolve({ player = p }).mult, nil)
+    H.fire("EveryOneMinute")
+    H.eq(recomputes, 2)
+    Out.registerCarry()
+    H.eq(#defs, 1, "registered once")
+end
+
+function T.old_client_burden_record_is_cleaned_on_the_server()
+    local p, ps = setup()
+    local Out = O()
+    here("abigail")    -- 짐을 든 자를 썼던 세이브에는 밖에서 온 사람의 기록이 있다
+    -- 0.4.8 싱글: 클라이언트 코드가 같은 몸을 16 으로 바꾸고 원래 8 을 적어 두었다
+    p.mod.seBurdenBase = 8
+    p.weightBase = 16
+    H.fire("EveryOneMinute")
+    H.eq(p.weightBase, 8)
+    H.eq(p.mod.seBurdenBase, nil)
+    -- 정확히 두 배가 아니면 키만 지운다 (멀티 서버의 몸은 바뀐 적이 없다)
+    local q = H.addPlayer("friend", "Ann", "Lee")
+    StoryEngine.Store.player(q)
+    q.mod.seBurdenBase = 8
+    q.weightBase = 8
+    H.fire("EveryOneMinute")
+    H.eq(q.weightBase, 8)
+    H.eq(q.mod.seBurdenBase, nil)
+end
+
 function T.gifts_raise_trust_in_three_day_windows()
     local p, ps = setup()
     local Out = O()

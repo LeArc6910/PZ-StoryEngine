@@ -30,7 +30,8 @@ Dummy = setmetatable({}, {
 H.Dummy = Dummy
 
 -- 전역으로 없을 때 Dummy 가 아니라 nil 이어야 하는 것 (다른 모드, Kahlua 에 없는 함수)
-H.NILS = { StoryEngine = true, ProjectALife = true, next = true, StoryEngineMainWindow = true }
+H.NILS = { StoryEngine = true, ProjectALife = true, next = true, StoryEngineMainWindow = true,
+           UnifiedCarryWeightFramework = true }
 
 local realPrint = print
 next = nil
@@ -336,6 +337,9 @@ function H.newPlayer(user, first, last)
     function p:Say() end
     p.mod = {}
     function p:getModData() return self.mod end
+    p.weightBase = 8
+    function p:getMaxWeightBase() return self.weightBase end
+    function p:setMaxWeightBase(v) self.weightBase = v end
     p.parts = {}
     p.hp = 100
     local body = {}

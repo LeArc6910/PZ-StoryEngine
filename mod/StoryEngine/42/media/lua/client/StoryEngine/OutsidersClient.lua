@@ -1,5 +1,6 @@
 -- 밖에서 온 사람들, 클라이언트 쪽 (서버 Outsiders.lua): 누가 와 있는지, 의회 탭의 글과 메뉴, 특기 효과.
--- 효과 가운데 내 몸에 닿는 것(지연제·체질 관리·기적·짐을 든 자)은 여기서 매분 적용한다. 서버가 10분마다 다시 알려 준다.
+-- 효과 가운데 내 몸에 닿는 것(지연제·체질 관리·기적)은 여기서 매분 적용한다. 서버가 10분마다 다시 알려 준다.
+-- 짐을 든 자의 운반 무게는 서버가 바꾼다 (Outsiders.updateCarry). 멀티에서 운반 한도는 서버 값이 오므로 여기서는 손대지 않는다.
 
 if isServer() then return end
 
@@ -22,7 +23,6 @@ Out.ORDER = { "hale", "odell", "okafor", "abigail" }
 Out.MIRACLE_HEALTH = 15
 Out.WEIGHT_TARGET = 80
 Out.WEIGHT_PER_DAY = 2
-Out.BURDEN_MULT = 2
 Out.fx = {}             -- [kind] = { untilH, ... }
 Out.NOTICES = { hail = true, admitted = true, refused = true, kept = true, expel = true }
 Out.ERRORS = { closed = true, away = true, trust = true, wait = true, armed = true, active = true, no_radio = true,
@@ -262,20 +262,18 @@ end
 
 -- ---------------------------------------------------------------- 효과
 
-local function restoreBurden(p)
-    local md = p:getModData()
-    if md.seBurdenBase then
-        pcall(function() p:setMaxWeightBase(md.seBurdenBase) end)
-        md.seBurdenBase = nil
-    end
-end
-
-local function applyBurden(p)
-    local md = p:getModData()
+-- 0.4.8 까지 이 파일이 멀티 클라이언트에서 기본 무게를 두 배로 바꾸고 원래 값을 modData seBurdenBase 에 적어 두었다.
+-- 그 값이 정확히 남아 있으면 이 클라이언트의 몸만 한 번 되돌리고 키를 지운다 (싱글은 서버 코드가 정리한다).
+Out.legacyCleaned = false
+function Out.cleanLegacyBurden(p)
+    if Out.legacyCleaned or not p or not isClient() then return end
+    Out.legacyCleaned = true
     pcall(function()
-        if not md.seBurdenBase then md.seBurdenBase = p:getMaxWeightBase() end
-        local want = math.floor(md.seBurdenBase * Out.BURDEN_MULT)
-        if p:getMaxWeightBase() ~= want then p:setMaxWeightBase(want) end
+        local md = p:getModData()
+        if md.seBurdenBase == nil then return end
+        local old = tonumber(md.seBurdenBase)
+        md.seBurdenBase = nil
+        if old and old > 0 and p:getMaxWeightBase() == math.floor(old * 2) then p:setMaxWeightBase(old) end
     end)
 end
 
@@ -297,7 +295,6 @@ function Client.handlers.outsiderFx(args)
     local p = getPlayer()
     if args.cure and p then cure(p) end
     if minutes <= 0 then
-        if kind == "burden" and p then restoreBurden(p) end
         Out.fx[kind] = nil
         return
     end
@@ -305,7 +302,6 @@ function Client.handlers.outsiderFx(args)
     f.untilH = worldHours() + minutes / 60
     f.radius = args.radius
     Out.fx[kind] = f
-    if kind == "burden" and p then applyBurden(p) end
 end
 
 -- 지연제: 감염이 더 나아가지 못하게 붙잡아 둔다
@@ -375,16 +371,13 @@ function Out.tick()
     local now = worldHours()
     for kind, f in pairs(Out.fx) do
         if now >= f.untilH then
-            if kind == "burden" then restoreBurden(p) end
             Out.fx[kind] = nil
         elseif kind == "retard" then holdInfection(p, f)
         elseif kind == "regimen" then regimen(p, f)
         elseif kind == "miracle" then miracle(p, f)
-        elseif kind == "burden" then applyBurden(p)
         end
     end
-    -- 지난 접속에서 남은 무게 한도: 서버가 다시 알려 주지 않으면 되돌린다
-    if Out.minutes == 3 and not Out.fx.burden then restoreBurden(p) end
+    if Out.minutes == 3 then Out.cleanLegacyBurden(p) end
 end
 
 -- 기도를 받아 둔 사람: 체력이 바닥에 닿으면 서버에 알린다

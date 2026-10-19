@@ -926,24 +926,41 @@ function T.outsiders_show_in_the_council_tab()
     H.eq(#F.all(), 8)
 end
 
+function T.old_client_burden_record_is_undone_once()
+    local p = H.addPlayer("tester", "Gerald", "Kar")
+    local OC = StoryEngine.OutsidersClient
+    getGameTime = function() return { getWorldAgeHours = function() return 100 end } end
+    -- 0.4.8 이 남긴 것: 원래 값 8, 이 클라이언트의 기본 무게 16
+    p.mod.seBurdenBase = 8
+    p.weightBase = 16
+    for _ = 1, 4 do OC.tick() end
+    H.eq(p.weightBase, 8)
+    H.eq(p.mod.seBurdenBase, nil)
+    -- 정확히 두 배가 아니면 (다른 모드가 바꿨으면) 키만 지운다
+    OC.legacyCleaned = false
+    p.mod.seBurdenBase = 8
+    p.weightBase = 12
+    OC.cleanLegacyBurden(p)
+    H.eq(p.weightBase, 12)
+    H.eq(p.mod.seBurdenBase, nil)
+end
+
 function T.outsider_effects_run_on_the_client()
     local p = H.addPlayer("tester", "Gerald", "Kar")
     local OC = StoryEngine.OutsidersClient
     local hours = 100
     getGameTime = function() return { getWorldAgeHours = function() return hours end } end
-    -- 짐을 든 자: 무게 한도 두 배, 끝나면 되돌린다
+    -- 짐을 든 자: 운반 무게는 서버가 바꾼다. 클라이언트는 손대지 않는다
     local base = 8
     function p:getMaxWeightBase() return base end
     function p:setMaxWeightBase(v) base = v end
     StoryEngine.Client.handlers.outsiderFx({ kind = "burden", minutes = 120 })
-    H.eq(base, 16)
-    H.eq(p:getModData().seBurdenBase, 8)
-    StoryEngine.Client.handlers.outsiderFx({ kind = "burden", minutes = 100 })
-    H.eq(base, 16, "told again, not doubled again")
+    for _ = 1, 4 do OC.tick() end
+    H.eq(base, 8, "the client never changes the carry base")
+    H.eq(p:getModData().seBurdenBase, nil)
     hours = 103
     OC.tick()
     H.eq(base, 8)
-    H.eq(p:getModData().seBurdenBase, nil)
     -- 체질 관리: 배고픔이 절반 속도로 오른다
     local hunger, weight = 0.2, 90
     CharacterStat = { HUNGER = "HUNGER", THIRST = "THIRST", PAIN = "PAIN" }
