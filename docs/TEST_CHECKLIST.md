@@ -1047,6 +1047,12 @@
 - [ ] 좀비에 둘러싸인 채 지원을 부르면 대원이 떼 한가운데가 아니라 좀비가 적은 쪽(필요하면 20~30타일)에 나타나 걸어 들어온다 (서버 로그 `alife squad ... (away from zombies) zombies near N`, A-Life `settled ... plain3=`이 작다)
 - [ ] 둘레가 조용하면 예전처럼 10~15타일에 나타난다 (`zombies near 0`)
 
+### 아비게일 짐을 든 자를 서버로 (2026-10-19, 미확인)
+
+- [ ] 멀티 호스트(Unified Carry Weight Framework 있음): 짐을 든 자를 쓰면 실제 운반 한도가 두 배가 되고(서버 로그 `outsider burden carry on framework`), 2일 뒤 원래대로 돌아옴(`... off framework`). 시작 로그에 `outsider burden carry registered with UnifiedCarryWeightFramework`
+- [ ] 프레임워크 없는 싱글: 운반 한도가 두 배가 되고 끝나면 돌아오며, 저장 후 다시 불러와도 한도가 남거나 두 번 커지지 않음 (로그 `outsider burden carry 8 -> 16 base`)
+- [ ] 예전 판에서 짐을 든 자를 썼던 캐릭터: 접속 뒤 기본 무게가 두 배로 남아 있으면 한 번 되돌아옴 (로그 `undid the old doubled base` 또는 `cleared the old record`)
+
 ## 이전부터 남은 확인 (참고)
 
 - [x] 공용 주파수 한 줄씩(20~40분)·끼어들기 반응, 위기 선택지 버튼 잘림 수정 (0.2.1, 부분 확인)
