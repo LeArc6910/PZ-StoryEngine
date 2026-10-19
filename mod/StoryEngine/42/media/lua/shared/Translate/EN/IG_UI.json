@@ -388,7 +388,7 @@
     "IGUI_StoryEngine_Spec_Desc_dewey": "Picks the nearest vehicle within 10 tiles when you ask and repairs that car 8-10 hours later (even if moved). %1: parts +30 (max 70) / %2: +50 (max 85) / %3: all 100 and a charged battery. The engine is hard to fix and gets half (+15/+25/+50). Missing parts are not replaced.",
     "IGUI_StoryEngine_Spec_Desc_casey": "Marks the area within 150 tiles on your map for 3/6/12 hours. %1: packs hunting you / %2: + hostile groups (A-Life) / %3: + zombie crowds. You mutter a warning when a marked threat comes within 40 tiles.",
     "IGUI_StoryEngine_Spec_Desc_ray": "The farm drives supplies to another contact (+50/+75/+100 to what they lack, +25/+40/+50 in multiplayer when the wait is per player or both; costs the farm 15 food). To someone the farm dislikes, only at trust %3+.",
-    "IGUI_StoryEngine_Spec_Desc_pike": "Comforts you over the radio (a prayer or a kind voice). Stress, unhappiness and boredom -30/50/80 percent, and no fear or muscle strain for 3/6/12 hours (trust %1/%2/%3). Companions within 10 tiles too.",
+    "IGUI_StoryEngine_Spec_Desc_pike": "Comforts you over the radio (a prayer or a kind voice). Stress, unhappiness and boredom -30/50/80 percent, and no fear or muscle strain for 6/12/18 hours (trust %1/%2/%3). Companions within 10 tiles too.",
     "IGUI_StoryEngine_Spec_Desc_hunter": "From the woods, someone shoots outdoor zombies within 30 tiles over half an hour: 20/30/40. Only you hear the shots and they do not draw zombies.",
     "IGUI_StoryEngine_Spec_Desc_rats": "The Coalfield crew makes a racket 60-80 tiles away for 10-30 minutes to pull zombies off you (radius 80/120/160), away from other players.",
     "IGUI_StoryEngine_Spec_Error_off": "Specialties are turned off (sandbox)",

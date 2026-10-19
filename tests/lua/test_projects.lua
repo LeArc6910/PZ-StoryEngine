@@ -173,7 +173,7 @@ function T.effect_pike_longer_comfort()
     setTrust("pike", 85)
     P().add("pike", 1000)
     H.ok(StoryEngine.Specialty.request(p, "pike", {}))
-    H.eq(H.sentOf("specComfort")[1].hours, 18)
+    H.eq(H.sentOf("specComfort")[1].hours, 27)
 end
 
 function T.effect_dewey_fast_arrival()

@@ -304,18 +304,18 @@ function T.pike_comfort_companions_and_stiffness()
     H.ok(S().request(p, "pike", {}))
     local sent = H.sentOf("specComfort")
     H.eq(#sent, 2, "requester and nearby friend (singleplayer dispatch records each)")
-    H.eq(sent[1].hours, 12)
+    H.eq(sent[1].hours, 18)
     H.near(sent[1].reduce, 0.8)
     H.advance(1)
     H.fire("EveryOneMinute")
     H.eq(friend.parts[1].stiff, 0, "muscle strain cleared")
     friend.parts[1].stiff = 30
-    H.advance(13 * 60)
+    H.advance(19 * 60)
     H.fire("EveryOneMinute")
-    H.eq(friend.parts[1].stiff, 30, "effect over after 12 hours")
+    H.eq(friend.parts[1].stiff, 30, "effect over after 18 hours")
 end
 
--- 2026-10-13: 첫 구간(신뢰도 40)도 공포·근육통 없음, 3시간
+-- 2026-10-13: 첫 구간(신뢰도 40)도 공포·근육통 없음, 6시간 (2026-10-19 3 -> 6)
 function T.pike_first_tier_gets_three_hours_without_fear_or_strain()
     local p = setup()
     CharacterStat = { STRESS = "STRESS", UNHAPPINESS = "UNHAPPINESS", BOREDOM = "BOREDOM", PANIC = "PANIC" }
@@ -327,7 +327,7 @@ function T.pike_first_tier_gets_three_hours_without_fear_or_strain()
     setTrust("pike", 45)
     H.ok(S().request(p, "pike", {}))
     local sent = H.sentOf("specComfort")
-    H.eq(sent[1].hours, 3)
+    H.eq(sent[1].hours, 6)
     H.near(sent[1].reduce, 0.3)
     H.near(values.BOREDOM, 35, 0.001)
     H.advance(1)
@@ -335,10 +335,10 @@ function T.pike_first_tier_gets_three_hours_without_fear_or_strain()
     H.eq(values.PANIC, 0, "fear kept at zero")
     H.eq(p.parts[1].stiff, 0, "muscle strain cleared")
     values.PANIC, p.parts[1].stiff = 60, 25
-    H.advance(3 * 60 + 5)
+    H.advance(6 * 60 + 5)
     H.fire("EveryOneMinute")
     H.fire("EveryOneMinute")
-    H.eq(values.PANIC, 60, "over after three hours")
+    H.eq(values.PANIC, 60, "over after six hours")
     H.eq(p.parts[1].stiff, 25)
 end
 
@@ -507,7 +507,7 @@ function T.pike_comfort_changes_stats_on_the_server()
     function p:getStats()
         return { get = function(_, k) return values[k] end, set = function(_, k, v) values[k] = v end }
     end
-    setTrust("pike", 65)                                   -- 구간 2: 50% 감소, 6시간 두려움·근육통 없음
+    setTrust("pike", 65)                                   -- 구간 2: 50% 감소, 12시간 두려움·근육통 없음
     H.ok(S().request(p, "pike", {}))
     H.eq(values.BOREDOM, 45, "boredom halved by the server (multiplayer keeps it)")
     H.eq(values.UNHAPPINESS, 30)
@@ -518,7 +518,7 @@ function T.pike_comfort_changes_stats_on_the_server()
     H.eq(values.PANIC, 0, "server keeps fear at zero")
     local c = StoryEngine.Store.data().spec.comfort[StoryEngine.Store.player(p).key]
     H.eq(c.stiff, true, "every tier clears muscle strain now")
-    H.advance(7 * 60)
+    H.advance(13 * 60)
     H.fire("EveryOneMinute")
     values.PANIC = 70
     H.fire("EveryOneMinute")
