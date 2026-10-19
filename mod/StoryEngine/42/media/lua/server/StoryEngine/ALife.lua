@@ -255,29 +255,73 @@ function ALife.protectedAt(x, y, extra)
     return ok and hit == true
 end
 
--- 스폰 지점: distRange 안에서 거점 밖을 먼저, 없으면 더 멀리. 반환: x, y, 거리, 거점 때문에 옮겼는가
-function ALife.spawnSpot(px, py, distRange)
+-- 아군이 나타날 자리의 좀비 (2026-10-19 인게임 로그: 지원 2명이 3타일 안에 좀비 12·15마리인 자리에 떨어져
+-- 몇 초 만에 전멸). 둘레 SPOT_ZOMBIE_RADIUS 타일에 SPOT_ZOMBIE_MAX 마리보다 많으면 다른 방향·더 먼 곳을 본다
+ALife.SPOT_ZOMBIE_RADIUS = 6                -- A-Life 가 무리를 펼치는 반경(radius 6)과 같게
+ALife.SPOT_ZOMBIE_MAX = 2
+ALife.SPOT_SCAN = 90                        -- 이 거리 안의 좀비만 센다
+
+-- (px, py) 둘레의 살아 있는 좀비 자리 (A-Life NPC 몸은 뺀다)
+function ALife.zombieSpots(px, py)
+    local out = {}
+    pcall(function()
+        local list = getCell():getZombieList()
+        for i = 0, list:size() - 1 do
+            local z = list:get(i)
+            local ok, x, y = pcall(function() return z:getX(), z:getY() end)
+            if ok and x and not z:isDead() and dist(x, y, px, py) <= ALife.SPOT_SCAN
+                and not (StoryEngine.isALifeNpc and StoryEngine.isALifeNpc(z)) then
+                out[#out + 1] = { x, y }
+            end
+        end
+    end)
+    return out
+end
+
+local function crowdAt(spots, x, y)
+    local n = 0
+    for _, s in ipairs(spots) do
+        if dist(s[1], s[2], x, y) <= ALife.SPOT_ZOMBIE_RADIUS then n = n + 1 end
+    end
+    return n
+end
+
+-- 스폰 지점: distRange 안에서 거점 밖을 먼저, 없으면 더 멀리. avoidZombies 면 좀비가 적은 자리를 먼저.
+-- 반환: x, y, 거리, 옮겼는가, 까닭("base" | "zombies" | nil), 그 자리 둘레 좀비 수
+function ALife.spawnSpot(px, py, distRange, avoidZombies)
     local function at(angle, d)
         return math.floor(px + math.cos(angle) * d), math.floor(py + math.sin(angle) * d)
     end
     local angle = ZombRandFloat(0, math.pi * 2)
     local d = ZombRand(distRange[1], distRange[2] + 1)
-    local x, y = at(angle, d)
-    if not ALife.protectedAt(x, y) then return x, y, d, false end
-    for i = 1, 11 do
-        local a = angle + i * math.pi / 6
-        local cx, cy = at(a, d)
-        if not ALife.protectedAt(cx, cy) then return cx, cy, d, false end
-    end
+    local candidates = {}
+    for i = 0, 11 do candidates[#candidates + 1] = { angle + i * math.pi / 6, d, false } end
     for _, far in ipairs(ALife.FAR_SPOTS) do
         if far > distRange[1] then
-            for i = 0, 11 do
-                local cx, cy = at(angle + i * math.pi / 6, far)
-                if not ALife.protectedAt(cx, cy) then return cx, cy, far, true end
-            end
+            for i = 0, 11 do candidates[#candidates + 1] = { angle + i * math.pi / 6, far, true } end
         end
     end
-    return x, y, d, false
+    local spots = avoidZombies and ALife.zombieSpots(px, py) or {}
+    local x0, y0 = at(angle, d)
+    local best
+    local blocked = false
+    for _, c in ipairs(candidates) do
+        local cx, cy = at(c[1], c[2])
+        if ALife.protectedAt(cx, cy) then
+            blocked = true
+        else
+            local n = avoidZombies and crowdAt(spots, cx, cy) or 0
+            if n <= ALife.SPOT_ZOMBIE_MAX then
+                local why = nil
+                if cx ~= x0 or cy ~= y0 then why = blocked and "base" or "zombies" end
+                return cx, cy, c[2], why ~= nil, why, n
+            end
+            if not best or n < best.n then best = { x = cx, y = cy, d = c[2], n = n } end
+        end
+    end
+    -- 모두 붐빈다: 좀비가 가장 적은 곳
+    if best then return best.x, best.y, best.d, true, "zombies", best.n end
+    return x0, y0, d, false, nil, 0
 end
 
 -- friendly: 아군(true) / 적(false). dist 는 { 최소, 최대 } 타일.
@@ -291,7 +335,7 @@ function ALife.spawnSquad(player, fid, level, count, friendly, distRange, tag, h
     st.seq = (st.seq or 0) + 1
     local requestId = "storyengine:" .. tag .. ":" .. StoryEngine.intToString(st.seq) .. ":" .. tostring(nowMs())
     local px, py = player:getX(), player:getY()
-    local x, y, d, moved = ALife.spawnSpot(px, py, distRange)
+    local x, y, d, moved, why, crowd = ALife.spawnSpot(px, py, distRange, friendly)
     local key = ALife.playerKey(player)
     local args = {
         requestId = requestId, encounterId = hooks.encounterId or ("storyengine_" .. tag),
@@ -326,7 +370,8 @@ function ALife.spawnSquad(player, fid, level, count, friendly, distRange, tag, h
         end
     end)
     log("alife squad", tag, fid, factionId, "level", level, "x" .. #ids, friendly and "friendly" or "hostile",
-        "at", x, y, "dist", d, moved and "(outside player base)" or "")
+        "at", x, y, "dist", d, moved and (why == "zombies" and "(away from zombies)" or "(outside player base)") or "",
+        friendly and ("zombies near " .. tostring(crowd or 0)) or "")
     return true, info
 end
 
@@ -1055,7 +1100,7 @@ function ALife.regroup(uid, target)
         record = actor(uid)
         if not alive(record) then return false, "dead" end
     end
-    local x, y = ALife.spawnSpot(target:getX(), target:getY(), ALife.REGROUP_SPOT)
+    local x, y = ALife.spawnSpot(target:getX(), target:getY(), ALife.REGROUP_SPOT, true)
     local z = math.floor(target:getZ())
     local okU, updated = pcall(Reg.update, uid, record.revision, function(r)
         r.worldPosition = { x = x, y = y, z = z }

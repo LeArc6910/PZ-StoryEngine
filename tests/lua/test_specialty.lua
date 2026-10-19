@@ -802,4 +802,29 @@ function T.support_ammo_gunners_and_no_ammo_drops()
     A.sendSupport, A.available = old, oldAvail
 end
 
+-- 아군은 좀비가 몰린 자리를 피해 나타난다 (2026-10-19 인게임 로그: 3타일 안 12·15마리 자리에 떨어져 전멸)
+function T.alife_spawn_spot_avoids_zombie_crowds()
+    local A = StoryEngine.ALife
+    -- 플레이어 둘레 10~15타일 고리 전체에 좀비 떼
+    for a = 0, 35 do
+        for r = 9, 16 do
+            H.newZombie(10000 + math.cos(a * math.pi / 18) * r, 10000 + math.sin(a * math.pi / 18) * r)
+        end
+    end
+    local x, y, d, moved, why, crowd = A.spawnSpot(10000, 10000, { 10, 15 }, true)
+    H.ok(moved and why == "zombies", "moved away from the crowd")
+    H.ok(d >= 20, "further out " .. tostring(d))
+    H.ok(crowd <= A.SPOT_ZOMBIE_MAX, "a quiet spot " .. tostring(crowd))
+    -- 좀비를 신경 쓰지 않는 적 습격대는 원래 거리
+    local _, _, d2, moved2 = A.spawnSpot(10000, 10000, { 10, 15 })
+    H.ok(d2 >= 10 and d2 <= 15 and not moved2)
+    -- A-Life NPC 몸은 좀비로 세지 않는다
+    H.zombies = {}
+    for i = 1, 30 do
+        local z = H.newZombie(10012 + (i % 5), 10000 + math.floor(i / 5))
+        z:getModData().ProjectALifeOwned = true
+    end
+    H.eq(#A.zombieSpots(10000, 10000), 0)
+end
+
 return T
