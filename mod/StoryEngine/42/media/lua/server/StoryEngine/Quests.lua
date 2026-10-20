@@ -592,7 +592,7 @@ local function spawnAt(q, sq, container)
             local item = target:AddWorldInventoryItem(fullType, ZombRandFloat(0.2, 0.8), ZombRandFloat(0.2, 0.8), 0)
             if item then
                 item:getModData().storyQuest = q.id
-                item:getModData().storyQuestT = now and now.t or math.floor(getGameTime():getWorldAgeHours() * 60)
+                item:getModData().storyQuestT = math.floor(getGameTime():getWorldAgeHours() * 60)
                 if q.letterId and fullType == "StoryEngine.Letter" then item:getModData().storyLetter = q.letterId end
                 placed[#placed + 1] = fullType
             end
@@ -610,6 +610,97 @@ local function spawnAt(q, sq, container)
     log("quest spawned", q.id, q.kind, #placed, "items in", q.containerType or "floor", q.containerSprite or "",
         "at", q.sx, q.sy, q.sz)
     notifyTarget(q)
+end
+
+-- ---------------------------------------------------------------- 은신처 앞 보급 (레이 온실, 2026-10-19)
+
+Quests.HOME_MAIL_RADIUS = 10       -- 은신처 둘레 이 거리 안에서 우체통(보관함 종류 postbox)을 찾는다
+Quests.HOME_DROP_RING = 3          -- 우체통이 없으면 은신처 바깥 이 거리 안의 바깥 바닥에
+
+local function rectDist(h, x, y)
+    local dx = math.max(h[1] - x, 0, x - h[3])
+    local dy = math.max(h[2] - y, 0, y - h[4])
+    return math.sqrt(dx * dx + dy * dy)
+end
+
+-- 플레이어의 은신처 사각형 { x1, y1, x2, y2, z, key }: 세이프하우스 > 추정한 집(ps.home)의 건물 > 그 자리 둘레
+function Quests.homeRect(player, ps)
+    local ok, sh = pcall(function()
+        local s = SafeHouse.hasSafehouse(player)
+        if not s then return nil end
+        local r = { s:getX(), s:getY(), s:getX2(), s:getY2(), 0 }
+        for i = 1, 4 do if type(r[i]) ~= "number" then return nil end end
+        return r
+    end)
+    local h
+    if ok and sh then
+        h = sh
+    else
+        local home = ps and ps.home
+        if not (home and home.x) then return nil end
+        local okD, def = pcall(function() return getWorld():getMetaGrid():getBuildingAt(home.x, home.y) end)
+        if okD and def then
+            h = { def:getX(), def:getY(), def:getX2(), def:getY2(), 0 }
+        else
+            h = { home.x - 1, home.y - 1, home.x + 1, home.y + 1, home.z or 0 }
+        end
+    end
+    local okB, def = pcall(function()
+        return getWorld():getMetaGrid():getBuildingAt(math.floor((h[1] + h[3]) / 2), math.floor((h[2] + h[4]) / 2))
+    end)
+    if okB and def then h.key = buildingKey(def) end
+    return h
+end
+
+-- 둘레에 우체통이 있으면 그 안에, 없으면 은신처 바깥 바닥에 놓는다. 칸이 다 불러지지 않았으면 기다린다
+function Quests.spawnHome(q)
+    local cell = getCell()
+    local h, r = q.home, Quests.HOME_MAIL_RADIUS
+    local best, bestD, missing = nil, 1e9, 0
+    for x = h[1] - r, h[3] + r do
+        for y = h[2] - r, h[4] + r do
+            local sq = cell:getGridSquare(x, y, 0)
+            if not sq then
+                missing = missing + 1
+            else
+                local objs = sq:getObjects()
+                for i = 0, objs:size() - 1 do
+                    local obj = objs:get(i)
+                    for ci = 0, obj:getContainerCount() - 1 do
+                        local c = obj:getContainerByIndex(ci)
+                        if c and c:getType() == "postbox" then
+                            local d = rectDist(h, x, y)
+                            if d < bestD then best, bestD = c, d end
+                        end
+                    end
+                end
+            end
+        end
+    end
+    if missing > 0 and not best then
+        Quests.attempts[q.id] = (Quests.attempts[q.id] or 0) + 1
+        if Quests.attempts[q.id] < Quests.MAX_ATTEMPTS then return end
+    end
+    if best then
+        spawnAt(q, best:getParent():getSquare(), best)
+        return
+    end
+    for ring = 1, Quests.HOME_DROP_RING do
+        for x = h[1] - ring, h[3] + ring do
+            for y = h[2] - ring, h[4] + ring do
+                if x == h[1] - ring or x == h[3] + ring or y == h[2] - ring or y == h[4] + ring then
+                    local sq = cell:getGridSquare(x, y, 0)
+                    local okF, free = pcall(function() return sq and not sq:getRoom() and sq:isFree(false) end)
+                    if okF and free then
+                        spawnAt(q, sq, nil)
+                        return
+                    end
+                end
+            end
+        end
+    end
+    local sq = cell:getGridSquare(q.x, q.y, q.z)
+    if sq then spawnAt(q, sq, nil) end
 end
 
 -- 칸이 로드되자마자 놓으면 건물의 나머지 칸과 가구가 아직 없어 보관함을 못 찾는다 (42.20.4 확인).
@@ -644,6 +735,10 @@ local function trySpawn(q)
     end
     if q.kind == "scout" then
         Quests.spawnScout(q)
+        return
+    end
+    if q.home then
+        Quests.spawnHome(q)
         return
     end
     local container, loaded = pickContainer(q)
@@ -1055,6 +1150,17 @@ function Quests.announce(q, player)
         text = "I picked up a distress call. Someone says they are trapped in " .. where
             .. ". I cannot get there. Can you check on them?"
     end
+    if q.home then
+        -- 은신처 앞 보급: 거리·방향 대신 "네 집 앞" (후임이 이어받았으면 공통 문장)
+        local voiced = Factions.voice and Factions.voice[fid]
+        lt = { key = "IGUI_StoryEngine_RadioSay_homedrop" .. (voiced and "" or ("_" .. fid)),
+               alt = "IGUI_StoryEngine_RadioSay_homedrop", args = {} }
+        text = "I left some food from the greenhouse right outside your place, in the mailbox if there is one."
+        local to = privateTo(q)
+        Radio.push(fid, { from = "npc", text = text, lt = lt, clock = Sensor.now().clock, quest = q.id,
+                          to = to, private = to and true or nil })
+        return
+    end
     local lineKind = q.kind
     if q.origin.source == "rescue" then lineKind = "rescue" end
     if q.origin.source == "reward" then
@@ -1141,6 +1247,51 @@ function Quests.create(kind, player, ps, tier, now, origin, itemsOverride)
     trySpawn(q)
     note(ps, kind .. "_offered", q, now, nil)
     log("quest created", q.id, kind, "tier", tier, "for", ps.name, "at", q.x, q.y, place.town, "dist", q.distance)
+    local ok, err = pcall(Quests.announce, q, player)
+    if not ok then log("announce failed:", err) end
+    notifyTarget(q)
+    return q
+end
+
+-- 은신처 바로 앞 보급 (레이 온실, 2026-10-19). 은신처를 모르면 nil, "no_home" (부르는 쪽이 보통 보급으로).
+-- 집 앞에 놓는 덤이라 신뢰도는 오르지도 내리지도 않는다(noTrust): 집을 비운 사이 기한이 지나도 감점 없음
+function Quests.createHomeDrop(player, ps, now, origin, items, deadlineMin)
+    local h = Quests.homeRect(player, ps)
+    if not h then return nil, "no_home" end
+    local d = Store.data()
+    d.questSeq = d.questSeq + 1
+    origin = origin or { source = "debug" }
+    origin.home = true
+    origin.day = Store.dayIndex(now.dayKey)
+    origin.date = now.date
+    origin.clock = now.clock
+    local cx, cy = math.floor((h[1] + h[3]) / 2), math.floor((h[2] + h[4]) / 2)
+    local place = Places.describe(cx, cy)
+    place.home = true
+    local q = {
+        id = "Q" .. StoryEngine.intToString(d.questSeq),
+        kind = "supply_drop", tier = 1, origin = origin,
+        building = h.key, place = place,
+        x = cx, y = cy, z = h[5] or 0, cx = cx, cy = cy,
+        bx1 = h[1], by1 = h[2], bx2 = h[3], by2 = h[4],
+        home = { h[1], h[2], h[3], h[4] },
+        radius = Quests.RADIUS,
+        distance = math.floor(dist(player:getX(), player:getY(), cx, cy)),
+        target = ps.key, targetName = ps.name,
+        state = "offered", createdT = now.t,
+        deadlineT = now.t + (deadlineMin or 3 * 24 * 60),
+        spawned = false, items = items or StoryEngine.Loot.roll(1, origin.faction),
+        addressed = origin.addressed, noTrust = true,
+    }
+    if StoryEngine.Letters then
+        local okL, errL = pcall(StoryEngine.Letters.attach, q, ps, now)
+        if not okL then log("letter attach error:", errL) end
+    end
+    d.quests[q.id] = q
+    Quests.waiting = Quests.waiting + 1
+    trySpawn(q)
+    note(ps, "supply_drop_offered", q, now, nil)
+    log("quest created", q.id, "home drop for", ps.name, "at", cx, cy)
     local ok, err = pcall(Quests.announce, q, player)
     if not ok then log("announce failed:", err) end
     notifyTarget(q)
@@ -2565,7 +2716,7 @@ function Quests.listFor(psKey, now)
                 town = q.place and q.place.town, landmark = q.place and q.place.landmark,
                 rooms = q.place and q.place.rooms, residential = q.place and q.place.residential,
                 x = q.cx or q.x, y = q.cy or q.y,
-                spawned = q.spawned == true, container = q.containerType,
+                spawned = q.spawned == true, container = q.containerType, home = q.home and true or nil,
                 sx = q.sx, sy = q.sy, sz = q.sz, containerSprite = q.containerSprite,
                 rewardKind = Quests.rewardKind(q), fight = q.fight, helpers = q.helpers,
                 items = q.placed or q.items, need = q.need,

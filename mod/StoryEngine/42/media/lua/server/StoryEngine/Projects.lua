@@ -51,7 +51,7 @@ Projects.BIG_QUEST_TIER = 3
 -- 집단 신뢰는 무리의 일로만 올라 이야기만으로는 카운티 회의 조건에 못 미친다). 싱글·공유 모드는 없음
 Projects.GROUP_TRUST = 15
 Projects.BASE_BONUS = 20
-Projects.RAY_GIFT_DAYS = 7
+Projects.RAY_GIFT_DAYS = 3          -- 2026-10-19: 7 -> 3일, 은신처 바로 앞(우체통이 있으면 우체통)에
 
 -- name: AI 에게 넘기는 영어 이름. res: 받는 자원 / accept = "vehicle"(차량 부품·정비 도구) | "any"(무엇이든, mult 배)
 -- base: 완성 시 기준값 +20 되는 자원
@@ -286,7 +286,8 @@ function Projects.onBigQuest(q, who)
     end
 end
 
--- 레이 온실: 7일마다 작은 식량 보급 (접속한 사람 중 한 명에게)
+-- 레이 온실: 3일마다 작은 식량 보급 (접속한 사람 중 한 명에게). 그 사람의 은신처 바로 앞에, 둘레에 우체통이 있으면
+-- 우체통 안에 (Quests.createHomeDrop). 은신처를 모르면 예전처럼 가까운 건물에. 기한은 다음 보급까지
 function Projects.daily()
     if not Projects.done("ray") or Factions.isGone("ray") then return end
     local p = Projects.of("ray")
@@ -296,8 +297,14 @@ function Projects.daily()
     if #players == 0 then return end
     local player = players[ZombRand(#players) + 1]
     local ps = Store.player(player)
-    local ok, q = pcall(StoryEngine.Quests.create, "supply_drop", player, ps, 1, now,
-        { source = "director", faction = "ray", initiator = "gift", friend = true, project = true })
+    local origin = { source = "director", faction = "ray", initiator = "gift", friend = true, project = true }
+    local Q = StoryEngine.Quests
+    local ok, q = pcall(Q.createHomeDrop, player, ps, now, origin, nil, Projects.RAY_GIFT_DAYS * 24 * 60)
+    if not (ok and q) then
+        if not ok then log("project ray home drop error:", tostring(q)) end
+        origin.home = nil
+        ok, q = pcall(Q.create, "supply_drop", player, ps, 1, now, origin)
+    end
     if ok and q then
         p.lastGiftT = now.t
         log("project ray gift", q.id, ps.name)

@@ -64,7 +64,7 @@ Specialty.SNIPE = { hunter = { 20, 30, 40 }, guard = { 40, 60, 80 } }
 Specialty.SNIPE_SOUND = { hunter = "MSR788Shoot", guard = "M14Shoot" }
 -- 이 게임 시간(분)에 나눠 쏜다 (2026-09-29 행크 60 -> 30). 방위대는 2배 수를 발사 간격 4배로 = 240분
 Specialty.SNIPE_MIN = { hunter = 30, guard = 240 }
-Specialty.SNIPE_PROJECT = { hunter = 10, guard = 20 }   -- 겨울 오두막 / 검문소 완성 (방위대는 A-Life 가 없을 때만)
+Specialty.SNIPE_PROJECT = { hunter = 20, guard = 20 }   -- 겨울 오두막(2026-10-19 10 -> 20) / 검문소 완성 (방위대는 A-Life 가 없을 때만)
 Specialty.SNIPE_MAX_KILLS = 100                        -- 요청 수를 모를 때 (재접속 등)
 Specialty.snipeCap = {}                                -- ps.key -> 이번 저격 요청 수 (메모리만)
 Specialty.SNIPE_RADIUS = 30

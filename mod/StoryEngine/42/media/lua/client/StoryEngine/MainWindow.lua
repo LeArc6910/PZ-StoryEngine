@@ -1361,6 +1361,7 @@ local function opDetail(q)
         end
         line(getText("IGUI_StoryEngine_Quest_Target", UI.itemList(q.items)))
     elseif q.kind == "supply_drop" then
+        if q.home then line(getText("IGUI_StoryEngine_Quest_HomeDrop")) end
         if active and q.spawned and q.container then
             line(getText("IGUI_StoryEngine_Quest_Storage", UI.containerName(q.container)))
             line(getText("IGUI_StoryEngine_Quest_Storage_Highlight"))

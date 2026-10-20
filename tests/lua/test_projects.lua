@@ -194,7 +194,7 @@ function T.effect_hunter_more_snipes_and_safety()
     H.eq(StoryEngine.Life.base("hunter", "safety"), 80)
     H.newZombie(10005, 10000)
     H.ok(StoryEngine.Specialty.request(p, "hunter", {}))
-    H.eq(H.sentOf("specSnipe")[1].count, 30, "20 + 10")
+    H.eq(H.sentOf("specSnipe")[1].count, 40, "20 + 20 (2026-10-19)")
 end
 
 function T.effect_rats_trading_post()
@@ -210,7 +210,7 @@ function T.effect_rats_trading_post()
     H.eq(StoryEngine.Radio.channel("ray").trust, 30, "nobody minds helping Vic any more")
 end
 
-function T.effect_ray_greenhouse_gift_every_7_days()
+function T.effect_ray_greenhouse_gift_every_3_days()
     local p = setup()
     P().add("ray", 1000)
     local calls = 0
@@ -220,14 +220,14 @@ function T.effect_ray_greenhouse_gift_every_7_days()
     H.advanceDays(1)
     Life.daily()
     H.eq(calls, 1, "first gift")
-    for _ = 1, 6 do
+    for _ = 1, 2 do
         H.advanceDays(1)
         Life.daily()
     end
-    H.eq(calls, 1, "not again within 7 days")
+    H.eq(calls, 1, "not again within 3 days")
     H.advanceDays(1)
     Life.daily()
-    H.eq(calls, 2, "again after 7 days")
+    H.eq(calls, 2, "again after 3 days")
 end
 
 function T.dewey_takes_car_parts_and_mechanic_tools()
@@ -293,6 +293,138 @@ function T.commands_project_mode_and_list()
     H.eq(guard.project.goal, 1000)
     C.debugLife(p, { faction = "guard", delta = 0, project = 1000 })
     H.ok(P().done("guard"))
+end
+
+-- 레이 온실 보급은 은신처 바로 앞에: 둘레에 우체통이 있으면 우체통 안, 없으면 바깥 바닥 (2026-10-19)
+local function homeWorld(mailAt)
+    local saved = { getWorld = getWorld, gs = rawget(H.cell, "getGridSquare") }
+    local def = {}
+    function def:getX() return 10048 end
+    function def:getY() return 10048 end
+    function def:getX2() return 10052 end
+    function def:getY2() return 10052 end
+    local grid = {}
+    function grid:getBuildingAt(x, y)
+        if x >= 10048 and x <= 10052 and y >= 10048 and y <= 10052 then return def end
+        return nil
+    end
+    getWorld = function() return { getMetaGrid = function() return grid end } end
+    local squares, added = {}, {}
+    local function square(x, y, objs)
+        local sq = { x = x, y = y, objs = objs or {}, world = {} }
+        function sq:getX() return self.x end
+        function sq:getY() return self.y end
+        function sq:getZ() return 0 end
+        function sq:getObjects() return H.list(self.objs) end
+        function sq:getRoom()
+            if self.x >= 10048 and self.x <= 10052 and self.y >= 10048 and self.y <= 10052 then return {} end
+            return nil
+        end
+        function sq:isFree() return true end
+        function sq:AddWorldInventoryItem(ft)
+            local item = H.newItem(ft)
+            added[#added + 1] = { ft = ft, x = self.x, y = self.y }
+            self.world[#self.world + 1] = { getItem = function() return item end }
+            return item
+        end
+        function sq:getWorldObjects() return H.list(self.world) end
+        return sq
+    end
+    local box = { items = {}, held = {} }
+    if mailAt then
+        local obj = {}
+        local sq = square(mailAt[1], mailAt[2], { obj })
+        squares[mailAt[1] .. "," .. mailAt[2]] = sq
+        function box:getType() return "postbox" end
+        function box:AddItem(ft) local it = H.newItem(ft); self.items[#self.items + 1] = ft; self.held[#self.held + 1] = it; return it end
+        function box:getItems() return H.list(self.held) end
+        function box:setExplored() end
+        function box:getParent() return obj end
+        function obj:getContainerCount() return 1 end
+        function obj:getContainerByIndex() return box end
+        function obj:getSquare() return sq end
+        function obj:getSprite() return nil end
+    end
+    H.cell.getGridSquare = function(_, x, y, z)
+        local k = x .. "," .. y
+        if not squares[k] then squares[k] = square(x, y) end
+        return squares[k]
+    end
+    local restore = function()
+        getWorld = saved.getWorld
+        H.cell.getGridSquare = saved.gs
+    end
+    return box, added, restore
+end
+
+local function homeDrop(p, ps)
+    ps.home = { x = 10050, y = 10050, z = 0 }
+    P().add("ray", 1000)
+    local Q = StoryEngine.Quests
+    StoryEngine.Life.daily()
+    H.advanceDays(1)
+    StoryEngine.Life.daily()
+    local q
+    for _, it in pairs(StoryEngine.Store.data().quests) do
+        if it.origin and it.origin.home then q = it end
+    end
+    if not q then local t = {} for _, l in ipairs(H.logs) do if tostring(l):find("ray") or tostring(l):find("rror") then t[#t+1] = tostring(l) end end error(table.concat(t, " || "), 0) end
+    H.ok(q, "home drop quest")
+    H.realMs = H.realMs + 3000
+    Q.track({}, StoryEngine.Sensor.now())
+    return q
+end
+
+function T.ray_greenhouse_drop_goes_in_the_mailbox_by_the_safehouse()
+    local p, ps = setup()
+    local box, added, restore = homeWorld({ 10045, 10050 })
+    local ok, err = pcall(function()
+        local q = homeDrop(p, ps)
+        H.eq(q.spawned, true, "placed")
+        H.eq(q.containerType, "postbox", "in the mailbox")
+        H.eq(q.sx, 10045)
+        H.ok(#box.items > 0, "items in the mailbox")
+        H.eq(#added, 0, "nothing on the floor")
+        H.eq(q.noTrust, true, "no trust either way")
+        H.eq(q.deadlineT - q.createdT, 3 * 24 * 60, "until the next drop")
+        local msg = StoryEngine.Radio.channel("ray").messages
+        H.ok(H.logHas("home drop"), "logged")
+        local last = msg[#msg]
+        H.eq(last.lt.key, "IGUI_StoryEngine_RadioSay_homedrop_ray")
+    end)
+    restore()
+    if not ok then error(err, 0) end
+end
+
+function T.ray_greenhouse_drop_lands_outside_without_a_mailbox()
+    local p, ps = setup()
+    local _, added, restore = homeWorld(nil)
+    local ok, err = pcall(function()
+        local q = homeDrop(p, ps)
+        H.eq(q.spawned, true, "placed")
+        H.eq(q.containerType, nil, "on the floor")
+        H.ok(#added > 0, "floor items")
+        local a = added[1]
+        local outside = a.x < 10048 or a.x > 10052 or a.y < 10048 or a.y > 10052
+        H.ok(outside, "outside the house")
+        local dx = math.max(10048 - a.x, 0, a.x - 10052)
+        local dy = math.max(10048 - a.y, 0, a.y - 10052)
+        H.ok(math.max(dx, dy) <= 3, "right by the house")
+    end)
+    restore()
+    if not ok then error(err, 0) end
+end
+
+function T.ray_greenhouse_drop_without_a_home_uses_a_nearby_building()
+    local p, ps = setup()
+    ps.home = nil
+    P().add("ray", 1000)
+    local calls = 0
+    StoryEngine.Quests.create = function() calls = calls + 1; return { id = "Qx" } end
+    StoryEngine.Life.daily()
+    H.advanceDays(1)
+    StoryEngine.Life.daily()
+    H.eq(calls, 1, "falls back to an ordinary drop")
 end
 
 return T
